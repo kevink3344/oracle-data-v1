@@ -1,0 +1,599 @@
+/*
+  ==================================================================
+  Encumbrances — the two-sided register
+  ==================================================================
+
+  Loaded before `rail.css` in `main.tsx`, like every other feature sheet, so the
+  shell gets the last word on anything shared.
+
+  ── WHAT THE STYLES HAVE TO DO THAT THE MARKUP CANNOT ──────────────
+
+  The page's argument is carried by three visual facts, and each one is a styling
+  decision rather than a sentence:
+
+  1. **The GL column is mostly empty, and that emptiness is data.** 331 of 335
+     cells hold nothing. Left as plain white cells they read as "no rows here";
+     tinted as a channel they read as *a source that covers four accounts*. The
+     tint is deliberately the sunken surface rather than a warning colour — an
+     absence from a four-account extract is a fact about the extract, not a
+     problem with the account.
+
+  2. **The four rows that carry both sides are the page's payload.** They get the
+     one warm accent edge on the page, so a reader scanning 335 rows can find the
+     population the difference column is even defined over.
+
+  3. **The difference column leans two ways.** Signed, coloured, tabular.
+
+  `table.data` is auto-laid-out and its `td` rules are (0,1,2), while
+  `td:first-child` is (0,2,2) — so every override in this file is written at
+  (0,3,x) or higher and none of them needs `!important`. `tbody th` inherits
+  nothing at all from the table rules (they are written against `td` and
+  `thead th`), which is the family of bug `budgets.css` records: the account
+  column here is a `th scope="row"`, so it is styled explicitly below rather than
+  left to inherit padding it never had.
+*/
+
+/* --- the figures above the tables ------------------------------------- */
+
+.encstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.encstat {
+  position: relative;
+  padding: 16px clamp(10px, 1.6vw, 20px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* The accent edge is the brand cyan rather than the budget page's primary, so the
+   two pages' KPI rows are not mistaken for each other at a glance — this page
+   reports a commitment, and the budget page reports what was set aside. */
+.encstat::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--tertiary-color);
+}
+
+.encstat__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.encstat__v {
+  margin-top: 6px;
+  font-size: clamp(1.125rem, 2.6vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.encstat__n {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- the standing notes -------------------------------------------------
+   Both are `.scopenote` — the same pill-plus-prose shape the scope notes use,
+   because they are the same kind of statement: a limit on what the figures below
+   them mean. `.scopenote` is `display:flex` with an 8px gap, so a note holding
+   several inline `<code>` spans must wrap its body in one element or the gaps
+   land between the fragments. That wrapper is `.scopenote__text`, defined in
+   `budgets.css`; it is reused rather than redefined so the two notes that share
+   it stay identical in shape. */
+
+/* The blank-is-not-zero note is the strongest caveat on the page, so its pill is
+   the warning pair rather than the info pair the scope notes get. */
+.scopenote--enc {
+  border-left-color: var(--warn-border);
+}
+
+/* --- the tool bar: grain toggle and filter ------------------------------ */
+
+.encbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.encgrain {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.encgrain__b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+/* `--link`, not `--tertiary-color`: the brand cyan sits near 2.4:1 on white and
+   these labels are 12px. Same reasoning `projects.css` records for the sort
+   headings. */
+.encgrain__b:hover {
+  color: var(--link);
+}
+
+.encgrain__b + .encgrain__b {
+  border-left: 1px solid var(--border);
+}
+
+.encgrain__b.is-on {
+  background: var(--surface-sunken);
+  color: var(--text-heading);
+}
+
+.encgrain__n {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt, var(--surface-sunken));
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.encsearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.encsearch__k {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+}
+
+.encsearch__i {
+  width: 240px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.encsearch__i:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+
+.encsearch__n {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the derived-figures note ------------------------------------------ */
+
+.encnote {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tertiary-color);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+
+.encnote code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+/* --- the panels --------------------------------------------------------- */
+
+/* The tables sit flush to the panel edge inside `.encwrap`, which is the same
+   arrangement `budgets.css` uses for `budtable--versions`; the panel chrome is
+   the shared one and nothing here overrides it. */
+.encpanel {
+  overflow: hidden;
+}
+
+/* A caveat attached to a panel body rather than to the page. */
+.enc-pad {
+  margin: 10px 16px 16px;
+}
+
+/* The rule `menu.ts` records on this leaf, stated where a reader is most likely to
+   be tempted to break it. It is inset and tinted so it does not read as another
+   paragraph of the explanation above it. */
+.enc-rule {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--primary-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+.enc-recon {
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+.enc-recon code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.enc-list {
+  margin: 6px 0 0 18px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* --- the tables --------------------------------------------------------- */
+
+/* `position: relative` is required, not decorative: `overflow-x: auto` does NOT
+   clip an absolutely positioned descendant unless the scroller is also that
+   descendant's containing block. `debugging.md` records a visually-hidden span
+   escaping exactly such a wrapper and giving the whole document a phantom
+   horizontal scrollbar while the table itself measured perfectly contained. */
+.encwrap {
+  position: relative;
+  overflow-x: auto;
+}
+
+table.data.enctable {
+  /* ★ 760 rather than the register's natural 880. The Difference column is the
+     page's entire payload — the four accounts where the two sides disagree — and
+     at 880 inside the content column's 773 it was the one column pushed off the
+     right edge, which is precisely the column a reader must not have to hunt for.
+     The budget below is tuned to fit 773 with nothing to scroll, and this floor
+     only comes into play when the panel is genuinely too narrow, where the
+     wrapper scrolls rather than crushing the money columns. */
+  min-width: 760px;
+}
+
+/* Tabular figures on every numeric cell: eight-figure money in a proportional
+   face cannot be compared down a column at all. The 7px side padding is part of
+   the fit budget above, not a taste choice. */
+table.data.enctable td {
+  padding: 10px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ★ `tbody th` inherits nothing from `table.data`'s rules, which are written
+   against `td` and `thead th`. The account column is a row header, so it is
+   styled here in full rather than left to inherit padding it never had. */
+table.data.enctable tbody th,
+table.data.enctable tfoot th {
+  padding: 10px 7px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-body);
+  background: none;
+}
+
+table.data.enctable thead th {
+  padding: 9px 7px;
+  /* Overrides `table.data thead th`'s `nowrap` at (0,2,3) against (0,1,2), so
+     this is a real override rather than a duplicate. "Purchasing encumbrance" on
+     one line is 158px; on two it is 84px, and the two money columns that feed the
+     difference column are what the width should be spent on. */
+  white-space: normal;
+  line-height: 1.3;
+  vertical-align: bottom;
+}
+
+table.data.enctable .enc-th--n {
+  text-align: right;
+}
+
+table.data.enctable tbody tr:last-child td,
+table.data.enctable tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+table.data.enctable tfoot th,
+table.data.enctable tfoot td {
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  background: var(--surface-sunken);
+  font-weight: 700;
+}
+
+/* The account column is the only one that may wrap, and it needs a definite
+   width so the three money columns keep theirs. `table.data td:first-child` does
+   not reach it — the cell is a `th`. */
+table.data.enctable tbody th.enc-acct {
+  width: 176px;
+  white-space: normal;
+}
+
+table.data.enctable tbody th.enc-acct__cell,
+table.data.enctable tbody td.enc-acct__cell {
+  width: 176px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: normal;
+  word-break: break-all;
+}
+
+table.data.enctable td.enc-code,
+table.data.enctable th.enc-code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-body);
+}
+
+table.data.enctable th.enc-level {
+  width: 52px;
+}
+
+/* The level roll-up's two actions are one line, not two. Left to itself the flex
+   container wrapped them and every one of the 139 rows grew 22px taller, which is
+   3,000px of extra page for no extra information. */
+table.data.enctable th.enc-th--acts,
+table.data.enctable td.enc-acts {
+  /* ★ Measured, then measured again: the two buttons need ~118px, the cell's own
+     side padding is 14px, so this column's *content* floor is about 132 — and at
+     exactly 132 the fractional button widths (58.x + 59.x) rounded up past their
+     own content box and put the reveal chevron 7px beyond the wrapper's right
+     edge, which the browser draws as a clipped button. A declared width cannot
+     shrink content that will not wrap, but it can leave the sub-pixel rounding
+     somewhere to go, so this column is given 140 and the objects column — whose
+     real content floor measures 94px — funds the difference. */
+  width: 140px;
+}
+
+table.data.enctable td.enc-objects {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: normal;
+  /* The one column that may wrap, and therefore the one that absorbs whatever
+     width the register has left. Its content floor measures 94px (four object
+     codes), so 190 costs nothing and keeps the level roll-up's last action button
+     inside the content column. */
+  max-width: 190px;
+}
+
+table.data.enctable td.enc-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The purchasing column is the figure a reader scans for, so it carries the
+   weight. The GL column beside it does not: half its cells are empty on purpose
+   and bolding a blank is meaningless. */
+table.data.enctable td.enc-num--lead {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* --- ★ the blank, and the channel it sits in --------------------------- */
+
+/* `--text-faint` rather than a colour: an em-dash is punctuation, and a dash in
+   the money colour reads as a figure. */
+.enc-blank {
+  color: var(--text-faint);
+  cursor: help;
+}
+
+/* ★ THE TINT IS THE POINT OF THE TABLE. 331 of 335 GL cells hold nothing because
+   the ledger side is a four-account extract — a fact about the extract, not a
+   zero and not a gap in the page. Left plain white the column reads as "not
+   loaded"; tinted it reads as a channel with 331 holes in it, which is the shape
+   of the thing. `--surface-sunken` deliberately rather than a warning colour:
+   this is a coverage fact, and a reader who reads it as an error will go looking
+   for a bug that is not there. */
+table.data.enctable td.enc-num--blank {
+  background: var(--surface-sunken);
+}
+
+/* The four accounts carrying both sides — the only population the Difference
+   column is defined over. One warm edge, on the figure itself, so a reader
+   scanning the column finds them without reading 335 rows. */
+table.data.enctable td.enc-num--both {
+  box-shadow: inset 3px 0 0 var(--tertiary-color);
+}
+
+/* The two ways a difference can lean. Not red and green: "the extract says more"
+   and "the ledger says more" are both just disagreements, and neither is an
+   error. Warm for one direction, cool for the other, with the sign printed. */
+table.data.enctable td.enc-delta--up {
+  color: var(--warn-fg);
+}
+
+table.data.enctable td.enc-delta--down {
+  color: var(--info-fg);
+}
+
+/* The account a deep link asked for. */
+table.data.enctable tbody tr.is-wanted th,
+table.data.enctable tbody tr.is-wanted td {
+  background: var(--info-bg);
+}
+
+/* The level the GL side also holds — one row, and the only one on the roll-up
+   where the two sides can be compared. */
+table.data.enctable--levels tbody tr.is-both th.enc-level {
+  box-shadow: inset 3px 0 0 var(--tertiary-color);
+}
+
+table.data.enctable--levels tbody tr.is-both td.enc-num--blank {
+  box-shadow: inset 3px 0 0 var(--tertiary-color);
+  background: var(--surface);
+}
+
+/* The roll-up's object list inherits the base 200px cap rather than widening:
+   the object codes here run to five entries and were the column that pushed the
+   row's last action button past the content column's right edge. */
+
+/* --- the two-action account cell --------------------------------------- */
+
+.enc-acct__link {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--link);
+  word-break: break-all;
+  text-decoration: none;
+}
+
+.enc-acct__link:hover {
+  text-decoration: underline;
+}
+
+.enc-acct__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.enc-acct__act {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--link);
+  text-decoration: none;
+}
+
+.enc-acct__act:hover {
+  text-decoration: underline;
+}
+
+.enc-acct__n {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The roll-up's own row actions. `nowrap` on purpose: left to wrap, the two
+   buttons stacked onto two lines and every one of the 139 rows grew ~22px
+   taller — 3,000px of extra page for no extra information. The column carries a
+   definite width below so the single line has somewhere to fit. */
+.enc-acts {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.enc-act {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--link);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.enc-act:hover {
+  border-color: var(--link);
+}
+
+/* --- the empty search result ------------------------------------------- */
+
+/* A register that returns nothing must say *which* nothing. This route answers
+   with the whole population in one response, so an absent combination is absent
+   from the data rather than from the page — and that is worth three sentences
+   rather than a blank table. */
+.encempty {
+  margin: 0;
+  padding: 18px 16px;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+/* --- the two sources in their own words --------------------------------- */
+
+.encsrc {
+  margin: 0;
+}
+
+.encsrc dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.encsrc dd {
+  margin: 3px 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+.encsrc dd:last-child {
+  margin-bottom: 0;
+}
+
+/* --- narrow ------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .encstats {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+
+  .encstat__v {
+    font-size: 1.125rem;
+  }
+
+  .encsearch__i {
+    width: 100%;
+  }
+
+  .encbar {
+    justify-content: flex-start;
+  }
+}

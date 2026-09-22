@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New project &middot; Oracle Projects</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=Solway:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Tokens - copied verbatim from dashboard-monthly-trend.html
+   (which follows docs/css/site-style.md, radius override 3px)
+   ============================================================ */
+:root {
+  --primary-color: #165788;
+  --secondary-color: #df6d1c;
+  --tertiary-color: #00add0;
+  --cc-fifth: #6e273d;
+  --cc-seventh: #c90062;
+  --cc-eighth: #455560;
+
+  --neutral-0: #ffffff;
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #727272;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+
+  --surface: #ffffff;
+  --surface-sunken: #fafafa;
+  --text-body: #525252;
+  --text-heading: #262626;
+  --text-muted: #727272;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  --font-body: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-accent: 'Solway', Georgia, serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  --radius: 3px;
+  --radius-sm: 3px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-15: 60px;
+
+  --shadow-sm: 0 4px 24px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 32px rgba(0,0,0,.12);
+  --transition: .4s all;
+
+  --status-ok: #BED600;
+  --status-info: #00add0;
+  --status-warning: #fed100;
+  --status-error: #c90062;
+  --status-neutral: #455560;
+
+  --gutter: 40px;
+  --z-base: 0; --z-dropdown: 200; --z-toast: 500;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: .9375rem;
+  line-height: 1.6;
+  color: var(--text-body);
+  background: var(--surface-sunken);
+}
+h1, h2, h3 { font-family: var(--font-accent); color: var(--text-heading); margin: 0; line-height: 1.25; }
+h1 { font-size: clamp(1.5rem, 3vw, 1.875rem); font-weight: 700; }
+h2 { font-size: 1.0625rem; font-weight: 700; }
+h3 { font-size: .9375rem; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--primary-color); }
+code { font-family: var(--font-mono); font-size: .8125rem; }
+:focus-visible { outline: 3px solid var(--tertiary-color); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+.container { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter); }
+
+/* ============================================================
+   Topbar
+   ============================================================ */
+.topbar {
+  position: sticky; top: 0; z-index: var(--z-dropdown);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar__inner { display: flex; align-items: center; gap: var(--space-6); min-height: 56px; }
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.brand__mark {
+  width: 26px; height: 26px; flex: none;
+  background: var(--primary-color); color: #fff;
+  display: grid; place-items: center; border-radius: var(--radius);
+  font-weight: 700; font-size: .8125rem;
+}
+.brand__name { font-family: var(--font-accent); font-weight: 700; font-size: .9375rem; color: var(--text-heading); white-space: nowrap; }
+.nav { margin-left: auto; display: flex; gap: var(--space-1); overflow-x: auto; }
+.nav a {
+  display: block; padding: 7px 12px; border-radius: var(--radius);
+  font-size: .8125rem; font-weight: 600; color: var(--neutral-700);
+  text-decoration: none; white-space: nowrap; transition: var(--transition);
+}
+.nav a:hover { background: var(--neutral-100); color: var(--text-heading); }
+.nav a[aria-current="page"] { background: var(--primary-color); color: #fff; }
+
+/* ============================================================
+   Chips
+   ============================================================ */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: var(--radius);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .02em;
+  text-transform: uppercase; border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip--ok { background: rgba(190,214,0,.18); color: #4d5c00; border-color: rgba(190,214,0,.45); }
+.chip--info { background: rgba(22,87,136,.08); color: var(--primary-color); border-color: rgba(22,87,136,.22); }
+.chip--warn { background: rgba(223,109,28,.10); color: #9a4607; border-color: rgba(223,109,28,.32); }
+.chip--neutral { background: var(--neutral-100); color: var(--neutral-700); border-color: var(--border-strong); }
+.chip--operating { background: rgba(0,173,208,.10); color: #056d84; border-color: rgba(0,173,208,.30); }
+.dash { background: rgba(0,0,0,.12); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+/* Filter chips carry a count and a toggle state */
+.chip--filter {
+  background: var(--surface); color: var(--neutral-700);
+  border-color: var(--border-strong); cursor: pointer;
+  text-transform: none; letter-spacing: 0; font-size: .75rem;
+  font-family: var(--font-body);
+}
+.chip--filter b { font-variant-numeric: tabular-nums; color: var(--text-muted); font-weight: 600; }
+.chip--filter.chip--on { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+.chip--filter.chip--on b { color: rgba(255,255,255,.75); }
+
+/* ============================================================
+   Page head
+   ============================================================ */
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--space-6); flex-wrap: wrap;
+  padding: var(--space-8) 0 var(--space-5);
+}
+.page-head .accent-rule { width: 40px; height: 3px; margin-bottom: var(--space-3); background: var(--secondary-color); }
+.page-head p { color: var(--text-muted); font-size: .8125rem; margin-top: 6px; }
+.page-head__meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.crumbs { font-size: .75rem; color: var(--text-muted); margin-bottom: var(--space-2); }
+.crumbs a { text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn {
+  padding: 9px 18px; border: 1px solid transparent; border-radius: var(--radius);
+  background: var(--neutral-100); color: var(--neutral-800);
+  font-family: var(--font-body); font-size: .8125rem; font-weight: 600;
+  line-height: 1.2; cursor: pointer; transition: var(--transition);
+}
+.btn:hover { background: var(--neutral-200); }
+.btn--primary { background: var(--primary-color); color: #fff; }
+.btn--primary:hover { background: #266a9d; }
+.btn--system { background: var(--surface); border-color: var(--border-strong); color: var(--neutral-700); }
+.btn--system:hover { background: var(--neutral-50); border-color: var(--neutral-500); }
+.btn--ghost { background: transparent; color: var(--primary-color); border-color: rgba(22,87,136,.3); }
+.btn--ghost:hover { background: rgba(22,87,136,.06); }
+.btn--sm { padding: 6px 12px; font-size: .75rem; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* ============================================================
+   Cards / panels
+   ============================================================ */
+.card {
+  background: var(--surface); color: var(--neutral-800);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.panel { padding: var(--space-5); }
+.panel__head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: var(--space-4); padding-bottom: var(--space-4); margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.panel__head p { color: var(--text-muted); font-size: .75rem; margin-top: 3px; }
+.panel__foot {
+  padding-top: var(--space-4); margin-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: .75rem;
+}
+.subhead {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.side { display: grid; gap: var(--space-4); position: sticky; top: 76px; }
+
+/* ============================================================
+   Form fields
+   ============================================================ */
+.field { margin-bottom: var(--space-6); }
+.field:last-child { margin-bottom: 0; }
+.field__label {
+  display: block; font-size: .8125rem; font-weight: 700;
+  color: var(--text-heading); margin-bottom: 6px;
+}
+.field__req { color: #a4161a; font-weight: 700; }
+.field__hint { font-size: .75rem; color: var(--text-muted); margin-top: 6px; line-height: 1.55; }
+.input, .textarea {
+  width: 100%; padding: 9px 12px;
+  font-family: var(--font-body); font-size: .875rem; color: var(--text-heading);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); transition: var(--transition);
+}
+.textarea { resize: vertical; line-height: 1.6; }
+.input:focus, .textarea:focus { outline: 3px solid var(--tertiary-color); outline-offset: 1px; border-color: var(--primary-color); }
+.input::placeholder, .textarea::placeholder { color: var(--neutral-400); }
+
+/* ============================================================
+   Type-ahead combobox
+   ============================================================ */
+.combo { position: relative; }
+.combo__control { position: relative; display: flex; align-items: center; }
+.combo__icon {
+  position: absolute; left: 11px; width: 15px; height: 15px;
+  color: var(--neutral-400); pointer-events: none;
+}
+.combo__input {
+  width: 100%; padding: 10px 74px 10px 34px;
+  font-family: var(--font-body); font-size: .875rem; font-weight: 600;
+  color: var(--text-heading); letter-spacing: .01em;
+  background: var(--surface);
+  border: 1px solid var(--primary-color); border-radius: var(--radius);
+  box-shadow: 0 0 0 3px rgba(0,173,208,.35);
+}
+.combo__input:focus { outline: none; }
+.combo__status {
+  position: absolute; right: 34px; font-size: .6875rem; color: var(--text-muted);
+  letter-spacing: .04em; text-transform: uppercase; font-weight: 600;
+}
+.combo__clear {
+  position: absolute; right: 6px; width: 22px; height: 22px;
+  display: grid; place-items: center;
+  background: var(--neutral-100); border: 0; border-radius: var(--radius-sm);
+  color: var(--neutral-600); font-size: .75rem; line-height: 1; cursor: pointer;
+}
+.combo__clear:hover { background: var(--neutral-200); color: var(--text-heading); }
+
+/* Filter strip */
+.filters {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 0 8px;
+}
+.filters__label {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted); margin-right: 2px;
+}
+.filters__sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 6px; }
+.filters__count { margin-left: auto; font-size: .75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Result list.
+   Real result sets are capped (server limit=20) and the panel scrolls at ~480px.
+   This mockup shows all 6 matches for one query, so the cap is raised to keep
+   every row whole rather than slicing one in half. */
+.listbox {
+  list-style: none; margin: 0; padding: 6px;
+  max-height: 1100px; overflow-y: auto;
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--surface);
+}
+.opt {
+  padding: 10px 12px; border-radius: var(--radius);
+  border: 1px solid transparent; cursor: pointer;
+  transition: background .12s linear;
+}
+.opt + .opt { margin-top: 2px; }
+.opt:hover { background: var(--neutral-50); }
+.opt--on { background: rgba(22,87,136,.06); border-color: rgba(22,87,136,.28); }
+.opt--claimed { background: var(--neutral-50); cursor: not-allowed; }
+.opt__top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.opt__key {
+  font-family: var(--font-mono); font-size: .8125rem; font-weight: 600;
+  color: var(--text-heading); letter-spacing: .01em;
+}
+.opt--claimed .opt__key { color: var(--text-muted); }
+.opt__enter {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-size: .6875rem; font-weight: 600; color: var(--primary-color);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.kbd {
+  display: inline-block; padding: 1px 5px; border-radius: 3px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  font-family: var(--font-mono); font-size: .6875rem; font-weight: 600; color: var(--neutral-700);
+}
+.opt__name { font-size: .875rem; font-weight: 600; color: var(--text-heading); margin-top: 5px; }
+.opt__name .seg { font-weight: 400; color: var(--text-muted); }
+.opt__meta {
+  font-size: .75rem; color: var(--neutral-600); margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.opt__meta b { color: var(--text-heading); font-weight: 600; }
+.opt__meta .sep { color: var(--neutral-300); padding: 0 3px; }
+.opt__match {
+  font-size: .6875rem; color: var(--text-muted); margin-top: 5px;
+  padding-left: 10px; border-left: 2px solid var(--border-strong);
+}
+.opt--on .opt__match { border-left-color: var(--secondary-color); color: var(--neutral-600); }
+.opt__match mark { background: rgba(254,209,0,.45); color: var(--neutral-800); padding: 0 2px; border-radius: 2px; }
+.opt__match .tier {
+  font-family: var(--font-mono); font-size: .625rem; letter-spacing: .02em;
+  color: var(--primary-color); text-transform: uppercase;
+}
+.opt__flag {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin-top: 7px; padding: 7px 9px;
+  border-radius: var(--radius);
+  background: rgba(223,109,28,.07); border: 1px solid rgba(223,109,28,.28);
+  font-size: .6875rem; color: #8a3f06; line-height: 1.5;
+}
+.opt__flag .dot { margin-top: 5px; color: var(--secondary-color); }
+.opt__claimed {
+  display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;
+  margin-top: 7px; padding: 7px 9px;
+  border-radius: var(--radius);
+  background: var(--neutral-100); border: 1px dashed var(--border-strong);
+  font-size: .6875rem; color: var(--neutral-600); line-height: 1.5;
+}
+.opt__claimed b { color: var(--text-heading); }
+.opt__claimed a { font-weight: 600; }
+
+/* Screen-reader live region */
+.sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ============================================================
+   Aside: bind preview
+   ============================================================ */
+.bind__key {
+  font-family: var(--font-mono); font-size: .8125rem; font-weight: 700;
+  color: var(--text-heading); letter-spacing: .01em; overflow-wrap: anywhere;
+  display: block; margin-bottom: var(--space-3);
+}
+.segs { width: 100%; border-collapse: collapse; font-size: .75rem; }
+.segs th, .segs td {
+  padding: 5px 0; text-align: left; border-bottom: 1px solid var(--neutral-100);
+}
+.segs th {
+  font-size: .625rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.segs td.v { font-family: var(--font-mono); font-weight: 600; color: var(--text-heading); width: 62px; }
+.segs td.n { color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.segs tr:last-child th, .segs tr:last-child td { border-bottom: 0; }
+.segs .const { color: var(--text-muted); }
+.segs .pill {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
+  background: var(--neutral-100); color: var(--text-muted);
+  font-family: var(--font-body); font-size: .625rem; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase;
+}
+
+.bind__rows { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
+.bind__rows li {
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  padding: 6px 0; border-bottom: 1px solid var(--neutral-100);
+  font-size: .8125rem;
+}
+.bind__rows li:last-child { border-bottom: 0; }
+.bind__rows dt, .bind__rows .k { color: var(--text-muted); }
+.bind__rows .v { font-weight: 600; color: var(--text-heading); font-variant-numeric: tabular-nums; }
+.bind__rows .v.big { font-size: .9375rem; }
+
+.sibling { list-style: none; margin: 0; padding: 0; }
+.sibling li {
+  display: grid; grid-template-columns: minmax(0,1fr) auto;
+  gap: var(--space-2) var(--space-3);
+  padding: 7px 0; border-bottom: 1px solid var(--neutral-100);
+  font-size: .75rem;
+}
+.sibling li:last-child { border-bottom: 0; padding-bottom: 0; }
+.sibling code { font-size: .75rem; color: var(--text-heading); font-weight: 600; overflow-wrap: anywhere; }
+.sibling .n { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sibling .n b { color: var(--text-heading); }
+
+/* ============================================================
+   Callout / list
+   ============================================================ */
+.callout {
+  display: flex; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(223,109,28,.3);
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius);
+  background: rgba(223,109,28,.05);
+  font-size: .8125rem; line-height: 1.6;
+}
+.callout strong { color: #9a4607; }
+.callout p { color: var(--neutral-700); }
+.callout code { font-size: .75rem; }
+
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps li {
+  position: relative; padding: 0 0 var(--space-4) 30px;
+  font-size: .8125rem; line-height: 1.6;
+}
+.steps li:last-child { padding-bottom: 0; }
+.steps li::before {
+  counter-increment: s; content: counter(s);
+  position: absolute; left: 0; top: 1px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--primary-color); color: #fff;
+  display: grid; place-items: center;
+  font-size: .6875rem; font-weight: 700;
+}
+.steps li::after {
+  content: ""; position: absolute; left: 9.5px; top: 23px; bottom: 2px;
+  width: 1px; background: var(--border-strong);
+}
+.steps li:last-child::after { display: none; }
+.steps strong { color: var(--text-heading); }
+.steps em {
+  display: block; font-style: normal; color: var(--text-muted);
+  font-size: .75rem; margin-top: 2px;
+}
+
+/* ============================================================
+   Tables
+   ============================================================ */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table.data { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+table.data th, table.data td {
+  padding: 7px 12px; text-align: right;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data thead th {
+  background: var(--neutral-50);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+}
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr:hover { background: var(--neutral-50); }
+table.data tfoot td {
+  font-weight: 700; color: var(--text-heading);
+  background: var(--neutral-50); border-top: 1px solid var(--border-strong);
+  border-bottom: 0;
+}
+.num { font-variant-numeric: tabular-nums; }
+.money { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-heading); }
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.foot {
+  padding: var(--space-6) 0 var(--space-10);
+  color: var(--text-muted); font-size: .75rem; line-height: 1.7;
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-8);
+}
+.foot code { font-size: .6875rem; color: var(--neutral-700); }
+.foot p + p { margin-top: 4px; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1023px) {
+  :root { --gutter: 24px; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .side { position: static; }
+}
+@media (max-width: 620px) {
+  .listbox { max-height: none; }
+  .filters__count { margin-left: 0; width: 100%; }
+}
+@media (max-width: 599px) {
+  .topbar__inner { flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) 0; }
+  .nav { margin-left: 0; width: 100%; }
+  .page-head { align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container topbar__inner">
+    <div class="brand">
+      <div class="brand__mark" aria-hidden="true">O</div>
+      <div>
+        <div class="brand__name">Oracle Data</div>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Main">
+      <a href="#">Overview</a>
+      <a href="#">Trends</a>
+      <a href="#">Accounts</a>
+      <a href="#" aria-current="page">Projects</a>
+      <a href="#">Sync log</a>
+    </nav>
+    <span class="chip chip--ok"><span class="dot"></span>Synced 10:17</span>
+  </div>
+</header>
+
+<main class="container">
+
+  <div class="page-head">
+    <div>
+      <div class="crumbs"><a href="#">Projects</a> &rsaquo; New project</div>
+      <div class="accent-rule" aria-hidden="true"></div>
+      <h1>New project</h1>
+      <p>Three fields, all required. The project code is derived from the cost centre you choose &mdash; you never type it.</p>
+    </div>
+    <div class="page-head__meta">
+      <span class="chip chip--warn">Draft &middot; unsaved</span>
+      <button class="btn btn--system" type="button">Cancel</button>
+      <button class="btn btn--primary" type="button" disabled>Create project</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+
+    <!-- ===================== LEFT: the form ===================== -->
+    <section class="card panel" aria-labelledby="form-title">
+      <div class="panel__head">
+        <div>
+          <h2 id="form-title">Project details</h2>
+          <p>Required fields are marked <span class="field__req">*</span></p>
+        </div>
+        <span class="chip chip--neutral">Step 1 of 1</span>
+      </div>
+
+      <!-- Field 1 -->
+      <div class="field">
+        <label class="field__label" for="p-name">Project name <span class="field__req">*</span></label>
+        <input class="input" id="p-name" name="name" type="text" autocomplete="off"
+               value="Swift Creek ES &ndash; Renovation">
+        <p class="field__hint">
+          The name staff will search for. Keep the school and the scope in it &mdash; two renovations at the
+          same school are otherwise indistinguishable.
+        </p>
+      </div>
+
+      <!-- Field 2 -->
+      <div class="field">
+        <label class="field__label" for="p-desc">Description <span class="field__req">*</span></label>
+        <textarea class="textarea" id="p-desc" name="description" rows="3">Full renovation of Swift Creek Elementary &mdash; CMAR construction (GMP-01 through GMP-03), offsite roadway and utility work, property and easement acquisition, materials testing and special inspections, and replacement of three playgrounds.</textarea>
+        <p class="field__hint">
+          Required, not optional. This is what a reviewer reads when deciding whether a cost centre belongs
+          to this project.
+        </p>
+      </div>
+
+      <!-- Field 3 -->
+      <div class="field">
+        <label class="field__label" for="p-cc" id="p-cc-label">Cost centre <span class="field__req">*</span></label>
+        <p class="field__hint" style="margin:0 0 8px">
+          Start typing to filter. Only a <strong>chosen row</strong> can be submitted &mdash; free text is never
+          accepted. The key is the full seven-segment combination and it is sent to the server exactly as shown.
+        </p>
+
+        <div class="combo">
+          <div class="combo__control">
+            <svg class="combo__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.25"></circle>
+              <path d="M10.2 10.2 14 14" stroke-linecap="round"></path>
+            </svg>
+            <input class="combo__input" id="p-cc" name="cost_center_query" type="text"
+                   role="combobox" aria-expanded="true" aria-controls="cc-list"
+                   aria-autocomplete="list" aria-activedescendant="cc-1"
+                   aria-labelledby="p-cc-label"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   value="swift">
+            <span class="combo__status" aria-hidden="true">6 results</span>
+            <button class="combo__clear" type="button" aria-label="Clear cost centre search">&#10005;</button>
+          </div>
+
+          <!-- Filter strip -->
+          <div class="filters" role="group" aria-label="Filter results">
+            <span class="filters__label">Purpose</span>
+            <button class="chip chip--filter chip--on" type="button" aria-pressed="true">All <b>6</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">Capital <b>5</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">Operating <b>1</b></button>
+
+            <span class="filters__sep" aria-hidden="true"></span>
+            <span class="filters__label">Level</span>
+            <button class="chip chip--filter" type="button" aria-pressed="false">0523 <b>5</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">0713 <b>1</b></button>
+
+            <span class="filters__sep" aria-hidden="true"></span>
+            <span class="filters__label">Object</span>
+            <button class="chip chip--filter" type="button" aria-pressed="false">527 <b>1</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">529 <b>2</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">532 <b>1</b></button>
+            <button class="chip chip--filter" type="button" aria-pressed="false">541 <b>2</b></button>
+
+            <span class="filters__count">6 matches &middot; 328 cost codes in the index</span>
+          </div>
+
+          <!-- Results -->
+          <ul class="listbox" id="cc-list" role="listbox" aria-label="Matching cost centres">
+
+            <li class="opt opt--on" id="cc-1" role="option" aria-selected="true">
+              <div class="opt__top">
+                <code class="opt__key">04-6570-862-527-0523-0840-000</code>
+                <span class="chip chip--info">Capital</span>
+                <span class="chip chip--neutral">L 0523</span>
+                <span class="opt__enter">Claim <span class="kbd">&#8629;</span></span>
+              </div>
+              <div class="opt__name">Swift Creek ES &ndash; Reno <span class="seg">&middot; Construction, CMAR</span></div>
+              <div class="opt__meta">
+                <b>3</b> rows <span class="sep">&middot;</span>
+                <b>$3,343,434.00</b> <span class="sep">&middot;</span>
+                <b>1</b> PO <span class="sep">&middot;</span>
+                <b>1</b> vendor <span class="sep">&middot;</span>
+                last seen 2026-02-20
+              </div>
+              <div class="opt__match">
+                <span class="tier">level_name_prefix</span> &mdash;
+                matched the level name <mark>&ldquo;SWIFT CREEK ES-RENO&rdquo;</mark>
+              </div>
+            </li>
+
+            <li class="opt" id="cc-2" role="option" aria-selected="false">
+              <div class="opt__top">
+                <code class="opt__key">04-9000-862-541-0523-0840-000</code>
+                <span class="chip chip--operating">Operating</span>
+                <span class="chip chip--neutral">L 0523</span>
+              </div>
+              <div class="opt__name">Swift Creek ES &ndash; Reno <span class="seg">&middot; Furniture &amp; equipment</span></div>
+              <div class="opt__meta">
+                <b>320</b> rows <span class="sep">&middot;</span>
+                <b>$1,139,145.58</b> <span class="sep">&middot;</span>
+                <b>23</b> POs <span class="sep">&middot;</span>
+                <b>15</b> vendors <span class="sep">&middot;</span>
+                last seen 2026-06-12
+              </div>
+              <div class="opt__match">
+                <span class="tier">level_name_prefix</span> &mdash;
+                matched the level name <mark>&ldquo;SWIFT CREEK ES-RENO&rdquo;</mark>
+              </div>
+              <div class="opt__flag">
+                <span class="dot" aria-hidden="true"></span>
+                <span>
+                  <strong>Worth a second look.</strong> This is by far the largest row count on level 0523,
+                  but <strong>0 of its 320 lines mention &ldquo;Swift Creek&rdquo;</strong> &mdash; the items are
+                  generic classroom furniture (<code>PREDRILL VENT HOLE SERVCE</code>,
+                  <code>098K053 - SIGNATURE 3-STEP CHORAL RISER</code>). The name comes from the level code
+                  alone. Confirm it belongs to this project before claiming it.
+                </span>
+              </div>
+            </li>
+
+            <li class="opt" id="cc-3" role="option" aria-selected="false">
+              <div class="opt__top">
+                <code class="opt__key">04-6570-862-529-0523-0840-000</code>
+                <span class="chip chip--info">Capital</span>
+                <span class="chip chip--neutral">L 0523</span>
+              </div>
+              <div class="opt__name">Swift Creek ES &ndash; Reno <span class="seg">&middot; Testing, survey &amp; inspection</span></div>
+              <div class="opt__meta">
+                <b>5</b> rows <span class="sep">&middot;</span>
+                <b>$269,887.00</b> <span class="sep">&middot;</span>
+                <b>3</b> POs <span class="sep">&middot;</span>
+                <b>3</b> vendors <span class="sep">&middot;</span>
+                last seen 2026-01-13
+              </div>
+              <div class="opt__match">
+                <span class="tier">signal_exact</span> &mdash;
+                3 lines matched <mark>&ldquo;SWIFT CREEK ES-RENO&rdquo;</mark> in the line description, e.g.
+                <code>SWIFT CREEK ES-RENO-0020 - MISC COSTS-TESTING AND INSPECTION OF VOICE, DATA, AND FIBER</code>
+              </div>
+            </li>
+
+            <li class="opt" id="cc-4" role="option" aria-selected="false">
+              <div class="opt__top">
+                <code class="opt__key">04-6570-862-541-0523-0840-000</code>
+                <span class="chip chip--info">Capital</span>
+                <span class="chip chip--neutral">L 0523</span>
+              </div>
+              <div class="opt__name">Swift Creek ES &ndash; Reno <span class="seg">&middot; Playground equipment</span></div>
+              <div class="opt__meta">
+                <b>2</b> rows <span class="sep">&middot;</span>
+                <b>$442,200.91</b> <span class="sep">&middot;</span>
+                <b>1</b> PO <span class="sep">&middot;</span>
+                <b>1</b> vendor <span class="sep">&middot;</span>
+                last seen 2025-06-16
+              </div>
+              <div class="opt__match">
+                <span class="tier">signal_prefix</span> &mdash;
+                matched <mark>&ldquo;SWIFT CREEK ES-RENO&nbsp; PLAY EQUIPMENT &amp; WAREHOUSE&hellip;&rdquo;</mark>
+                on <code>PO 276666</code>
+              </div>
+            </li>
+
+            <li class="opt" id="cc-5" role="option" aria-selected="false">
+              <div class="opt__top">
+                <code class="opt__key">04-6570-862-532-0523-0840-000</code>
+                <span class="chip chip--info">Capital</span>
+                <span class="chip chip--neutral">L 0523</span>
+              </div>
+              <div class="opt__name">Swift Creek ES &ndash; Reno <span class="seg">&middot; Site improvements &amp; offsite</span></div>
+              <div class="opt__meta">
+                <b>7</b> rows <span class="sep">&middot;</span>
+                <b>$189,206.50</b> <span class="sep">&middot;</span>
+                <b>4</b> POs <span class="sep">&middot;</span>
+                <b>4</b> vendors <span class="sep">&middot;</span>
+                last seen 2026-05-20
+              </div>
+              <div class="opt__match">
+                <span class="tier">signal_prefix</span> &mdash;
+                matched <mark>&ldquo;SWIFT CREEK ES-RENO&nbsp; &mdash; OFFSITE COSTS&hellip;&rdquo;</mark>
+                on 4 lines from <code>LS3P ASSOCIATES LTD</code> and <code>TERRACON CONSULTANTS INC</code>
+              </div>
+            </li>
+
+            <li class="opt opt--claimed" id="cc-6" role="option" aria-selected="false" aria-disabled="true">
+              <div class="opt__top">
+                <code class="opt__key">04-6570-862-529-0713-0840-000</code>
+                <span class="chip chip--info">Capital</span>
+                <span class="chip chip--neutral">L 0713</span>
+                <span class="chip chip--warn"><span class="dot"></span>Claimed</span>
+              </div>
+              <div class="opt__name">Facility assessments &amp; capital planning <span class="seg">&middot; Survey, testing &amp; inspection</span></div>
+              <div class="opt__meta">
+                <b>11</b> rows <span class="sep">&middot;</span>
+                <b>$365,417.38</b> <span class="sep">&middot;</span>
+                <b>11</b> POs <span class="sep">&middot;</span>
+                <b>5</b> vendors <span class="sep">&middot;</span>
+                last seen 2026-04-08
+              </div>
+              <div class="opt__match">
+                <span class="tier">signal_substring</span> &mdash;
+                matched because <mark>1</mark> of its 11 line descriptions mentions
+                &ldquo;Swift Creek&rdquo;, but its level is <code>0713</code>, not <code>0523</code>.
+              </div>
+              <div class="opt__claimed">
+                <span>
+                  Already bound to <b>Facility Condition Assessments FY26</b> (<code>CC-0713-529</code>) since 2025-11-04.
+                  A cost centre can only belong to one project at a time.
+                  <a href="#">Open it &rarr;</a>
+                </span>
+              </div>
+            </li>
+
+          </ul>
+
+          <p class="field__hint" style="margin-top:8px">
+            <strong>6 of 328</strong> combinations match &ldquo;swift&rdquo;. Results update as you type &mdash;
+            they are never cached from a previous project. Claimed rows stay in the list, disabled, so you can
+            see who holds them.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RIGHT: preview + explainer ===================== -->
+    <aside class="side">
+
+      <section class="card panel" aria-labelledby="preview-title">
+        <div class="panel__head">
+          <div>
+            <h2 id="preview-title">What this binds</h2>
+            <p>Preview of the highlighted row &mdash; nothing is bound yet.</p>
+          </div>
+        </div>
+
+        <span class="bind__key">04-6570-862-527-0523-0840-000</span>
+
+        <div class="subhead">Segments</div>
+        <table class="segs">
+          <thead>
+            <tr><th scope="col">Segment</th><th scope="col">Value</th><th scope="col" style="text-align:right">Distinct in 328</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Fund</th><td class="v">04</td><td class="n const">1</td></tr>
+            <tr><th scope="row">Purpose</th><td class="v">6570</td><td class="n">3</td></tr>
+            <tr><th scope="row">Program</th><td class="v">862</td><td class="n const">1</td></tr>
+            <tr><th scope="row">Object</th><td class="v">527</td><td class="n">9</td></tr>
+            <tr><th scope="row">Level</th><td class="v">0523</td><td class="n">139</td></tr>
+            <tr><th scope="row">Cost centre</th><td class="v">0840</td><td class="n const">1</td></tr>
+            <tr><th scope="row">Future use</th><td class="v">000</td><td class="n const">1</td></tr>
+          </tbody>
+        </table>
+
+        <p class="field__hint" style="margin:10px 0 var(--space-4)">
+          Four of the seven segments never vary, which is why the whole combination &mdash; not any single
+          segment &mdash; is the key. The segment literally named <code>COST_CENTER</code> is one of the
+          constant ones.
+        </p>
+
+        <div class="subhead">Activity that would be bound</div>
+        <ul class="bind__rows">
+          <li><span class="k">PO lines</span><span class="v">3</span></li>
+          <li><span class="k">Committed</span><span class="v big">$3,343,434.00</span></li>
+          <li><span class="k">Purchase orders</span><span class="v">1</span></li>
+          <li><span class="k">Vendors</span><span class="v">1 &mdash; J E DUNN CONSTRUCTION</span></li>
+          <li><span class="k">First &ndash; last activity</span><span class="v">2025-04-16 &rarr; 2026-02-20</span></li>
+        </ul>
+
+        <div class="callout">
+          <div>
+            <p><strong>Claiming is exclusive.</strong> If another project already holds this combination the
+            server answers <code>409</code> and the row comes back disabled with the holder&rsquo;s name &mdash;
+            the picker never silently re-points data.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card panel" aria-labelledby="sib-title">
+        <div class="panel__head">
+          <div>
+            <h2 id="sib-title">Same level, not yet bound</h2>
+            <p>Level <code>0523</code> &middot; Swift Creek ES&ndash;Reno</p>
+          </div>
+        </div>
+
+        <p style="font-size:.8125rem;line-height:1.6;margin-bottom:var(--space-3)">
+          A project can hold more than one cost centre. These four sit on the same level and have no project
+          yet &mdash; claim them from the project page straight after you create this one.
+        </p>
+
+        <ul class="sibling">
+          <li>
+            <code>04-9000-862-541-0523-0840-000</code>
+            <span class="n"><b>320</b> rows &middot; <b>$1,139,145.58</b></span>
+          </li>
+          <li>
+            <code>04-6570-862-541-0523-0840-000</code>
+            <span class="n"><b>2</b> rows &middot; <b>$442,200.91</b></span>
+          </li>
+          <li>
+            <code>04-6570-862-529-0523-0840-000</code>
+            <span class="n"><b>5</b> rows &middot; <b>$269,887.00</b></span>
+          </li>
+          <li>
+            <code>04-6570-862-532-0523-0840-000</code>
+            <span class="n"><b>7</b> rows &middot; <b>$189,206.50</b></span>
+          </li>
+        </ul>
+
+        <div class="panel__foot">
+          <strong style="color:var(--text-heading)">334 rows &middot; $2,040,439.99</strong> would still be
+          unbound after you claim the highlighted row. The project would not be complete &mdash; that is the
+          normal case, not an error.
+        </div>
+      </section>
+
+      <section class="card panel" aria-labelledby="how-title">
+        <div class="panel__head">
+          <div>
+            <h2 id="how-title">How claiming works</h2>
+          </div>
+        </div>
+        <ol class="steps">
+          <li>
+            <strong>You pick a row, not a sentence.</strong>
+            <em>Typing only filters the list. The submit button stays disabled until a row is chosen, so no
+            combination can be half-typed into existence.</em>
+          </li>
+          <li>
+            <strong>The server derives the project code.</strong>
+            <em><code>CC-0523-527</code> for the highlighted row &mdash; level then anchor object. It is never
+            editable and never client-constructed.</em>
+          </li>
+          <li>
+            <strong>Future extracts bind automatically.</strong>
+            <em>The next Oracle run resolves each PO line to a combination key and attaches the matching rows
+            to this project. No manual re-linking after day one.</em>
+          </li>
+        </ol>
+      </section>
+
+    </aside>
+  </div>
+
+  <footer class="foot">
+    <p>
+      <strong style="color:var(--text-heading)">Every figure on this screen is real.</strong>
+      Read from <code>data/oracle/output.json</code> &mdash; 2,782 PO lines &rarr; 328 distinct seven-segment
+      combinations, grand total $430,569,026.92.
+    </p>
+    <p>
+      Level <code>0523</code> resolves to <em>SWIFT CREEK ES-RENO</em>: 337 rows, $5,383,873.99, 30 distinct
+      purchase orders, 22 vendors, 2025-04-16 to 2026-06-12. The five combinations on that level break down as
+      $4,244,728.41 capital over 17 rows and $1,139,145.58 operating over 320 rows.
+    </p>
+    <p>
+      The single &ldquo;worthy of a second look&rdquo; flag is not decoration: on
+      <code>04-9000-862-541-0523-0840-000</code>, <code>grep</code> for &ldquo;swift creek&rdquo; across its
+      320 line descriptions returns zero hits. Its project identity comes from the level code alone.
+    </p>
+  </footer>
+
+</main>
+
+</body>
+</html>

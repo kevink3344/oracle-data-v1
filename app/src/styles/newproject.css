@@ -1,0 +1,778 @@
+/* ============================================================================
+   New project page.
+
+   Everything here is either a token or a composition of tokens — no literal
+   colours — so the page themes with the rest of the app for free. The form
+   controls are the first text inputs in the app (every other screen is read-only
+   tables and charts), which is why .input / .textarea / .combo live here rather
+   than in components.css.
+   ============================================================================ */
+
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.crumbs a {
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  text-decoration: underline;
+}
+
+.crumbs [aria-current='page'] {
+  color: var(--text-muted);
+}
+
+/* --- layout ----------------------------------------------------------- */
+
+/* Wider on the left: the picker needs the room, the explanation reads in a column. */
+.np-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.np-side {
+  display: grid;
+  gap: var(--space-4);
+  position: sticky;
+  top: 76px;
+}
+
+.subhead {
+  margin: 0 0 var(--space-2);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.subhead:not(:first-child) {
+  margin-top: var(--space-4);
+}
+
+/* --- fields ----------------------------------------------------------- */
+
+.field + .field {
+  margin-top: var(--space-6);
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.field__req {
+  margin-left: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--err-fg);
+}
+
+.field__hint {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.field__err {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--err-fg);
+}
+
+/* A field whose value comes from somewhere the user cannot type into — the
+   signed-in owner. Not an `.input` and not a disabled `.input`: a disabled input
+   is a rectangle that promises editability under other conditions, and this one
+   is a fact about the session. */
+.field__value {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.input,
+.textarea {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: border-color var(--transition);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--primary-color);
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+/* --- combobox --------------------------------------------------------- */
+
+.combo__control {
+  position: relative;
+  display: block;
+}
+
+.combo__icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  margin-top: -7.5px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.combo__input {
+  display: block;
+  width: 100%;
+  /* Reserves the tail (match count + clear) so text never runs under it. */
+  padding: 10px 108px 10px 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  transition: border-color var(--transition);
+}
+
+.combo__input::placeholder {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.combo__input:focus {
+  border-color: var(--primary-color);
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+.combo__input[aria-invalid='true'] {
+  border-color: var(--err-fg);
+}
+
+.combo__tail {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Clicks fall through to the input unless they land on the clear button. */
+  pointer-events: none;
+}
+
+.combo__status {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.combo__clear {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.combo__clear:hover {
+  background: var(--border-strong);
+  color: var(--text-heading);
+}
+
+.combo__clear:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* --- picker filters --------------------------------------------------- */
+
+.filters {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.filters__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filters__legend {
+  flex: 0 0 96px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* --- option list ------------------------------------------------------ */
+
+.listbox {
+  max-height: 460px;
+  margin: var(--space-3) 0 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.opt {
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.opt + .opt {
+  margin-top: 4px;
+}
+
+.opt--active {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+/* `--claimed` rules were removed with the branch that used them. A combination on
+   a level another project holds is filtered out of the list before it is built, so
+   there is no held row here to render greyed and no "already claimed" tag to style.
+   A rule for a state that cannot occur is worse than no rule: it reads as evidence
+   that the state is handled somewhere. */
+
+.opt[aria-selected='true'] {
+  border-color: var(--primary-color);
+  background: var(--surface-active);
+}
+
+.opt__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+/* Key, purpose and level travel together as one unit so the "Claim" hint opposite
+   stays pinned right whatever the chips wrap to. */
+.opt__id {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Density: the shared chip is sized for a table cell, not a 60-row list. */
+.opt__id .chip {
+  gap: 5px;
+  padding: 2px 6px;
+  font-size: 0.625rem;
+}
+
+.opt__id .chip .dot {
+  width: 5px;
+  height: 5px;
+}
+
+.opt__key {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* Kept in the layout and faded rather than unmounted, so rows don't jump. */
+.opt__enter {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  transition: opacity var(--transition);
+}
+
+.opt--active .opt__enter {
+  opacity: 1;
+}
+
+.opt__tag {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-body);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+}
+
+.opt__name {
+  margin-bottom: 2px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* The object is a qualifier on the name, not part of it. */
+.opt__obj {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.opt__meta {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.opt__match {
+  margin-top: 6px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.tier {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.opt__flag {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--warn-border);
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.opt__flag strong {
+  color: var(--warn-fg);
+}
+
+.opt__chosen {
+  margin-top: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--link);
+}
+
+.opt code,
+.callout code,
+.steps code,
+.segs code,
+.siblings code,
+.bind__key code,
+.bind__derived code {
+  font-family: var(--font-mono);
+}
+
+.listbox__empty {
+  padding: 14px 12px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.listbox__empty strong {
+  color: var(--text-heading);
+}
+
+.listbox__more {
+  padding: 10px 12px 6px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* Written by the picker on every keystroke, so it is styled with the text it marks. */
+mark {
+  padding: 0 2px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-weight: 700;
+}
+
+/* --- aside: what the binding means ------------------------------------ */
+
+.bind__key,
+.bind__derived {
+  margin: 0 0 var(--space-3);
+}
+
+.bind__key code,
+.bind__derived code {
+  display: inline-block;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-heading);
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.segs {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.segs thead th {
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: left;
+}
+
+.segs th.n,
+.segs td.n {
+  text-align: right;
+}
+
+.segs tbody th {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-body);
+  text-align: left;
+  vertical-align: top;
+}
+
+.segs tbody td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-body);
+  vertical-align: top;
+}
+
+.segs tbody tr:last-child th,
+.segs tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.segs code {
+  font-size: 0.6875rem;
+  color: var(--text-heading);
+}
+
+.segs__role {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+.segs__const {
+  margin-left: 6px;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* --- binding a cost centre to a recorded project ---------------------- */
+
+/* ★ ONE CONTROL, TWO HOSTS. It is rendered inside a flex row in the
+   "Recorded, not yet coded" list and inside the project drawer's sections. In
+   the row it has to take the whole line, because the picker it opens is a
+   full-size search over the extract and cannot share a 30px-tall row with the
+   name it belongs to. `flex-basis` is inert in the drawer. */
+.bind {
+  flex-basis: 100%;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.bind__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.bind__head .field__label {
+  margin-bottom: 0;
+}
+
+.bind__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+/* Says what the button will write, in the place a reader looks immediately
+   after deciding to press it. */
+.bind__note {
+  flex: 1 1 260px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.bind__note code {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* The footer under the picker, stating what was removed from its list and why.
+
+   ★ THIS IS NOT DECORATION. The old design listed taken levels and greyed them,
+   which told the reader the level existed and was unavailable. This one removes
+   them, which can only be told — a missing row is indistinguishable from a level
+   that carries no orders. So if this line is ever dropped, the picker starts
+   silently hiding money. */
+.combo__withheld {
+  margin: var(--space-3) 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.combo__withheld code {
+  font-family: var(--font-mono);
+}
+
+.bind__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.bind__facts dt {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.bind__facts dd {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.callout {
+  margin-bottom: var(--space-3);
+  padding: 10px 12px;
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.callout strong {
+  color: var(--warn-fg);
+}
+
+.callout code {
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+}
+
+.siblings {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.siblings li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.siblings li:last-child {
+  border-bottom: 0;
+}
+
+.siblings code {
+  font-size: 0.6875rem;
+  color: var(--text-heading);
+}
+
+.siblings__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.siblings__amount {
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.steps li {
+  padding: 4px 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+.steps li::marker {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.steps code {
+  font-size: 0.6875rem;
+  color: var(--text-heading);
+}
+
+/* --- responsive ------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .np-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-side {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .combo__input {
+    padding-right: 12px;
+  }
+
+  .combo__tail {
+    display: none;
+  }
+
+  .filters__legend {
+    flex-basis: 100%;
+  }
+}

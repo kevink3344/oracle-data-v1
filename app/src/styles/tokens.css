@@ -1,0 +1,200 @@
+/* ============================================================================
+   Design tokens.
+
+   Ported from docs/css/site-style.md and the two mockups, merged into ONE set.
+   The mockups each defined `.card`, `.chip`, `.btn`, `.drawer`, `.table-wrap`
+   and `.kpis` differently, and the dashboard's chips were rgba()-based and could
+   not theme. Here there is a single definition of each, and every colour that
+   must flip between themes is a semantic alias, not a literal.
+
+   Rule: `:root` owns the light values; [data-theme="dark"] re-points ONLY the
+   semantic aliases. Brand and the neutral ramp are identical in both themes.
+   ============================================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* --- brand: identical in both themes --------------------------------- */
+  --primary-color: #165788;
+  --primary-hover: #266a9d;
+  --secondary-color: #df6d1c;
+  --tertiary-color: #00add0;
+  --cc-fourth-color: #fed100;
+  --cc-fifth-color: #6e273d;
+  --cc-sixth-color: #bed600;
+  --cc-seventh-color: #c90062;
+  --cc-eighth-color: #455560;
+
+  /* --- neutral ramp: identical in both themes -------------------------- */
+  --neutral-0: #ffffff;
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #727272;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+
+  /* --- surfaces -------------------------------------------------------- */
+  --app-bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface-sunken: #fafafa;
+  --surface-rail: #ffffff;
+  --surface-hover: #f5f5f5;
+  --surface-active: #eef4f9;
+  --rail-active-bg: #165788;
+  --rail-active-fg: #ffffff;
+  --on-brand: #ffffff;
+
+  /* --- text ------------------------------------------------------------ */
+  --text-body: #525252;
+  --text-heading: #262626;
+  --text-muted: #727272;
+  --text-faint: #a3a3a3;
+  --link: #165788;
+
+  /* --- borders --------------------------------------------------------- */
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  /* --- status semantics: text-on-surface pairs, each >= 4.5:1 ---------- */
+  --ok-bg: #eef7d6;
+  --ok-fg: #41500a;
+  --ok-border: rgba(190, 214, 0, 0.45);
+  --info-bg: #e2f6fb;
+  --info-fg: #0b5a70;
+  --info-border: rgba(0, 173, 208, 0.35);
+  --warn-bg: #fff7d6;
+  --warn-fg: #5c4a00;
+  --warn-border: rgba(254, 209, 0, 0.5);
+  --err-bg: #fde8f2;
+  --err-fg: #8c0043;
+  --err-border: rgba(201, 0, 98, 0.4);
+  --neu-bg: #eef1f3;
+  --neu-fg: #3e4a53;
+
+  /* --- the "New" mark: a dot, so a graphic colour and not a text one ---
+     The mark has been three things now. A `.chip--neu` pill at 46x27, which
+     outweighed the project name it annotated. Then lettering at 26x15, green
+     first and gold second — and a word sitting immediately after a name reads
+     as part of that name, so "New" kept being taken for the project's own
+     label. It is a dot now, which is the quietest of the three and the only
+     one that cannot be misread as part of the name.
+
+     Named `-dot`, not the `-fg` it was: this paints a shape, and a token whose
+     name promises a foreground is an invitation to put it on text, where it
+     would fail the 4.5:1 bar this one is not chosen against.
+
+     Because it is non-text the bar is WCAG 1.4.11's 3:1 rather than 4.5:1 —
+     but only just, since an 8px circle carries far less ink than a word and
+     needs contrast more, not less. The brand lime `--cc-sixth-color`
+     (`#bed600`) is the obvious "green" and measures 1.64:1 on white, where it
+     all but disappears at this size, so it is not used here. Measured:
+     3.99:1 light, 10.9:1 dark. */
+  --newmark-dot: #6b8a00;
+
+  /* --- data series ----------------------------------------------------- */
+  /* #df6d1c on its own 12% tint is only 2.9:1, so the operating *mark* uses
+     the series colour and operating *text* uses the darker --series-ope-text. */
+  --series-capital: #165788;
+  --series-operating: #df6d1c;
+  --series-other: #455560;
+  --series-ope-text: #9a4607;
+  --series-capital-soft: rgba(22, 87, 136, 0.1);
+  --series-operating-soft: rgba(223, 109, 28, 0.12);
+  --series-other-soft: rgba(69, 85, 96, 0.12);
+  --track: #e5e5e5;
+
+  /* --- type ------------------------------------------------------------ */
+  --font-body: 'Open Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  /* --- spacing --------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* --- shape & depth --------------------------------------------------- */
+  --radius: 3px;
+  --radius-sm: 2px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 24px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 32px rgba(0, 0, 0, 0.12);
+  --shadow-drawer: -24px 0 48px rgba(0, 0, 0, 0.14);
+
+  /* --- motion ---------------------------------------------------------- */
+  /* The mockups wrote `transition: transform var(--transition)` with
+     `--transition: .4s all`, which expands to `transform .4s all` — two
+     single-transition properties in one slot, so the whole declaration was
+     invalid and the drawer snapped instead of sliding. A bare duration+easing
+     is valid on its own (the property defaults to `all`), so this composes. */
+  --dur: 0.4s;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: var(--dur) var(--ease);
+
+  /* --- sizing ---------------------------------------------------------- */
+  --rail-w: 208px;
+  --drawer-w: 470px;
+  --content-max: 1180px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --app-bg: #0b1220;
+  --surface: #131e33;
+  --surface-sunken: #0f1830;
+  --surface-rail: #0d1628;
+  --surface-hover: #1a2743;
+  --surface-active: #1c3050;
+  --rail-active-bg: #1f4a78;
+  --rail-active-fg: #ffffff;
+  --on-brand: #ffffff;
+
+  --text-body: #c3cfe3;
+  --text-heading: #eaf0fb;
+  --text-muted: #93a4c0;
+  --text-faint: #6b7c99;
+  --link: #6cb6e8;
+
+  --border: #25334f;
+  --border-strong: #33456a;
+
+  --ok-bg: #1e2a12;
+  --ok-fg: #c9dc7a;
+  --ok-border: rgba(201, 220, 122, 0.35);
+  --info-bg: #0e2a38;
+  --info-fg: #6fd0e8;
+  --info-border: rgba(111, 208, 232, 0.32);
+  --warn-bg: #332a08;
+  --warn-fg: #f0d66a;
+  --warn-border: rgba(240, 214, 106, 0.32);
+  --err-bg: #33101f;
+  --err-fg: #f08cb4;
+  --err-border: rgba(240, 140, 180, 0.32);
+  --neu-bg: #1c2740;
+  --neu-fg: #a9b8cf;
+
+  /* The same lime, lightened for this surface — here it can be the bright
+     green it cannot be on white. */
+  --newmark-dot: #b6e04a;
+
+  --series-capital: #4d9fe0;
+  --series-operating: #f08a3c;
+  --series-other: #9fb0c6;
+  --series-ope-text: #f08a3c;
+  --series-capital-soft: rgba(77, 159, 224, 0.16);
+  --series-operating-soft: rgba(240, 138, 60, 0.18);
+  --series-other-soft: rgba(159, 176, 198, 0.16);
+  --track: #25334f;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 24px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 32px rgba(0, 0, 0, 0.5);
+  --shadow-drawer: -24px 0 48px rgba(0, 0, 0, 0.55);
+}

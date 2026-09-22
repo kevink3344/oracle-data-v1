@@ -1,0 +1,101 @@
+/* Saved Views — the reader's watch table and its subscribe row.
+   ---------------------------------------------------------------------------
+
+   Imported in `main.tsx` straight after `viewbuilder.css`, and that placement is
+   the only ordering this sheet needs: it reuses `.vb-inline` (a flex row of
+   controls), `.vb-pick` (the fixed-width picker), `.vb-empty`, `.vb-null` and
+   `.vb-table__key` (the muted sub-line under a cell) rather than redeclaring any
+   of them, so it has to be able to lose to nothing and win over nothing.
+
+   ★ IT ADDS ALMOST NOTHING, AND THAT IS THE POINT. The table is `table.data`, whose
+   numeric alignment (`th.n` / `td.n`) and row rules already exist, the buttons are
+   `btn btn--system btn--sm`, and the notices are `.notice--warn` / `.notice--err`.
+   What is genuinely new here is one column that holds nothing but a control, and a
+   status word that has to be readable in three tones. Anything else would be a
+   second copy of a rule that already exists, which is how two screens drift.
+   --------------------------------------------------------------------------- */
+
+/* The trash column: sized to the button, not to a share of the width. Without
+   this the column takes the leftover space and the button sits in the middle of
+   an empty cell, which reads as a missing value rather than as an action. */
+.sv-table .sv-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* The icon button: the glyph is 16px and the metal around it should not be
+   wider than the glyph by much, or six rows of trash buttons become the loudest
+   thing on the page. */
+.sv-table .sv-trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  line-height: 0;
+}
+
+.sv-table .sv-trash svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The view's name. A link that has to sit above a slug line, so it is a block
+   rather than inline — otherwise the slug, which is `display: block` from
+   `.vb-table__key`, would wrap around the anchor's tail. */
+.sv-name {
+  display: block;
+}
+
+/* ★ The status word is plain text and never a pill, and this is a decision rather
+   than an omission. The mockup drew a status as a coloured badge, and a badge is
+   the shape a reader reads as *a state the system has* — which is exactly what
+   this column cannot claim: nothing consumes a subscription, so there is no
+   running/paused/live state to report, only what the last run found. Text with a
+   tone stays a description. */
+.sv-status {
+  display: block;
+}
+
+.sv-status--unchanged,
+.sv-status--not-run {
+  color: var(--text-muted);
+}
+
+/* Changed is the one state that is *news* rather than a condition, so it is the
+   only one that gets the heading colour. */
+.sv-status--changed {
+  color: var(--text-heading);
+}
+
+.sv-status--failed,
+.sv-status--drifted,
+.sv-status--capped,
+.sv-status--no-baseline {
+  color: var(--warn-fg);
+}
+
+/* The subscribe row's controls are `.vb-inline` already; the one thing it needs
+   is room above the sentence explaining what is not offered. */
+.saved-views-page .field__hint {
+  margin-top: var(--space-2);
+}
+
+/* --- the panel --------------------------------------------------------- */
+
+/* The drawer body is a stack, and the panel is the one place on this page where the
+   result grid sits inside a drawer rather than inside a panel.
+   ★ THE GRID'S OWN ROOT CARRIES `.panel__body`, WHICH IS THE PADDING IN THE VIEW
+   BUILDER — where the grid *is* the panel body — and is padding again here, because
+   `.drawer__body` has already padded 20px. Left in place the result would be
+   indented 36px inside its own drawer, beside a caveat indented 0, which reads as
+   two unrelated blocks rather than one. The padding is removed rather than the
+   class, so the grid keeps knowing nothing about where it is used. */
+.sv-look {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sv-look > .vb-result {
+  padding: 0;
+}

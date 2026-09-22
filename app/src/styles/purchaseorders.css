@@ -1,0 +1,665 @@
+/* ============================================================================
+   Purchase orders — the register and its order panel.
+
+   Extends `.panel`, `.table-wrap`, `table.data`, `.filterbar`, `.fchip`,
+   `.pager`, `.dsec`, `.btn`, `.scopenote` and the `.drawer` primitive, all of
+   which it inherits from projects.css, panel.css, objectdetail.css, shell.css
+   and components.css. Nothing here redeclares any of them.
+
+   The one deliberate duplication is `.pofilter__box`, which is `.chkfilter__box`,
+   which is `.objfilter__box`, under a third name. The search box is the same
+   control on all three pages and each page is an independent file; a shared class
+   would have to move into components.css and would touch two working pages for no
+   gain. The rules below are the checks page's, verbatim and on purpose.
+
+   ── The two things this file has to get right ───────────────────────────────
+
+   1. The project column. It is the column the plan says a purchase-order list
+      cannot be without, so it must not be a string of grey level codes: the code
+      is the key and the name is what the reader recognises, and a project with no
+      name has to look different rather than empty.
+
+   2. `white-space` on the first cell. `table.data td:first-child` sets
+      `white-space: normal` at (0,2,2), and an order number broken across two
+      lines reads as two order numbers. That is why `td.po-num` below is written
+      at four classes' worth of specificity, exactly as `td.chk-num` is.
+   ============================================================================ */
+
+/* --- the figures above the table -------------------------------------- */
+
+/* One strip, six figures. Six rather than five because "needs reapproval" is a
+   real state a reader has to be able to see, not a caveat to bury in a note, and
+   `auto-fit` means the sixth is what drops to a second row when there is no room. */
+.postats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 16px;
+}
+
+.postat {
+  position: relative;
+  padding: 16px clamp(10px, 1.6vw, 20px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.postat::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--primary-color);
+}
+
+.postat__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.postat__v {
+  margin-top: 6px;
+  font-size: clamp(1.25rem, 3vw, 1.625rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.postat__n {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- filter bar ------------------------------------------------------- */
+
+.pofilter__box {
+  position: relative;
+  flex: 1 1 300px;
+  min-width: 200px;
+  max-width: 480px;
+}
+
+.pofilter__box svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.pofilter__box input {
+  width: 100%;
+  padding: 6px 10px 6px 29px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color var(--transition);
+}
+
+.pofilter__box input::placeholder {
+  color: var(--text-faint);
+}
+
+.pofilter__box input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.pofilter__box input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* --- the table -------------------------------------------------------- */
+
+/* Seven columns. `.c-vendor` is the only one without a width: under
+   `table-layout: fixed` a widthless column takes the remainder, and the vendor
+   name is the only field here whose length is genuinely unbounded. */
+table.data.potable {
+  table-layout: fixed;
+  min-width: 980px;
+}
+
+table.data.potable thead th,
+table.data.potable tbody td {
+  padding: 10px 12px;
+}
+
+table.data.potable col.c-order {
+  width: 108px;
+}
+table.data.potable col.c-proj {
+  width: 210px;
+}
+table.data.potable col.c-buyer {
+  width: 186px;
+}
+table.data.potable col.c-date {
+  width: 102px;
+}
+table.data.potable col.c-lines {
+  width: 68px;
+}
+table.data.potable col.c-amt {
+  width: 138px;
+}
+
+/* Four classes' worth of specificity — see the file header. */
+table.data.potable td.po-num {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The vendor and buyer names are the two long free-text columns; wrapping them is
+   correct, truncating them would not be — `PO_VENDORS` holds names up to 60
+   characters and an ellipsis turns two different vendors into one row. */
+table.data.potable td.po-vendor,
+table.data.potable td.po-buyer {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+table.data.potable td.po-date {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+table.data.potable td.n.po-lines {
+  color: var(--text-muted);
+}
+
+table.data.potable td.n.po-amt {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* The row opens the panel, so the whole row has to look like it does. */
+table.data.potable tbody tr.potable__row {
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+table.data.potable tbody tr.potable__row:hover {
+  background: var(--surface-hover);
+}
+
+table.data.potable tbody tr.is-open {
+  background: var(--surface-active);
+}
+
+table.data.potable tbody tr.is-open td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* The order number is the row's own button: the row click is for the mouse, and
+   this is what a keyboard reaches. It is a real button so it is focusable,
+   announced as a control and driven by Enter and Space without any help. */
+.po-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.po-link:hover {
+  text-decoration: underline;
+}
+
+.po-link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- the project column ----------------------------------------------- */
+
+/* The level code and the project name, in that order, on one line. The code
+   leads because it is the key every other page in the app joins on, and the name
+   follows because it is the only part a reader recognises. */
+
+.po-proj {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+}
+
+table.data.potable td a.po-proj__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  /* `--link` and not `--primary-color`: the brand token is fixed at #165788 and
+     never re-declared for `[data-theme='dark']`, where it sits near 1.6:1. This is
+     11–12px text in a dense table, so it takes the one accent token that has a
+     per-theme value. Scoped through `table.data.potable td` so it also beats
+     `table.data td`, which sets `color` at (0,1,2). */
+  color: var(--link);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+table.data.potable td a.po-proj__chip:hover {
+  border-color: var(--link);
+  text-decoration: none;
+}
+
+table.data.potable td a.po-proj__chip:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+.po-proj__code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.po-proj__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-body);
+}
+
+/* A level nobody has named is a real state — `Project.unclaimed` records it — so
+   it is rendered as the bare code on a dashed edge rather than as an empty cell,
+   which would read as "this order has no project". */
+table.data.potable td a.po-proj__chip--bare {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+/* Two projects on one order is measured — 2 of 741 — and it is the one fact that
+   makes the amount on this row mean something different from the amount on the
+   other 739 rows. It gets a mark rather than being averaged into one name. */
+.po-proj__split {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* The stand-in for a blank. Never an em dash on its own in a money column, and
+   never an empty cell anywhere: an empty cell reads as "not asked for". */
+.po-proj__none {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* --- no matches ------------------------------------------------------- */
+
+/* Replaces the table rather than adding an empty row to it: a full-width cell
+   inside a 980px fixed-layout table centres its message inside 980px, and the
+   first ~600px of that is all a narrow viewport ever shows. */
+.poempty {
+  padding: 32px 16px 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.poempty p {
+  margin: 0 0 10px;
+}
+
+.poempty__hint {
+  max-width: 56ch;
+  margin: 0 auto 16px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* --- the panel -------------------------------------------------------- */
+
+/* Wider than the project drawer by default: this one holds two tables, and the
+   amount column of the line table has to keep its edge. Matches `.chkpanel`. */
+.popanel {
+  --drawer-w: 620px;
+}
+
+.popanel .drawer__name {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+/* --- the order's own facts -------------------------------------------- */
+
+.po-rows {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.po-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.po-row:last-child {
+  border-bottom: 0;
+}
+
+.po-row__k {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.po-row__v {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.po-row__note {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* The one line in this block that changes how the order should be read. */
+.po-row__flag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+/* The last row is the one the reader came for. */
+.po-row--sum {
+  background: var(--surface-sunken);
+}
+
+.po-row--sum .po-row__k {
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.po-row--sum .po-row__v {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+/* --- the projects an order is charged to ------------------------------ */
+
+.po-levels {
+  margin: 10px 0 12px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.po-level {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.po-level:last-child {
+  border-bottom: 0;
+}
+
+.po-level__link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--link);
+  text-decoration: none;
+}
+
+.po-level__link:hover {
+  text-decoration: underline;
+}
+
+.po-level__link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.po-level__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.po-level__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.po-level__amt {
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.po-level__share {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* --- the tables inside the panel -------------------------------------- */
+
+/* `table.data` is not used here: these are dense read-outs inside a drawer, not
+   registers, and the registers' fixed layout and 10px padding would fight the
+   panel's width. They follow `.chkinvtable`, which is the same thing on the
+   checks page. */
+table.potable--inline {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 4px;
+}
+
+table.potable--inline thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+table.potable--inline td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+table.potable--inline tbody tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+table.potable--inline tfoot th,
+table.potable--inline tfoot td {
+  padding: 8px 10px;
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+table.potable--inline tfoot th {
+  text-align: left;
+}
+
+table.potable--inline .n {
+  text-align: right;
+}
+
+/* The one column allowed to wrap: a line description is prose, and the panel is
+   wide enough for it because everything beside it is nowrap. */
+table.potable--inline td.po-desc {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--text-body);
+}
+
+/* The account is a link into the budget detail page the invoice drawer also links
+   to — the same destination keyed on the same compound, so the two screens walk
+   into the budget from opposite directions and land in the same place.
+
+   Scoped through the table because `table.potable--inline td` sets `color` at
+   (0,1,1) and a bare `a.po-account` ties with it. */
+table.potable--inline td a.po-account {
+  color: var(--link);
+  text-decoration: none;
+}
+
+table.potable--inline td a.po-account:hover {
+  text-decoration: underline;
+}
+
+table.potable--inline td a.po-account:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Shown on hover only, the way the budget and account links elsewhere do it: the
+   destination is the useful part and the code is the identity, so the affordance
+   costs no width until it is wanted. */
+.po-account__go {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  vertical-align: baseline;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  transition: max-width var(--transition), margin-left var(--transition);
+}
+
+table.potable--inline td a.po-account:hover .po-account__go,
+table.potable--inline td a.po-account:focus-visible .po-account__go {
+  max-width: 12ch;
+  margin-left: 6px;
+}
+
+/* --- the caveats the panel has to state ------------------------------- */
+
+.po-caveat {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* --- narrow screens --------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .postats {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .postat {
+    padding: 12px;
+  }
+
+  .postat__v {
+    font-size: 1.125rem;
+  }
+
+  /* The sticky header is worth less than the rows when the panel is nearly the
+     whole viewport. */
+  table.potable--inline thead th {
+    position: static;
+  }
+
+  .po-level {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .po-level__amt {
+    align-self: flex-start;
+  }
+}

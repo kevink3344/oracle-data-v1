@@ -1,0 +1,46 @@
+{
+  "name": "oracle-projects-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Read/write API over the Oracle extract and the Turso/libSQL sample. Sibling of app/, never a dependency of it — the libSQL token must not reach the browser.",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --force",
+    "openapi": "tsx src/scripts/emit-openapi.ts",
+    "smoke": "tsx src/scripts/smoke.ts",
+    "geocode": "tsx src/scripts/geocode-vendor-sites.ts",
+    "ledger:scale": "tsx src/scripts/ledger-scale.ts",
+    "oracle:run": "tsx src/scripts/oracle-run.ts",
+    "pull:ap": "node scripts/pull-ap-extract.mjs",
+    "pull:invoices": "node scripts/pull-invoices-extract.mjs",
+    "copy:oracle": "tsx scripts/copy-oracle-to-turso.ts --refresh",
+    "copy:oracle:fresh": "tsx scripts/copy-oracle-to-turso.ts --fresh",
+    "copy:oracle:dry": "tsx scripts/copy-oracle-to-turso.ts --dry-run",
+    "copy:oracle:one": "tsx scripts/copy-oracle-to-turso.ts"
+  },
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
+    "@libsql/client": "^0.14.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "oracledb": "^7.0.1",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/swagger-ui-express": "^4.1.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

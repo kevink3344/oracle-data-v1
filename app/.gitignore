@@ -1,0 +1,5 @@
+node_modules
+dist
+public/oracle
+*.local
+.DS_Store

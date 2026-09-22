@@ -1,0 +1,13 @@
+{
+  "//": "THROWAWAY. `scripts/` is outside the build's `include` (and outside `rootDir: src`), so tsc -b never checks it. This points the same compiler options at src PLUS the copy script, so the ambient declarations under src/ apply and the script is typechecked the way the project would typecheck it. Delete after use.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "sourceMap": false,
+    "tsBuildInfoFile": "dist/.tsbuildinfo-script-check"
+  },
+  "include": ["src/**/*.ts", "scripts/copy-oracle-to-turso.ts"]
+}

@@ -1,0 +1,62 @@
+# Credentials - never commit these
+.env
+.env.*
+!.env.example
+
+# Oracle wallets are credentials too (mTLS keys and a password store)
+wallet/
+*.sso
+*.p12
+*.jks
+cwallet.sso
+ewallet.p12
+keystore.jks
+tnsnames.ora
+sqlnet.ora
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Scratch output: dev-task logs and probe transcripts
+#
+# ★ THESE WERE STAGED AND ARE EXCLUDED BEFORE THE FIRST COMMIT, WHICH IS THE ONLY
+#   CHEAP MOMENT TO DO IT. They are the stdout of long-running dev tasks and of
+#   throwaway measurement scripts — the kind of file that is regenerated on every
+#   run, differs between machines, and carries a timestamp that makes every commit
+#   look like it changed something. Once they are in history, deleting them later
+#   leaves them there for good.
+#
+# The patterns are by NAME rather than by folder, because these files were written
+# wherever the command happened to be run: some at the repo root, some under
+# `server/`, some under `app/`.
+# ---------------------------------------------------------------------------
+*.out.txt
+smoke*.txt
+verify*.txt
+out-smoke*.txt
+srv-tc.txt
+tc2.txt
+tsc3.txt
+
+# The app's build/probe notes. Listed by directory rather than by extension so that
+# a future `app/notes.txt` is not silently swallowed by a blanket `*.txt`.
+app/build2.txt
+app/build3.txt
+app/p4-app.txt
+app/p4-build.txt
+app/ping.txt
+
+# A backup of an extract, kept while the live file was being rewritten. A `.bak`
+# beside a tracked fixture is the one file in this block that could plausibly be
+# wanted, so it is named explicitly rather than matched with `*.bak` — which would
+# also hide a genuine backup somebody meant to commit.
+data/oracle/checks.json.bak

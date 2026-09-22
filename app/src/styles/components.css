@@ -1,0 +1,595 @@
+/* ============================================================================
+   Shared components: cards, chips, buttons, notices, bars, labels.
+   Defined once. The mockups defined each of these twice, differently.
+   ============================================================================ */
+
+/* --- card ------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- section label ---------------------------------------------------- */
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* --- chip ------------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The dot inherits the text colour, so it can never disagree with the label. */
+.chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.chip--ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+}
+.chip--info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info-border);
+}
+.chip--warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+.chip--err {
+  background: var(--err-bg);
+  color: var(--err-fg);
+  border-color: var(--err-border);
+}
+.chip--neu {
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  border-color: var(--border-strong);
+}
+.chip--cap {
+  background: var(--series-capital-soft);
+  color: var(--series-capital);
+}
+.chip--ope {
+  background: var(--series-operating-soft);
+  color: var(--series-ope-text);
+}
+.chip--oth {
+  background: var(--series-other-soft);
+  color: var(--series-other);
+}
+
+/* --- buttons ---------------------------------------------------------- */
+
+/* Buttons and inputs do not inherit type in any browser. Every control in the
+   app is class-styled, but `font: inherit` first keeps a stray button from
+   rendering in the OS UI font. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--neu-bg);
+  color: var(--text-heading);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.btn--sm {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+}
+
+/*
+  ── ★ THE PIN SITS IN THE HEAD'S RIGHT CORNER, WHICH IS A 30px SLOT THE CLOSE
+     BUTTON ALREADY OWNS. ─────────────────────────────────────────────────────
+  Every panel that renders a pin shares `.drawer__head` (`panel.css`), which is
+  `position: relative` and places its close button absolutely at top 14 / right
+  14. The pin is anchored to the same box rather than left in the flow, because
+  in the flow it landed *under* the chips — a full-width row of its own inside a
+  head that is otherwise a single stack, which made a two-state toggle read as a
+  section heading.
+
+  `right: 52px` = 14 (the head's own inset) + 30 (the close button) + 8 (the gap
+  between the pair). Nothing here is measured from the panel's width, so the two
+  stay together at every breakpoint, including the 94vw narrow case.
+
+  `z-index: 1` earns its place: `.drawer__name` and the eyebrow are painted after
+  this in the flow, so without it a long title prints over the buttons. The
+  matching reservation is the `padding-right` on `.drawer__name` in `panel.css`.
+*/
+.pin-control {
+  position: absolute;
+  top: 14px;
+  right: 52px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Deliberately the same 30×30 box, border and hover colours as `.drawer__close`:
+   the two have to read as two controls of equal weight, not a big one and a
+   small one. Only the pinned state deviates, and it deviates in colour. */
+.pin-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.pin-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+/* Pinned. The accent border *and* the filled glyph carry it, so the state does
+   not rest on colour alone.
+
+   ★ `--link`, NOT `--primary-color`. The brand token is fixed at #165788 and is
+   never re-declared for `[data-theme='dark']`, where it sits at ~1.7:1 against
+   `--surface-active` (#1c3050) — the filled glyph would be the *only* thing left
+   saying "pinned", on the one state whose whole job is to be noticed. `--link` is
+   the accent with a per-theme value, and this rule is otherwise the same shape as
+   `.chkfilter__ai[aria-pressed='true']` (`checks.css`) and the project chip on a
+   purchase-order row (`purchaseorders.css`). */
+.pin-button.is-pinned {
+  border-color: var(--link);
+  color: var(--link);
+  background: var(--surface-active);
+}
+
+.pin-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+/* 14px inside the 30px box. The close button's cross is 12px in the same box —
+   a pushpin has more silhouette to read than a cross does. */
+.pin-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ★ THE FAILURE NOTE CANNOT LIVE IN THE FLOW, BECAUSE THE CONTROL IS NOT IN IT.
+   Pinned to the button's bottom-right corner: it only exists after a write the
+   server refused (the message is the server's own words), so it is a note that
+   appears OVER the head rather than one that reflows it. `max-width` in `ch`
+   because the text is a server sentence of unknown length; `max-content` keeps
+   a short one from stretching. */
+.pin-control__error {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 2;
+  width: max-content;
+  max-width: 30ch;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--warn-fg);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.pinned-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.pinned-sort select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+}
+
+.pinned-empty {
+  padding: 28px 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.pinned-list {
+  border-top: 1px solid var(--border);
+}
+
+.pinned-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pinned-row__category {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.pinned-row__title {
+  color: var(--link);
+  font-weight: 650;
+}
+
+.pinned-row__sub {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .pinned-row {
+    align-items: flex-start;
+  }
+
+  .pinned-sort {
+    margin-top: 10px;
+  }
+}
+
+.btn--primary {
+  background: var(--primary-color);
+  color: var(--on-brand);
+}
+.btn--primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn--system {
+  background: var(--surface);
+  color: var(--text-heading);
+  border-color: var(--border-strong);
+}
+.btn--system:hover {
+  background: var(--surface-hover);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--link);
+  border-color: var(--border-strong);
+}
+.btn--ghost:hover {
+  background: var(--surface-hover);
+}
+
+/* The destructive variant, and the fourth of these to be built the same way: a
+   background, a foreground, a border and a hover, so it reads as a sibling of
+   `.btn--system` and `.btn--ghost` rather than as a bespoke control at the call
+   site.
+
+   ★ IT IS OUTLINED, NOT FILLED, AND THAT IS A DELIBERATE CHOICE ABOUT WEIGHT.
+     A filled red button is the loudest object on a page, and this one has to
+     live on the edit screen next to `Save changes`, which is the action the
+     reader came for. Outlining it in the error colour marks it as destructive
+     without promoting it to primary, and the confirmation step — where the
+     reader has already committed to the idea — is where the weight belongs. It
+     gets that from sitting inside `.notice--err`, not from being filled here.
+
+   ★ THE COLOURS ARE THE ERROR PAIR, WHICH IS THE PAIR EVERY WARNING ON THE APP
+     ALREADY DRAWS WITH. `--err-fg` is defined in tokens.css in *both* themes
+     (light `#8c0043`, dark `#f08cb4`), so this is a use of an existing token and
+     not a new colour. Contrast at the rendered size — 13px, so 4.5:1 is the bar
+     — measures 9.6:1 on the light panel and 7.9:1 on the dark one. Both pass,
+     and neither is a fixed brand token that stops adapting when the theme flips. */
+.btn--danger {
+  background: transparent;
+  color: var(--err-fg);
+  border-color: var(--err-border);
+}
+.btn--danger:hover {
+  background: var(--err-bg);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: inherit;
+}
+
+.btn--primary:disabled:hover {
+  background: var(--primary-color);
+}
+
+.btn--system:disabled:hover {
+  background: var(--surface);
+}
+
+/* Needed for the same reason as the two above: `inherit` in `.btn:disabled:hover`
+   cannot undo a transparent base and a hover that fills, so the danger variant
+   would be the one button in the app that lights up while disabled. */
+.btn--danger:disabled:hover {
+  background: transparent;
+}
+
+/* --- notice ----------------------------------------------------------- */
+
+.notice {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.notice p + p {
+  margin-top: 6px;
+}
+
+.notice strong {
+  color: var(--text-heading);
+}
+
+.notice--warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  border-left-color: var(--secondary-color);
+  color: var(--warn-fg);
+}
+.notice--warn strong {
+  color: var(--warn-fg);
+}
+
+.notice--info {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  border-left-color: var(--tertiary-color);
+  color: var(--info-fg);
+}
+.notice--info strong {
+  color: var(--info-fg);
+}
+
+.notice--err {
+  background: var(--err-bg);
+  border-color: var(--err-border);
+  border-left-color: var(--err-fg);
+  color: var(--err-fg);
+}
+
+.notice--err strong {
+  color: var(--err-fg);
+}
+
+/* The fourth state, added late and with the same four properties as the other
+   three rather than a bespoke rule at the call site: a success notice is the same
+   object as a warning one and reads as a sibling of it only if it is built the
+   same way. `--ok-*` were already in tokens.css for `.chip--ok`, in both themes,
+   so this is a use of existing tokens and not a new colour. */
+.notice--ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  border-left-color: var(--ok-fg);
+  color: var(--ok-fg);
+}
+
+.notice--ok strong {
+  color: var(--ok-fg);
+}
+
+/* --- bars ------------------------------------------------------------- */
+
+/* Every bar uses flex-grow sized by raw value, never a percentage width on an
+   inline box — a percentage inside an inline element collapses to 0x0. */
+
+.mix {
+  display: flex;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--track);
+}
+
+/* 2px floor so a 0.05% series is still visible as a mark. */
+.mix > span {
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-width: 2px;
+}
+
+.m-cap {
+  background: var(--series-capital);
+}
+.m-ope {
+  background: var(--series-operating);
+}
+.m-oth {
+  background: var(--series-other);
+}
+
+.usage {
+  display: flex;
+  height: 10px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--track);
+}
+
+/* No minimum: at this size a vanishing sliver is the honest rendering. */
+.usage > span {
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.u-cap {
+  background: var(--series-capital);
+}
+.u-ope {
+  background: var(--series-operating);
+}
+.u-oth {
+  background: var(--series-other);
+}
+.u-rest {
+  background: transparent;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+
+.legend b {
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.lg-cap {
+  background: var(--series-capital);
+}
+.lg-ope {
+  background: var(--series-operating);
+}
+.lg-oth {
+  background: var(--series-other);
+}
+.lg-rest {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+
+/* --- stats ------------------------------------------------------------ */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.stat {
+  padding: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+
+.stat__k {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.stat__v {
+  margin-top: 2px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+/* --- numeric ---------------------------------------------------------- */
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.money {
+  color: var(--text-heading);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.money--zero {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.share {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}

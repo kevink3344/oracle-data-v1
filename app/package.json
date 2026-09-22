@@ -1,0 +1,30 @@
+{
+  "name": "oracle-project-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chart of Accounts · Oracle Projects — read-only review slice over the daily Oracle extract.",
+  "scripts": {
+    "sync:extract": "node scripts/sync-extract.mjs",
+    "predev": "npm run sync:extract",
+    "dev": "vite",
+    "prebuild": "npm run sync:extract",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --force"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9"
+  }
+}

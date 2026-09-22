@@ -1,0 +1,889 @@
+/* ============================================================================
+   Checks — the payments register and its invoice panel.
+
+   Extends `.panel`, `.table-wrap`, `table.data`, `.filterbar`, `.fchip`,
+   `.pager`, `.dsec`, `.btn`, `.notice` and the `.drawer` primitive, all of which
+   it inherits from projects.css, panel.css, objectdetail.css and components.css.
+   Nothing here redeclares any of them.
+
+   The one deliberate duplication is `.chkfilter__box`, which is `.objfilter__box`
+   under another name. The search box is the same control on both pages, but the
+   two pages are independent files and neither owns the other's CSS; a shared
+   class would have to live in components.css, and moving it there would touch
+   the object page for no gain. The rules below are the object page's, verbatim
+   and on purpose.
+   ============================================================================ */
+
+/* --- the figures above the table -------------------------------------- */
+
+/* One strip, five figures, and the same reading as a `.kpi`: a small uppercase
+   key, the number, then the sentence that stops the number being misread. It is
+   `auto-fit` rather than a fixed count because the fifth tile is the first thing
+   worth dropping to a second row on a narrow screen. */
+.chkstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 16px;
+}
+
+.chkstat {
+  position: relative;
+  padding: 16px clamp(10px, 1.6vw, 20px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.chkstat::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--primary-color);
+}
+
+.chkstat__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.chkstat__v {
+  margin-top: 6px;
+  font-size: clamp(1.25rem, 3vw, 1.625rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.chkstat__n {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- filter bar ------------------------------------------------------- */
+
+.chkfilter__box {
+  position: relative;
+  flex: 1 1 300px;
+  min-width: 200px;
+  max-width: 480px;
+}
+
+/* ★ NARROWED TO THE BOX'S OWN CHILD, not any `svg` under it. The magnifier is
+   absolutely positioned at the left of the box and is `pointer-events: none`,
+   so a second icon inside the box would inherit both — it would sit on top of
+   the magnifier and could not be clicked. Every icon that is not the magnifier
+   must now carry its own position and its own pointer events. */
+.chkfilter__box > svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.chkfilter__box input {
+  width: 100%;
+  /* Left 29px clears the magnifier (9 inset + 12 glyph + 8 gap). Right 32px clears
+     the assistant (5 inset + 22 target + 5 gap) — the icon is *inside* the field,
+     so the padding is the only thing stopping a long placeholder running under it. */
+  padding: 6px 32px 6px 29px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color var(--transition);
+}
+
+.chkfilter__box input::placeholder {
+  color: var(--text-faint);
+}
+
+.chkfilter__box input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.chkfilter__box input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* Ask mode. The placeholder already says which box this is, but a placeholder
+   disappears the moment there is text — and the reader who has typed a question
+   is looking at a field that no longer says it is not a filter. The border
+   carries that when the words cannot.
+   ★ It has to beat `:focus`, and it appears with the caret in the field — so it
+   is declared AFTER the focus rules and names the focused case explicitly.
+   A rule placed before them, or left at a lower specificity, would be dropped
+   by the engine at exactly the moment the cue is wanted. */
+.chkfilter__box--ai input,
+.chkfilter__box--ai input:focus {
+  border-color: var(--link);
+}
+
+/* --- ask mode: the brain at the right edge of the field ---------------- */
+
+.chkfilter__ai {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.chkfilter__ai svg {
+  width: 14px;
+  height: 14px;
+  /* The icon must not swallow the click that is meant for the button. The rule
+     above owns only `.chkfilter__box > svg` (the magnifier), so this needs its
+     own size and its own pointer events. */
+  pointer-events: none;
+}
+
+.chkfilter__ai:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+}
+
+/* ★ The pressed state is `--link`, not the brand cyan. `--tertiary-color` is a
+   fixed graphic token with one value for both themes, so it does not adapt to
+   the surface behind the glyph; `--link` is redefined inside the `[data-theme]`
+   block, so this colour is chosen against the theme it is actually painted on.
+   The button is icon-only and has no background of its own, so the surface it
+   is measured against is the input's. */
+.chkfilter__ai[aria-pressed='true'] {
+  background: var(--surface-active);
+  color: var(--link);
+}
+
+.chkfilter__ai:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chkfilter__ai:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* --- the answer ------------------------------------------------------- */
+
+/* A column of paragraphs, so every child is an element. A bare text node beside
+   a sibling in a gapped flex container becomes its own flex item and the gap
+   lands inside the sentence — which is how a note renders ragged while every
+   number in it is correct. Nothing here is ever a bare text node. */
+.chkanswer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--link);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.chkanswer--busy {
+  border-left-color: var(--text-faint);
+}
+
+.chkanswer--problem {
+  border-color: var(--err-border);
+  border-left-color: var(--err-fg);
+  background: var(--err-bg);
+  color: var(--err-fg);
+}
+
+.chkanswer--refused {
+  border-color: var(--warn-border);
+  border-left-color: var(--warn-fg);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+/* ★ The aggregate's name, the figure, and what the figure is a count of, on one
+   baseline. A bare `1` and a bare `778481.55` are the same shape; without the
+   name and the unit beside it neither can be read. */
+.chkanswer__figure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.chkanswer__agg {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.chkanswer__num {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-heading);
+}
+
+.chkanswer__unit {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.chkanswer__lead {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-heading);
+}
+
+.chkanswer__note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.chkanswer__link {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.chkanswer__rows,
+.chkanswer__asks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.chkanswer__rowmeta {
+  color: var(--text-muted);
+}
+
+.chkanswer__asks {
+  padding-left: var(--space-4);
+  list-style: disc;
+  color: var(--text-muted);
+}
+
+/* The scope sentence. It renders whether or not anything was removed — the count
+   inside it is the conditional part, never its presence. */
+.chkanswer__basis {
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.chkanswer__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chkanswer__model {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the table -------------------------------------------------------- */
+
+/* Five columns and no free one. Unlike the object page there is no description
+   to absorb the slack, so the vendor column is given the remainder and min-width
+   hands any overflow to `.table-wrap`, which already scrolls horizontally. */
+table.data.chktable {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+table.data.chktable thead th,
+table.data.chktable tbody td {
+  padding: 10px 12px;
+}
+
+table.data.chktable col.c-check {
+  width: 104px;
+}
+table.data.chktable col.c-date {
+  width: 96px;
+}
+table.data.chktable col.c-amount {
+  width: 128px;
+}
+table.data.chktable col.c-inv {
+  width: 88px;
+}
+/* No width on the vendor col: under table-layout:fixed it takes what is left,
+   and it is the one column whose length is genuinely unbounded. */
+
+/* Four classes' worth of specificity, because `table.data td:first-child` sets
+   `white-space: normal` at (0,2,2) and the check number must never wrap — a
+   number broken across two lines reads as two numbers. */
+table.data.chktable td.chk-num {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+table.data.chktable td.n.chk-num {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* ============================================================================
+   The check image viewer — zoom in, zoom out and pan.
+
+   ★ THE WHEEL IS NOT A ZOOM GESTURE HERE UNLESS A MODIFIER IS HELD, which is the
+     same decision `VendorSiteMap` records as `scrollZoom: false`. This frame sits
+     inside the drawer's own scroll container, so a bare wheel over the image
+     would zoom the image instead of scrolling the panel — the reader would lose
+     their place, watch the picture jump, and never be told why. Command or
+     Control with the wheel is honoured because the modifier states the intent,
+     and a trackpad pinch arrives as exactly that event, so pinch-to-zoom comes
+     free. The buttons above the frame are the accessible replacement, and they
+     work from the keyboard.
+
+   ★ THE FRAME OWNS A FIXED HEIGHT, AND THAT IS LOAD-BEARING. Every offset the
+     component computes is clamped against this box, so the box must not resize
+     as the reader zooms: a frame sized by its content would slide the image under
+     the pointer mid-drag. It is deliberately taller than the old `min(26vh, 260px)`
+     strip, because zoom controls on 260px of picture are controls nobody can use.
+   ============================================================================ */
+
+.chkzoom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chkzoom__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Sized to `.btn--sm`'s rendered height so the controls read as siblings of the
+   panel's other buttons rather than as a bespoke set invented for this section. */
+.chkzoom__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.chkzoom__btn:hover {
+  background: var(--surface-hover);
+}
+
+.chkzoom__btn:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+.chkzoom__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chkzoom__btn:disabled:hover {
+  background: var(--surface);
+}
+
+.chkzoom__btn--text {
+  padding: 0 10px;
+  font-size: 0.75rem;
+}
+
+/* A live region, so the reader hears the new scale on the press that changed it
+   instead of having to go and look. Tabular figures stop the bar twitching as
+   the number's width changes. */
+.chkzoom__level {
+  min-width: 44px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.chkzoom__frame {
+  position: relative;
+  height: min(44vh, 380px);
+  min-height: 180px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  /* While the whole image is in view a touch swipe belongs to the drawer's
+     scroller. Once it is larger than the frame the frame needs the gesture to
+     pan with, which `.is-pannable` hands over. */
+  touch-action: pan-y;
+}
+
+.chkzoom__frame.is-pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.chkzoom__frame.is-dragging {
+  cursor: grabbing;
+}
+
+.chkzoom__frame:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+/* Until the image has been measured it is centred at its own size, so the frame
+   shows a whole picture rather than the top-left corner of one. */
+.chkzoom__frame:not(.is-ready) {
+  display: grid;
+  place-items: center;
+}
+
+.chkzoom__img {
+  display: block;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.chkzoom__frame:not(.is-ready) .chkzoom__img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+/* ★ `transform-origin: 0 0` TOGETHER WITH AN ABSOLUTE TOP-LEFT CORNER IS WHAT
+   MAKES THE COMPONENT'S OFFSET ARITHMETIC EXACT. With the origin at the frame's
+   corner, a translated and scaled image lands at `offset + point × scale` — the
+   model the clamping and the zoom-to-point both use. Centring the origin instead
+   would add a second, uncontrolled term to every pan. */
+.chkzoom__frame.is-ready .chkzoom__img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.chkzoom__failed {
+  max-width: 30ch;
+  margin: 0 auto;
+  padding: 0 16px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.chkzoom__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+}
+
+/* Global by design, and the precedent is `body.is-resizing` in panel.css: the
+   drag listeners are on the window, so the cursor has to be too, or it flickers
+   back to a caret the moment the pointer leaves the frame. Scoped to the frame,
+   so no `!important` is needed to beat `.is-pannable`. */
+body.is-panning {
+  user-select: none;
+}
+
+body.is-panning .chkzoom__frame {
+  cursor: grabbing;
+}
+
+/* The row opens the panel, so the whole row has to look like it does —
+   pointer cursor, hover, and a left rule while its panel is open. */
+table.data.chktable tbody tr.chktable__row {
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+table.data.chktable tbody tr.chktable__row:hover {
+  background: var(--surface-hover);
+}
+
+table.data.chktable tbody tr.is-open {
+  background: var(--surface-active);
+}
+
+table.data.chktable tbody tr.is-open td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* The check number is the row's own button: the row click is for the mouse, and
+   this is what a keyboard reaches. It is styled as a link because that is what
+   it behaves like, but it is a real button so it is focusable, announced as a
+   control and driven by Enter and Space without any help. */
+.chk-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chk-link:hover {
+  text-decoration: underline;
+}
+
+.chk-link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The invoice count: a plain figure when a check paid one, and weighted when it
+   paid several. The weight is the whole point of the column — a check that
+   settled nine invoices is a different animal from one that settled one, and
+   that difference is invisible in a row of identical right-aligned digits. */
+.chkinv {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.chkinv--many {
+  background: var(--surface-active);
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+/* --- no matches ------------------------------------------------------- */
+
+/* Replaces the table rather than adding an empty row to it: a full-width cell
+   inside a 760px fixed-layout table centres its message inside 760px, and the
+   first ~600px of that is all a narrow viewport ever shows. */
+.chkempty {
+  padding: 32px 16px 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.chkempty p {
+  margin: 0 0 10px;
+}
+
+.chkempty__hint {
+  max-width: 56ch;
+  margin: 0 auto 16px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* The gap between two runs of page numbers. `.pager__n` is 30px wide with a 2px
+   gap, so this reserves exactly that and keeps the row from shifting as the
+   window slides. */
+.pager__gap {
+  min-width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+/* --- the panel -------------------------------------------------------- */
+
+/* Wider than the project drawer by default: this one holds a three-column table
+   of invoices, and the money column has to keep its edge. */
+.chkpanel {
+  --drawer-w: 560px;
+}
+
+.chkpanel .drawer__name {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+/* --- the invoices inside the panel ------------------------------------ */
+
+/* A scroll container of its own, so a check with a hundred invoices scrolls
+   inside the panel instead of pushing the reconciliation off the bottom. */
+.chkinvoices {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.chkinvtable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.chkinvtable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.chkinvtable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chkinvtable tbody tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+.chkinvtable tfoot th,
+.chkinvtable tfoot td {
+  padding: 8px 10px;
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chkinvtable tfoot th {
+  text-align: left;
+}
+
+.chkinvtable .n {
+  text-align: right;
+}
+
+/* A credit is signed and coloured, never silently made positive: 274 of the
+   9,451 links in this window are negative, and a credit rendered as a normal
+   amount is the figure a reader would add twice. */
+.chkinvoices__credit {
+  color: var(--warn-fg);
+}
+
+/* The purchase order a link names, and the two ways it can be absent.
+
+   `td.chk-po` is (0,2,1) against `.chkinvtable td`'s (0,1,1), so these win —
+   raising the selector rather than reaching for `!important`, which is the same
+   rule `.chkinvtable td a.chk-invlink` had to follow for `color`.
+
+   ITALIC IS A PHRASE, UPRIGHT IS A FIGURE — the grammar `.invrow__none` and
+   `.invrow__po` set on the invoices register. So `none` and `not measured` are
+   italic words and an order number keeps the cell's upright mono. The value is
+   lifted to `--text-body` because 15.1% of the rows carry one and the figure has
+   to be findable in a column that is mostly its own absence; the phrases sit
+   below it, `none` at `--text-faint` because it is the common, unremarkable
+   answer, `not measured` at `--text-muted` because it is a caveat about the file
+   rather than an answer about the money. */
+.chkinvtable td.chk-po {
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.chkinvtable td.chk-po--none {
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.chkinvtable td.chk-po--absent {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* The invoice number is a link into the invoices register.
+
+   `--link` and not `--primary-color`: the brand token is fixed at #165788 and is
+   never re-declared for `[data-theme='dark']`, where it sits near 1.6:1 — and
+   this is 12px mono, the smallest text on the page. `--link` is the one accent
+   token with a per-theme value, which is the whole reason the rule exists.
+
+   Scoped through the table because `.chkinvtable td` sets `color` at (0,1,1) and
+   a bare `a.chk-invlink` ties with it. Underline on hover only, the same rule the
+   account codes on the invoices register follow: 100 underlined numbers in a
+   scrolling box is a wall. */
+.chkinvtable td a.chk-invlink {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.chkinvtable td a.chk-invlink:hover {
+  text-decoration: underline;
+}
+
+.chkinvtable td a.chk-invlink:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- check against invoices ------------------------------------------- */
+
+.chkrows {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.chkrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.chkrow:last-child {
+  border-bottom: 0;
+}
+
+.chkrow__k {
+  color: var(--text-muted);
+}
+
+.chkrow__v {
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The last row is the one the reader came for, so it is the one that gets a
+   band rather than another line of the same. */
+.chkrow--sum {
+  background: var(--surface-sunken);
+}
+
+.chkrow--sum .chkrow__k {
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.chkrow--sum .chkrow__v {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+/* A difference that is not zero is the reason this section exists, so it is the
+   one figure in the panel allowed to shout. */
+.chkrow--off {
+  background: var(--warn-bg);
+}
+
+.chkrow--off .chkrow__k,
+.chkrow--off .chkrow__v {
+  color: var(--warn-fg);
+}
+
+.chknote {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* --- narrow screens --------------------------------------------------- */
+
+/* Below 720px the panel is nearly the whole viewport, so the invoice table's
+   scroll box can take more of it and the figures drop to one per row. */
+@media (max-width: 720px) {
+  .chkstats {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .chkstat {
+    padding: 12px;
+  }
+
+  .chkstat__v {
+    font-size: 1.125rem;
+  }
+
+  .chkinvoices {
+    max-height: 40vh;
+  }
+
+  /* The sticky header is worth less than the rows when the box is this short. */
+  .chkinvtable thead th {
+    position: static;
+  }
+}

@@ -1,0 +1,851 @@
+/* ============================================================================
+   App shell: rail navigation, topbar, page frame.
+   ============================================================================ */
+
+.shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+/* --- rail ------------------------------------------------------------- */
+
+.rail {
+  position: sticky;
+  top: 0;
+  flex: 0 0 var(--rail-w);
+  width: var(--rail-w);
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px 12px 24px;
+  background: var(--surface-rail);
+  border-right: 1px solid var(--border);
+}
+
+/* ★ A TWO-ROW GRID, WHICH IS WHAT FIXES THE WRAPPING. The mark and the settings
+   gear take the first row and the product's name and tagline take the second, at the
+   rail's full inner width. As a flex row the words had 77px left after the mark and
+   the gear, so the name broke one word per line; as a grid they have 151px and set in
+   two.
+
+   ★ `align-items: center` ON THE FIRST ROW AND NOT THE SECOND IS NOT EXPRESSIBLE
+   HERE, so the words carry their own alignment — see `.brand__words`. The grid centres
+   the mark and the gear against each other, which is the only pair that has to line up. */
+.rail__brand {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 4px 8px 0;
+}
+
+/* The monogram, 28px until the rail's brand was reworked: the mark is the thing the
+   eye lands on first and it was the same size as the gear beside it, which read as two
+   controls rather than as a mark and a control. 32 is as far as it goes without
+   turning the first row into the tall half of the block. */
+.brand__mark {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius);
+  background: var(--primary-color);
+  color: var(--on-brand);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* `min-width: 0` because a grid item's automatic minimum is its longest word: without
+   it the block cannot narrow below "Accounts" and the rail would scroll sideways on a
+   window narrow enough to shrink `--rail-w`. */
+.brand__words {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.brand__name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  line-height: 1.2;
+}
+
+.brand__sub {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail__title {
+  padding: 0 8px 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.rail__link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-body);
+  font-size: 0.8125rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition);
+  width: 100%;
+}
+
+.rail__link:hover {
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+
+.rail__link[aria-current='page'] {
+  background: var(--rail-active-bg);
+  color: var(--rail-active-fg);
+  font-weight: 600;
+}
+
+.rail__link[aria-current='page'] .cnt {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Scope that exists in the plan but not in this slice. */
+.rail__link[aria-disabled='true'] {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.rail__link[aria-disabled='true']:hover {
+  background: none;
+}
+
+.cnt {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.rail__foot {
+  margin-top: auto;
+  padding: 0 8px;
+  font-size: 0.625rem;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+/* --- main + topbar ---------------------------------------------------- */
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.search {
+  position: relative;
+  flex: 1 1 auto;
+  max-width: 460px;
+}
+
+.search svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  padding: 8px 10px 8px 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.search input::placeholder {
+  color: var(--text-faint);
+}
+
+.search input:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--tertiary-color);
+}
+
+.search input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+.topbar__tail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+/*
+ * The mobile menu toggle. Rendered by `TopBar` only below 720px — see
+ * `NAV_DRAWER_MAX_PX` there and the matching media query at the foot of this file —
+ * so there is no `display: none` here to keep in step with that number.
+ *
+ * Sized and shaped like `.themeswitch` beside it, because they are the same kind of
+ * thing: one square icon button in the bar's tail. The negative left margin pulls it
+ * to the bar's own padding edge, which is where the rail's left edge sits when the
+ * drawer is open — so the button does not appear to jump when the drawer slides in
+ * under it.
+ */
+.topbar__nav {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  margin-left: -6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.topbar__nav:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-heading);
+}
+
+.topbar__nav[aria-expanded='true'] {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-heading);
+}
+
+.topbar__nav svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* One button with one icon in it: the icon is the theme the click moves you to,
+   and the two of them share the state, so there is no "which one is lit?" to
+   read. Sized to the avatar so the tail of the topbar sits on one rhythm. */
+.themeswitch {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.themeswitch:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-heading);
+}
+
+.themeswitch svg {
+  width: 15px;
+  height: 15px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--primary-color);
+  color: var(--on-brand);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  /* ★ THE THREE PROPERTIES THE AVATAR NEEDED THE MOMENT IT BECAME A LINK. It was
+     a `<span>` and is now the `<Link>` to `/sign-in`, and an anchor brings
+     `text-decoration: underline` and a pointer that is a text caret by default —
+     neither of which a 30px circle of initials can carry. `text-decoration: none`
+     on its own would leave the focus ring as the browser draws it, which on a
+     round grid container sits as a square outline touching the circle; the
+     `outline-offset` is what makes it read as a ring around it. */
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.avatar:hover {
+  background: var(--primary-hover);
+}
+
+.avatar:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* --- page ------------------------------------------------------------- */
+
+.page {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: var(--content-max);
+  padding: 24px 20px 72px;
+}
+
+.accent-rule {
+  width: 40px;
+  height: 3px;
+  margin-bottom: 12px;
+  background: var(--secondary-color);
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.page-head__sub {
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  max-width: 76ch;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* --- account scope ----------------------------------------------------
+   The control beside the global search. Three ideas are encoded in the CSS:
+
+   1. `04` and the chips are one object. The fund label is deliberately
+      unstyled as a button — no border, no hover, no pointer — so it cannot be
+      mistaken for something a click would change. All the chrome goes on the
+      part that actually moves.
+   2. An off chip is *quiet, not absent*. It keeps its border and its code
+      readable; it loses only the accent. A chip that vanished when switched
+      off would leave the reader unable to switch it back on, and a chip greyed
+      to the point of illegibility reads as disabled data rather than a choice.
+   3. The popover is positioned off `.scope`, which is `position: relative`, and
+      is the only absolutely-positioned thing in the topbar. It has to escape
+      the bar's 56px height without being clipped, so no ancestor between it and
+      `.scope` carries `overflow: hidden`. */
+
+.scope {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.scope__inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scope__fund {
+  padding: 0 4px 0 2px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-heading);
+  cursor: default;
+  user-select: none;
+}
+
+.scope__chip {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.scope__chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-heading);
+}
+
+/* On: the outline the mockup showed, on the same accent the focused search input
+   uses, so "selected here" and "focused there" are visibly the same family. */
+.scope__chip.is-on {
+  border-color: var(--tertiary-color);
+  background: var(--info-bg);
+  color: var(--info-fg);
+  font-weight: 600;
+}
+
+/* A program the extract holds nothing under. Called out because selecting it is
+   the one action here that can empty every page, and the reader should be able to
+   see that coming rather than discover it as a blank table. */
+.scope__chip.is-empty {
+  border-style: dashed;
+}
+
+.scope__chip:focus-visible,
+.scope__caret:focus-visible,
+.scope__row:focus-visible,
+.scope__reset:focus-visible,
+.scope__close:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+.scope__caret {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.scope__caret:hover {
+  border-color: var(--border);
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+.scope__caret svg {
+  width: 12px;
+  height: 12px;
+}
+
+.scope__pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 70;
+  width: 340px;
+  max-width: min(340px, calc(100vw - 40px));
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.scope__pophead {
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.scope__popnote,
+.scope__popfoot {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.scope__popfoot {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.scope__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope__row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.scope__row:hover {
+  background: var(--surface-hover);
+}
+
+.scope__row.is-on {
+  border-color: var(--tertiary-color);
+  background: var(--info-bg);
+}
+
+.scope__code {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.scope__count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.scope__count em {
+  font-style: normal;
+  color: var(--warn-fg);
+}
+
+.scope__tick {
+  color: var(--info-fg);
+  font-size: 0.8125rem;
+  text-align: right;
+}
+
+.scope__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.scope__reset,
+.scope__close {
+  flex: 1 1 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.scope__reset:hover:not(:disabled),
+.scope__close:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.scope__reset:disabled,
+.scope__close:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* --- scope notes ------------------------------------------------------
+   The scope, said in prose on pages it cannot reach (`ScopeNotApplied`) or on
+   pages it cost something on (`ScopeRemoved`). The flag is a small pill rather
+   than a coloured panel: the note is a caveat on the figures below it, and a
+   full-width alert would compete with the very table it is qualifying. */
+
+.scopenote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+
+.scopenote--removed {
+  border-left-color: var(--tertiary-color);
+}
+
+/* The Activity register's note naming the database it read. Informational rather
+   than a warning: nothing is wrong, the reader simply cannot see from the numbers
+   which of two databases produced them. Same treatment as `--removed` for the same
+   reason — a page carrying two warn-bordered notes reads as two problems. */
+.scopenote--source {
+  border-left-color: var(--tertiary-color);
+}
+
+.scopenote__flag {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.scopenote--removed .scopenote__flag {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.scopenote--source .scopenote__flag {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+/* --- responsive ------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  :root {
+    --rail-w: 176px;
+    --drawer-w: 440px;
+  }
+}
+
+@media (min-width: 1500px) {
+  :root {
+    --drawer-w: 520px;
+  }
+}
+
+@media (max-width: 900px) {
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Below 900px the three chips stop being readable — the topbar's own count and
+     the search box both need the room — so the inline group gives way to the caret
+     alone. The caret is not a lesser control: it opens the same three toggles with
+     their counts spelled out, so nothing is lost except the glance. */
+  .scope__inline {
+    display: none;
+  }
+
+  .scope__caret {
+    border-color: var(--border-strong);
+    background: var(--surface-sunken);
+  }
+}
+
+@media (max-width: 720px) {
+  /*
+   * ★ THE RAIL BECOMES AN OFF-CANVAS DRAWER RATHER THAN A STACKED BLOCK.
+   *
+   *   It used to be `display: block` on the shell with a full-width, auto-height rail
+   *   above the content. Measured at a 594px viewport: the rail grew to its natural
+   *   **651px** and pushed `header` to `top: 651` and `main` to `top: 707`, so on a
+   *   515px-tall window the page opened on a screenful of menu links with the content
+   *   entirely below the fold. The menu was not broken — it was the intended narrow
+   *   layout — but 27 leaves stacked above every page is not a layout anybody wants.
+   *
+   *   So the rail leaves the flow entirely and slides in from the left, over the page,
+   *   when the toggle in the top bar is pressed. The content column keeps the full
+   *   width and starts at the top of the viewport.
+   *
+   * ★ `transform` RATHER THAN `left`, BECAUSE OF HOW THEY ANIMATE. Animating `left`
+   *   runs layout on every frame; `transform` is composited, so the slide is smooth on
+   *   a phone. The panel is positioned off-screen with a translate and brought back to
+   *   zero, which also means the *closed* state has no layout cost at all.
+   *
+   * ★ AND IT IS `visibility: hidden` WHEN CLOSED, NOT MERELY OFF-SCREEN. A panel that
+   *   is only translated away is still focusable: Tab would walk into 27 invisible
+   *   links and the reader would lose the caret with no way to see where it went.
+   *   `visibility` removes it from the tab order, and it is transitioned so the slide
+   *   out is still visible — `visibility` is a discrete property, so it flips at the
+   *   end of the transition on the way out and the start on the way in.
+   */
+  .shell {
+    display: block;
+  }
+
+  .rail {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(84vw, var(--rail-w));
+    height: 100dvh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.04), 12px 0 32px rgb(0 0 0 / 0.18);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 0.24s ease,
+      visibility 0s linear 0.24s;
+  }
+
+  /*
+   * ★ THE OPEN STATE IS DRIVEN BY A CLASS ON THE SHELL, NOT ON THE RAIL.
+   *
+   *   The rail is a child of `.shell`, so a descendant selector would reach it — but
+   *   the *backdrop* is a sibling of `.shell` and the scroll lock is on the root, so
+   *   the state has to live above both. Putting it on the shell means one class
+   *   describes the whole condition and no two elements can disagree about whether the
+   *   drawer is open.
+   */
+  .shell--nav-open .rail {
+    transform: translateX(0);
+    visibility: visible;
+    transition:
+      transform 0.24s ease,
+      visibility 0s;
+  }
+
+  /*
+   * The backdrop. `position: fixed` and covering everything, so a tap anywhere outside
+   * the panel closes it — which is what people expect from a drawer and is the only
+   * way out that does not require finding the toggle again.
+   *
+   * `z-index: 59` is one below the rail's 60, so the panel is never dimmed by its own
+   * backdrop. It is a `<button>` in the markup rather than a `<div>` with a click
+   * handler, so the close action is reachable and announced; it carries `tabIndex={-1}`
+   * because the rail's own Escape handler is the keyboard route out, and having the
+   * backdrop in the tab order would put a full-screen "Close the menu" between the
+   * top bar and the page.
+   */
+  .navbackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 59;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: rgb(0 0 0 / 0.42);
+    cursor: pointer;
+    animation: navbackdrop-in 0.24s ease;
+  }
+
+  @keyframes navbackdrop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /*
+   * ★ THE BACKDROP IS HIDDEN ABOVE THE BREAKPOINT RATHER THAN NEVER RENDERED.
+   *
+   *   It is rendered from React state, and that state survives a resize — a reader who
+   *   opens the drawer on a narrow window and then widens it would otherwise be left
+   *   with a full-screen dimming layer over a layout that has no drawer. The provider
+   *   closes the drawer on that transition too, so this is the second of two guards;
+   *   it is here because a CSS rule cannot be defeated by a missed event.
+   *
+   * ★ AND THE GROUP-LAYOUT OVERRIDES THAT USED TO LIVE HERE ARE DELETED, NOT MOVED.
+   *
+   *   This block carried `.rail__group { flex-direction: row; flex-wrap: wrap }` and
+   *   `.rail__title { flex-basis: 100% }`, written when the rail was a full-width
+   *   stacked block with horizontal room to spend. In the drawer — 176px wide, and
+   *   narrower than the desktop rail — those rules put a group's header and its panel
+   *   side by side and wrap 27 leaves into a dense grid. The drawer is a narrow form of
+   *   the rail, so the desktop tree treatment applies unchanged and nothing here needs
+   *   to contradict it. `rail.css` carried the mirror-image overrides for the same dead
+   *   layout and they are deleted there too.
+   */
+}
+
+@media (min-width: 721px) {
+  /* Above the breakpoint there is no drawer, so the backdrop has no job. */
+  .navbackdrop {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The slide is decoration; the drawer still has to open. */
+  .rail {
+    transition: none;
+  }
+
+  .navbackdrop {
+    animation: none;
+  }
+}

@@ -1,0 +1,647 @@
+/* ============================================================================
+   Sign in — the screen on the outside of the gate.
+
+   `App.tsx` renders this page as a *sibling* of the session gate rather than
+   inside it, so none of the shell's sheets apply here: there is no rail, no top
+   bar and no page frame. Everything this screen needs, it says.
+
+   ── ORDER MATTERS, AND NOT THE USUAL WAY
+
+   This sheet is imported last in `main.tsx`, after `settings.css` — which is
+   where `.idcard` and `.idcard__actions` live and which this screen reuses rather
+   than re-declaring. Loading last means the rules here *win* on order; the
+   consequence is that nothing here may be a half-hearted restatement of a class
+   that already exists. If a shared class needs different behaviour on this
+   screen, it gets a `.signin` descendant selector, not a second definition of the
+   same name.
+   ============================================================================ */
+
+/* --- the page -------------------------------------------------------------- */
+
+/* `align-content: center` with a `min-height` rather than a flex `center`, because
+   the card can be taller than the window on a short laptop and `center` in a flex
+   container clips the top of an overflowing item — the first field would be
+   unreachable above the top edge with no scrollbar to reach it. `align-content`
+   with `justify-items` keeps the card centred while it fits and lets the page
+   scroll when it does not.
+
+   ★ `100vh` AND NOT `100%`. `#root` has `min-height: 100%` in `base.css` and
+   `body` has no height at all, so a percentage here resolves against nothing and
+   the card settles at the top of the window instead of the middle of it. */
+.signin {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  min-height: 100vh;
+  padding: 40px 20px;
+  background: var(--app-bg);
+}
+
+/* ★ 580px AND NOT 460px, BECAUSE THE BRAND IS TWICE THE SIZE. The product's name is
+   483px at 36px and the card's own padding is 26px a side, so the lockup sets a floor
+   of 535px; 580 leaves the name 45px of slack, which is what keeps a marginally wider
+   rendering of the same string from reflowing it. Nothing else in the card needed the
+   width — the fields and the scale block were already stretching to it — so this is
+   part of the brand's change rather than a change of its own. */
+.signin__card {
+  width: min(580px, 100%);
+  padding: 26px 26px 24px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 14px 36px -14px rgb(0 0 0 / 22%);
+}
+
+/* The stacking inside the card, in one place. A `grid` gap rather than
+   `.field + .field`, which is the rule the panels use: this card holds a brand
+   block, a rule, a heading, an optional error notice, two fields and an action
+   row, and the panel rule only accounts for two of them.
+
+   ★ AND THE GAP IS WHY REMOVING A CHILD LEAVES NO HOLE. When the lede paragraph
+   between the heading and the first field was deleted, the space it occupied went
+   with it — the gap is between the children that remain, not a margin carried by
+   any one of them. A `margin-bottom` on the heading would have left the gap
+   behind, which is the failure this rule was chosen to avoid. */
+.signin__body {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+/* --- the scale line: what is behind the door ------------------------------- */
+
+/* ★ A NEW CLASS, NOT A RESTATEMENT OF ONE THAT EXISTS.
+   `.chart-note` and `.notice` were both available and neither fits: `.chart-note`
+   is a caveat attached to a chart the reader is looking at, and `.notice` is an
+   *outcome* — something that happened. This is a standing fact about the
+   deployment, so it gets its own name rather than borrowing a meaning it does not
+   have. The `signin__` prefix keeps it off every other screen, which is the rule
+   this sheet's header sets: a shared class needing different behaviour here gets a
+   `.signin` descendant selector, and a class only this screen has gets a name that
+   says so.
+
+   ★ `--surface-sunken` RATHER THAN A SECOND BORDER COLOUR. The card is `--surface`
+   on `--app-bg`; a slightly darker fill separates the fact from the form above it
+   without adding a second box outline to a card that already has one. It stays
+   legible in both themes because both tokens are theme-aware, which a hand-picked
+   grey would not be.
+
+   ★ IT IS THE LAST THING IN `.signin__body`, BELOW THE ACTION ROW, AND NOTHING
+   HERE HAD TO CHANGE TO ALLOW THAT. It is a grid child like the fields, so it
+   stretches to their width (measured: x 188, w 406 — identical to the email input)
+   and inherits the card's 18px rhythm as its separation from the button. No
+   `margin-top`, no order, no width rule: a block that needed any of those would be
+   a sign it was being placed against the grid rather than in it.
+
+   ★ IT IS NO LONGER A GRID, AND THE DECLARATION DID NOT SIMPLY MOVE DOWN. The
+   figure, note and list used to be three grid children of this rule. The figure is
+   now the `<summary>` of a `<details>` and the other two are folded under it, so the
+   container has a `<summary>` that must not be a grid item and the rhythm lives on
+   `.signin__scale-body` instead. The block still declares no `gap`, no `display` and
+   no margins — `.signin__body` above it is what places it. */
+.signin__scale {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 3px);
+  background: var(--surface-sunken);
+}
+
+/* ★ THE FIGURE IS THE TOGGLE, AND THE COLLAPSE IS THE BROWSER'S.
+ *
+ * `<details>`/`<summary>` and not a button with `useState`: the disclosure is the
+ * platform's, so it is keyboard-operable and announced as expanded or collapsed
+ * with no handler, and the chevron is turned by the `open` attribute rather than by
+ * React state — there is no second source of truth for "is this open" to drift from
+ * the DOM.
+ *
+ * ★ A COLLAPSED `<details>` CANNOT BE VERIFIED WITH A RECT. Measured in Chrome 148:
+ * a folded child keeps a full `getBoundingClientRect()` — the body below measures
+ * 40px while the block is closed — because the browser clips the subtree with
+ * `content-visibility`-style hiding rather than `display: none`. `checkVisibility()`
+ * reports it correctly (false when closed, true when open), and a `display: none`
+ * control reads false on both. So a probe built on "is there a box here" would call
+ * this block fully expanded in both states; use `checkVisibility()`.
+ *
+ * The same measurement also settles the risk that made this syntax worth checking:
+ * an author `display` on a direct child of `<details>` — this body is a grid — does
+ * NOT defeat the collapse. The browser's hiding wins over the author's `display`.
+ *
+ * ★ `--text-muted` AND NOT `--text-faint` FOR THE CHEVRON. Faint fails AA and this
+ * marker is the only thing on the card saying the block can be opened — see
+ * `.signin__foot` for the same reasoning applied to a sentence. */
+.signin__scale-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* The marker is drawn below, so the list-item one is removed here and in WebKit.
+     `list-style: none` alone leaves the marker in older WebKit builds. */
+  list-style: none;
+  cursor: pointer;
+}
+
+.signin__scale-head::-webkit-details-marker {
+  display: none;
+}
+
+/* A chevron built from two borders and rotated, rather than a glyph or an SVG: it
+   takes `currentColor`-independent colour from an explicit token, scales with the
+   padding around it, and turns in place instead of swapping for a second shape.
+   `rotate(45deg)` points it down when closed — the direction that says "there is more
+   this way" — and `-135deg` inverts it when open. The identical construction is on
+   `.bucket > summary::after`, so both disclosures on this app turn the same way. */
+.signin__scale-head::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: none;
+  /* Pushed to the far end of the row, which is what keeps the marker off the
+     figure's last word when the figure is long and at the card's right edge when it
+     is short. */
+  margin-left: auto;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform var(--transition);
+}
+
+.signin__scale[open] .signin__scale-head::after {
+  transform: rotate(-135deg);
+}
+
+/* Darkens rather than gaining a background: the head is inset in the block's own
+   12px/14px padding, so a fill would paint a rectangle inside a rectangle on a card
+   whose whole design is one bordered box. The pointer cursor and the moving chevron
+   carry the affordance. */
+.signin__scale-head:hover::after {
+  border-color: var(--text-body);
+}
+
+/* Inside the head's own box rather than outside it — the block's border is 1px away
+   and an outward ring would paint over it. Same intent as `.acc__toggle:focus-visible`. */
+.signin__scale-head:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ★ THE GAP MOVED HERE FROM `.signin__scale`, WHICH IS NO LONGER A GRID, AND THE
+   4px IS THE ONLY CONTRIBUTION TO THE SPACE ABOVE THIS BOX. The note and the list
+   are separated from the figure by this `margin-top` and from each other by the
+   `gap`, which is the 4px + 4px the block had before the figure became a summary.
+   The two short states — counting, and failed — use this wrapper too, so all three
+   states of the block share one source of the rhythm instead of the folded one
+   having it and the other two not. */
+.signin__scale-body {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* The figure is the point of the block, so it gets the heading colour and the
+   weight, and the note under it stays muted — a reader skimming the card takes the
+   two numbers and can ignore the provenance until they want it. */
+.signin__scale-figure {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.signin__scale-note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  /* The target's connection string is long and has no spaces. Without this it
+     would set the card's minimum width and push the layout wider than the card's
+     580px on a narrow window — a wrapping bug that only shows up at one window
+     size.
+
+     ★ IT NOW CARRIES TWO OF THOSE STRINGS, NOT ONE. The ledger target and the app
+     store's are printed in `<code>` and both are `libsql://…turso.io` hosts with no
+     break opportunity in them, so this rule stopped being defensive and became the
+     thing holding the card at 580px. */
+  overflow-wrap: anywhere;
+}
+
+/* The two store hosts, inline. `font-size: inherit` matters: the base sheet sets
+   `code` larger than the 0.75rem this note is set in, which made the hosts read as
+   the most important words in a sentence whose point is the figure above them. */
+.signin__scale-note code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+
+/* --- the ledger list: every table, and the rows in each -------------------- */
+
+/* ★ IT SCROLLS RATHER THAN GROWING, AND THE CAP IS WHAT KEEPS THE CARD USABLE.
+   The number of rows is the deployment's, not this sheet's — the seeded store has
+   thirty-four objects and a copied one has the same thirty-four with different
+   counts, but nothing guarantees that number. A block that grew with it would make
+   the sign-in card's height a function of the database, and on a short window the
+   card would run past the viewport with the brand at the top and no way to tell
+   how much was below. `max-height` in `rem` rather than `px` so the cap follows the
+   reader's own text size.
+
+   ★ `overflow-y: auto` AND NOT `scroll`: a store small enough to fit — which is
+   what this deployment has — must not show a dead scrollbar, because a scrollbar
+   over four rows reads as content the reader is being kept from.
+
+   ★ THE TOP RULE IS DRAWN ON THE CONTAINER, NOT ON THE FIRST ROW. A border on
+   `:first-child` would scroll away with it and leave the list ending flush against
+   the note above at the moment the reader scrolls — the two blocks would appear to
+   merge exactly when the separation is worth having. */
+.signin__ledger {
+  /* ★ NO `margin-top`, BECAUSE `.signin__scale-body` IS ALREADY A GRID WITH A GAP.
+     The body's children are separated by `gap: 4px`, so the distance above this rule
+     is that gap plus the `padding-top` below — a margin here would be a third
+     contribution to a sum two rules already answer. */
+  /* The folded-first-row case: this rule's `padding-top` is the only separation from
+     the note above it, and the block's fold is what keeps thirty-four rows from
+     setting the card's height. */
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  max-height: 11.5rem;
+  overflow-y: auto;
+  /* The scrollbar, when there is one, is a thin one that does not move the rows
+     sideways. `scrollbar-width` is the standard property; the WebKit rule below is
+     the same intent for the engine most of this app is read in. */
+  scrollbar-width: thin;
+}
+
+.signin__ledger::-webkit-scrollbar {
+  width: 6px;
+}
+
+.signin__ledger::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--border-strong);
+}
+
+/* ★ EACH ROW IS A ROW AND NOT A GRID, BECAUSE THERE ARE EXACTLY TWO FIELDS.
+   A left-aligned name and a right-aligned count is `justify-content: space-between`
+   and nothing else; a one-column grid would need the columns declared and would
+   give the same result with more to go wrong. `baseline` rather than `center` so
+   the count sits on the name's baseline when a name wraps to two lines — which
+   `FND_FLEX_VALUES_TL` does at 360px. */
+.signin__ledger-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+}
+
+/* The app-owned rows are the same shape and a different answer: they are in the
+   payload and not in the total, so they are separated by a rule and set back
+   rather than being mixed into the list where they would read as ledger tables. */
+.signin__ledger-row--app {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--border);
+}
+
+/* ★ MONOSPACE, BECAUSE THESE ARE IDENTIFIERS RATHER THAN PROSE. `GL_JE_LINES` is a
+   name a reader may have to type into a query, and the proportional face this card
+   uses renders `l` and `1` alike — the same reason `ident()` in `data/format.ts`
+   strips grouping from ids. */
+.signin__ledger-name {
+  font-family: var(--font-mono);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* ★ TABULAR FIGURES, SO THE COLUMN READS AS A COLUMN. Proportional digits make
+   `2802` narrower than `2805` and the right edge ragged, which is exactly the
+   misreading a count column is supposed to make impossible. */
+.signin__ledger-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ★ `not counted` IS NOT A NUMBER, SO IT IS NOT SET LIKE ONE — AND IT IS NOT SET IN
+   `--text-faint` EITHER. The faint token fails AA for text a reader is expected to
+   read (see `.signin__foot`), and this is the one cell on the card that is telling
+   the reader something is missing. Italic, in the muted colour, and never a `0`. */
+.signin__ledger-count--none {
+  font-style: italic;
+}
+
+/* ★ THE WHOLE-OBJECT FIGURE TRAILING A NARROWED ONE — `1,262 of 1,308`.
+ *
+ * Two colours, and both of them are chosen against this card's own backdrop rather
+ * than by feel. The leading figure is the one the heading's claim is about, so it is
+ * set a step stronger (`--text-body`, 7.5:1 on the light card); the whole object is
+ * its *context*, so it takes the token the count column already uses (`--text-muted`,
+ * 4.81:1). Both pass AA at the 11px this list is set in — which matters, because the
+ * obvious third choice, `--text-faint`, measures **2.52:1** here and is why the rule
+ * above says `not counted` is never set in it either.
+ *
+ * ★ AND THE CONTRAST IS NOT RELIED ON TO CARRY THE MEANING. The rows the scope
+ *   reaches are also the rows that print the word `of`, so a reader who cannot see
+ *   the difference in weight still reads the pair as a pair — colour is the second
+ *   signal, not the only one.
+ *
+ * Note the pairing is deliberately per-row rather than per-card: on `GL_BALANCES` it
+ * is `3,412 of 157,150,828`, and two figures at equal weight would leave the reader
+ * to work out which of them the restriction produced.
+ */
+.signin__ledger-count--scoped {
+  color: var(--text-body);
+}
+
+.signin__ledger-count-total {
+  color: var(--text-muted);
+}
+
+/* --- the brand, on both screens that carry it ------------------------------ */
+
+/* ★ THE MARK AND THE NAME ARE TWICE THE SIZE THEY WERE, AND THEY NOW STACK.
+ *
+ * Measured before the change: the plate was 63px, the name 18px and the line under
+ * it 11px, set in a row. Doubled, the same row needs 126 + 22 + 483px — the name
+ * alone is 483px at 36px — which is wider than any card this screen can justify.
+ * Stacked, the widest thing in the lockup is the name, so the card is set by one
+ * measurement instead of by the sum of three, and the mark reads as a mark standing
+ * over the product's name rather than as a bullet beside it.
+ *
+ * `flex-start` and not `center`: the plate's left edge has to line up with the left
+ * edge of the fields below it, which is the whole card's alignment.
+ *
+ * The gap is 16px and not 22. The old 11px was a *row* gap between two things on one
+ * line; this is the space under a 126px mark, where the scale that reads as
+ * deliberate is a different one. It is the one number here that is not a doubling.
+ */
+.appbrand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* ★ THE PLATE IS WHITE IN BOTH THEMES, DELIBERATELY.
+   `data/images/oracle.png` has an opaque near-white background rather than
+   transparency, so on the dark theme's `--surface` it would paint a bright
+   hard-cornered rectangle. A fixed-white plate turns that into a frame, and the
+   square corners the image would otherwise show are clipped by the radius here.
+
+   ★ THE PLATE HAS NO BORDER, AT THE OWNER'S REQUEST — recorded because the
+   hairline that used to be here was doing a job. It was
+   `box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%)`, an edge that existed to make
+   the plate legible on the *light* theme, where the plate and the card are both
+   white and the only thing separating them was that line. Taking it away means
+   the logo now sits directly on the card in the light theme, with no frame at
+   all, and that is the intended look rather than an oversight — so do not
+   "restore" it as a contrast fix. It is still visible on the dark theme, where
+   the white plate reads against `--surface` on its own.
+
+   ★ THE SIZE IS DOUBLE WHAT IT WAS, AND STILL WRITTEN AS THE MEASUREMENT RATHER
+   THAN AS A `scale()`. A transform would leave the layout box at 63px and let the
+   logo paint over its neighbours — the words below it would keep their old position
+   while the mark grew underneath it. The horizontal `padding` scales with it so the
+   clear space either side of the art stays proportional: 14px of 96, 18px of 126,
+   which is the 7:1 ratio the mark's earlier sizes used.
+
+   ★ THE VERTICAL PADDING IS NO LONGER THE SAME AS THE HORIZONTAL, AND THE HEIGHT
+   CAME DOWN WITH IT (owner's request: "reduce the top and bottom padding of the
+   oracle logo"). Two facts forced the pair to move *together* rather than letting
+   the padding move alone:
+
+     1. THE ART IS WIDTH-BOUND, SO ITS HEIGHT IS NOT FREE TO CHANGE. `oracle.png` is
+        360×325 — wider than tall — so in a box of any shape `object-fit: contain`
+        binds on the *width*: the art always draws at the content box's width, and at
+        325/360 = 0.903× that for its height. Its size is therefore set by the
+        horizontal padding alone, so the mark keeps the exact size it had before.
+
+     2. WITH A DEFINITE HEIGHT, THE VERTICAL PADDING DOES NOTHING ON ITS OWN. The art
+        is centred, so the gap above it is `(height − artHeight) / 2` — and since
+        `artHeight` does not depend on the vertical padding, trimming that padding
+        only slides the art around inside a box of the same size. Measured rather than
+        reasoned, because it is counter-intuitive: at the 96px floor, `padding: 6px 14px`
+        and `padding: 14px` both leave 17.3px above the art. The height is the lever.
+
+   So the height is now 0.81× the width instead of equal to it, and the vertical
+   padding is sized to stay *clear of the art* rather than to add to it — it only has
+   to be small enough that the content box still exceeds the art's height, and the
+   space above the art is then whatever is left over. At the 96px floor that is
+   `66 > 61.4` (4.6px of slack) and at the 126px ceiling `86 > 81.25` (4.75px), so the
+   art never becomes height-bound and never shrinks. Measured: **8.3px above the art
+   at the floor, down from 17.3px; 10.4px at the ceiling, down from 22.4px.**
+
+   ★ THE HEIGHT STAYS A DEFINITE LENGTH RATHER THAN `auto`, AND THAT IS LOAD-BEARING.
+   A hugging plate would make the vertical padding the single control, which is
+   tempting, but this box also holds the *drawn* fallback — and the two arts do not
+   share a ratio: the PNG is 360/325 = 1.108 and the oval's `viewBox` is 100/84 = 1.19.
+   An `auto` height would follow whichever one is on screen, so the words below would
+   shift on exactly the screens where `oracle.png` 404s — the plate would be 73.4px
+   against 69.1px at the 96px floor, and 97.25 against 91.6 at the 126px ceiling: 4.3px
+   of movement in a narrow window, 5.7px on a desktop. The invariant the next rule
+   states — "swapping between them cannot move the words beside them" — is worth one
+   clamp pair. Verified by aborting the PNG request: the fallback renders and the plate
+   measures 96×78, identical to the loaded case.
+
+   ★ IT IS CLAMPED. A fixed 126px mark on a 360px window eats two fifths of the card;
+   `9.4vw` tracks the window down to 96px, and the 126px ceiling holds the desktop size
+   on a 2560px monitor, where `vw` on its own would keep growing. `7.6vw` between `78px`
+   and `102px` is that same 0.81 ratio at both ends, so the content box clears the art
+   at every width in between — including the two narrow windows where one axis has
+   already clamped while the other is still tracking `vw` (1021–1026px, where the width
+   is 96 and the height is still reaching 78, and 1340–1342px, where the width is 126
+   and the height is still reaching its own ceiling). Both were checked, not assumed. */
+.appbrand__plate {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: clamp(96px, 9.4vw, 126px);
+  height: clamp(78px, 7.6vw, 102px);
+  padding: clamp(6px, 0.6vw, 8px) clamp(14px, 1.35vw, 18px);
+  border-radius: calc(var(--radius) + 3px);
+  background: #ffffff;
+}
+
+/* The PNG and the drawn fallback share one box so that swapping between them
+   cannot move the words beside them. */
+.appbrand__logo,
+.appbrand__oval {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* `display: block` and the reset of `h1`'s margins: this element is an `<h1>` on
+   the login screen and a `<span>` inside a card elsewhere (see `AppBrand`), and
+   the two have to look identical or the brand changes size as you move between
+   them. `base.css` sizes `h1` at 1.5rem — a class beats an element selector, so
+   this wins without `!important`.
+
+   ★ 2.25rem IS TWICE THE 1.125rem THIS WAS, AND 700 IS AS HEAVY AS IT GETS. The
+   stylesheet `index.html` asks Google for carries 400, 600 and 700 and nothing above
+   them; an `800` here would be synthesised by the browser, which is a different and
+   worse letterform than the family's own bold. The tracking tightens with the size (a 36px
+   line at 18px's tracking reads loose) and the leading drops for the same reason.
+
+   ★ IT IS CLAMPED DOWN TO 1.5rem. At 36px the name is 483px wide; the narrowest card
+   this screen renders is 332px on a 360px window, where a fixed 36px would break the
+   name over three lines. `5.5vw` carries it between the two, so it is legible at every
+   width and not only at the one it was designed on. */
+.appbrand__name {
+  display: block;
+  margin: 0;
+  font-size: clamp(1.5rem, 5.5vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+}
+
+/* ★ THE TAGLINE IS BOLD AND LARGE, WHICH IS THE POINT OF IT. It is 2× the line it
+   replaced (11px → 22px) and it carries the weight the name does, so the two read as
+   one lockup rather than as a title with a footnote under it. `--text-muted` is what
+   separates them: the name is `--text-heading` and this is a step below it, and at 22px
+   bold the muted token is about 4.8:1 on the light card and 6.6:1 on the dark one —
+   large text by any measure, so the hierarchy costs no contrast. */
+.appbrand__sub {
+  margin-top: 4px;
+  font-size: clamp(1rem, 2.75vw, 1.375rem);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+
+/* --- the head under the brand ---------------------------------------------- */
+
+/* The rule is what separates the identity of the app from the task on this
+   screen. `padding-top` rather than a margin on the element below, so the
+   distance belongs to the line and does not move when the heading changes. */
+.signin__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.signin__title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.signin__tag {
+  flex: none;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/*
+  ★ `.signin__lede` AND `.signin__lede code` ARE GONE WITH THE PARAGRAPH THEY
+    STYLED — the one between the `Sign in` heading and the first field.
+
+    The `code` rule was not incidental to it. `.signin__lede code` was the only
+    place a destination path was given `overflow-wrap: anywhere`, because `from`
+    is one unbroken token and would otherwise widen the card instead of wrapping
+    inside it. The lede was the only thing that ever rendered a `<code>` in that
+    position.
+
+    The `<code>` elements still on the card are inside `.signin__scale-note`,
+    which never used this rule. If a path is ever put in a paragraph again, the
+    `overflow-wrap` is the part to bring back with it — a long path does not
+    wrap on its own and the failure looks like a layout bug that is not one.
+*/
+
+/* The wait state. `role="status"` in the markup; this is only its place. */
+.signin__status {
+  margin: 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* --- the reusable parts this screen leans on ------------------------------- */
+
+/* `.notice`, `.field`, `.input`, `.btn` and `.idcard` all come from the sheets
+   above. Three small adjustments, because each of them was written for a panel
+   inside the shell and this is the one surface that is not in one. */
+
+/* A notice directly under the lede may not be preceded by a field, and the grid
+   gap is already doing the spacing — `p + p` inside `.notice` still applies. */
+.signin__body .notice {
+  margin: 0;
+}
+
+/* ★ `.field + .field` IS OVERRIDDEN HERE, AND IT ONLY MATTERED ONCE THE HINTS WENT.
+
+   `newproject.css` puts `margin-top: var(--space-6)` on the second field, which is
+   right where a field is a block in a stack of prose and the gap between siblings is
+   zero. This card is a `grid` with `gap: 18px`, so the two rules *add* — the step from
+   Email to Password was 18px plus a full space-6, visibly larger than every other step
+   in the card.
+
+   That was already true and was masked: each field used to carry a `field__hint`
+   paragraph after its input, so the eye read the extra space as the space above a hint
+   rather than the space between fields. Remove the hints and the doubled gap is the
+   only thing left between two inputs — which is exactly the kind of error that only
+   shows up after an unrelated copy change. */
+.signin__body .field + .field {
+  margin-top: 0;
+}
+
+/* `.idcard` is a `repeat(auto-fit, minmax(170px, 1fr))` grid, which gives two
+   columns inside a card of this width and leaves `Scope` alone on a second row. At
+   this width two facts per row is the honest reading, so the minimum is raised from
+   170 to 200 and `auto-fit` is left to do the same thing it does in the panel. */
+.signin__card .idcard {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* The action row is the last thing in the card and already carries `margin-top`
+   for the panel case; the grid gap is above it here. */
+.signin__card .idcard__actions {
+  margin-top: 0;
+}
+
+/* --- the footnote ---------------------------------------------------------- */
+
+.signin__foot {
+  /* Follows the card, which is what keeps the two left edges aligned. */
+  width: min(580px, 100%);
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  text-align: center;
+  /* `--text-muted` and not `--text-faint`: this sits on `--app-bg`, and
+     `--text-faint` (#a3a3a3 on #f5f5f5) fails AA at any size for text a reader is
+     expected to read. The faint token is for labels standing in for a value that
+     is absent, not for a sentence. */
+  color: var(--text-muted);
+}
+
+/* --- narrow screens -------------------------------------------------------- */
+
+/* The card is already `min(580px, 100%)` and the brand is clamped; what has to
+   shrink is the page gutter, or a 360px window spends 80 of its 360 px on padding. */
+@media (max-width: 520px) {
+  .signin {
+    padding: 24px 14px;
+  }
+
+  .signin__card {
+    padding: 20px 18px 18px;
+  }
+
+  .signin__body {
+    gap: 16px;
+  }
+}

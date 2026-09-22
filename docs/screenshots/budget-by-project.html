@@ -1,0 +1,1474 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects &amp; Related Budgets &middot; Chart of Accounts</title>
+<style>
+/* ============================================================
+   Tokens - light theme. Brand values + neutrals lifted verbatim from
+   docs/screenshots/dashboard-monthly-trend.html (itself from site-style.md).
+   The dark theme below re-points the *semantic* aliases only; the brand
+   hex values are never redefined, so no screen invents a new palette.
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  /* Brand */
+  --primary-color:    #165788;
+  --secondary-color:  #df6d1c;
+  --tertiary-color:   #00add0;
+  --cc-fourth-color:  #fed100;
+  --cc-fifth-color:   #6e273d;
+  --cc-sixth-color:   #BED600;
+  --cc-seventh-color: #c90062;
+  --cc-eighth-color:  #455560;
+
+  /* Neutrals */
+  --neutral-0:   #ffffff;
+  --neutral-50:  #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #727272;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+
+  /* Semantic aliases - these are what every rule below actually uses */
+  --app-bg:         #f5f5f5;
+  --surface:        #ffffff;
+  --surface-sunken: #fafafa;
+  --surface-rail:   #ffffff;
+  --surface-hover:  #f5f5f5;
+  --surface-active: #eef4f9;
+  --text-body:      #525252;
+  --text-heading:   #262626;
+  --text-muted:     #727272;
+  --text-faint:     #a3a3a3;
+  --border:         #e5e5e5;
+  --border-strong:  #d4d4d4;
+  --link:           #165788;
+  --rail-active-bg: #165788;
+  --rail-active-fg: #ffffff;
+
+  /* Status surfaces - each pairing is text-on-surface, checked for 4.5:1 */
+  --ok-bg:   #eef7d6; --ok-fg:   #41500a;
+  --info-bg: #e2f6fb; --info-fg: #0b5a70;
+  --warn-bg: #fff7d6; --warn-fg: #5c4a00;
+  --err-bg:  #fde8f2; --err-fg:  #8c0043;
+  --neu-bg:  #eef1f3; --neu-fg:  #3e4a53;
+
+  /* Data series. Each clears 3:1 on its own theme's surface (WCAG 1.4.11) */
+  --series-capital:   #165788;   /* 7.63:1 on #fff */
+  --series-operating: #df6d1c;   /* 3.31:1 on #fff */
+  --series-other:     #455560;   /* 7.72:1 on #fff */
+  /* #df6d1c on its own 12% tint only reaches 2.9:1, so chip text uses this
+     darker orange instead (5.7:1). The series colour above is for marks only. */
+  --series-operating-text: #9a4607;
+  --series-capital-soft:   rgba(22, 87, 136, .10);
+  --series-operating-soft: rgba(223, 109, 28, .12);
+  --track: #e5e5e5;
+
+  /* Type */
+  --font-body:   'Open Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-accent: 'Solway', Georgia, serif;
+  --font-mono:   ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  /* Spacing */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+
+  /* Shape & depth - 3px on all rectangular surfaces (site-style.md 4.1) */
+  --radius: 3px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .04), 0 4px 24px rgba(0, 0, 0, .06);
+  --shadow-drawer: -24px 0 48px rgba(0, 0, 0, .14);
+  --transition: .4s all;
+
+  --rail-w: 208px;
+  --drawer-w: 470px;
+}
+
+/* ------------------------------------------------------------
+   Dark theme. Only surface / text / border aliases move. The two
+   data series are lightened in step so they keep >= 3:1 against the
+   dark surface; the brand hex itself is untouched.
+   ------------------------------------------------------------ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --app-bg:         #0b1220;
+  --surface:        #131e33;
+  --surface-sunken: #0f1830;
+  --surface-rail:   #0d1628;
+  --surface-hover:  #1a2743;
+  --surface-active: #1c3050;
+  --text-body:      #c3cfe3;   /* 10.6:1 on --surface */
+  --text-heading:   #eaf0fb;
+  --text-muted:     #93a4c0;   /* 6.6:1 on --surface  */
+  --text-faint:     #6b7c99;
+  --border:         #25334f;
+  --border-strong:  #33456a;
+  --link:           #6cb6e8;   /* 7.5:1 on --surface  */
+  --rail-active-bg: #1f4a78;
+  --rail-active-fg: #ffffff;
+
+  --ok-bg:   #1e2a12; --ok-fg:   #c9dc7a;
+  --info-bg: #0e2a38; --info-fg: #6fd0e8;
+  --warn-bg: #332a08; --warn-fg: #f0d66a;
+  --err-bg:  #33101f; --err-fg:  #f08cb4;
+  --neu-bg:  #1c2740; --neu-fg:  #a9b8cf;
+
+  --series-capital:   #4d9fe0;   /* 5.9:1 on #131e33 */
+  --series-operating: #f08a3c;   /* 6.7:1 on #131e33 */
+  --series-operating-text: #f08a3c;
+  --series-other:     #9fb0c6;
+  --series-capital-soft:   rgba(77, 159, 224, .16);
+  --series-operating-soft: rgba(240, 138, 60, .18);
+  --track: #25334f;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 24px rgba(0, 0, 0, .45);
+  --shadow-drawer: -24px 0 48px rgba(0, 0, 0, .55);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: .9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-body);
+  background: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 700; color: var(--text-heading); line-height: 1.3; }
+h1 { font-size: 1.5rem; letter-spacing: -.02em; }
+h2 { font-size: 1.0625rem; font-weight: 600; }
+h3 { font-size: .8125rem; font-weight: 600; }
+
+p { margin: 0; }
+a { color: var(--link); text-decoration: none; transition: var(--transition); }
+a:hover, a:focus-visible { color: var(--secondary-color); text-decoration: underline; }
+
+:focus-visible { outline: 3px solid var(--tertiary-color); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 200;
+  padding: 10px 16px; background: var(--primary-color); color: #fff;
+  font-size: .8125rem; font-weight: 600; border-radius: 0 0 var(--radius) 0;
+}
+.skip:focus { left: 0; color: #fff; }
+
+/* ============================================================
+   App shell - rail | column
+   ============================================================ */
+#shell { position: relative; display: flex; align-items: flex-start; min-height: 100vh; }
+
+.rail {
+  position: sticky; top: 0;
+  flex: 0 0 var(--rail-w);
+  width: var(--rail-w);
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--surface-rail);
+  border-right: 1px solid var(--border);
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+
+.rail__brand {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-4);
+}
+.brand__mark {
+  width: 26px; height: 26px; flex: none;
+  display: grid; place-items: center;
+  background: var(--primary-color); color: #fff;
+  border-radius: var(--radius);
+  font-weight: 700; font-size: .8rem; letter-spacing: -.02em;
+}
+.brand__name { display: block; font-weight: 700; font-size: .875rem; color: var(--text-heading); }
+.brand__sub  { display: block; font-size: .6875rem; color: var(--text-muted); }
+
+.rail__group { margin-top: var(--space-5); }
+.rail__group:first-of-type { margin-top: 0; }
+.rail__title {
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: .625rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.rail__link {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius);
+  font-size: .8125rem; color: var(--text-body);
+  transition: var(--transition);
+}
+.rail__link:hover { background: var(--surface-hover); color: var(--text-heading); text-decoration: none; }
+.rail__link[aria-current="page"] {
+  background: var(--rail-active-bg); color: var(--rail-active-fg); font-weight: 600;
+}
+.rail__link[aria-current="page"]:hover { color: var(--rail-active-fg); }
+.rail__link .cnt {
+  margin-left: auto; font-size: .6875rem; font-variant-numeric: tabular-nums;
+  color: var(--text-faint); font-weight: 600;
+}
+.rail__link[aria-current="page"] .cnt { color: rgba(255, 255, 255, .75); }
+.rail__ico { width: 14px; height: 14px; flex: none; opacity: .85; }
+
+.col { flex: 1 1 auto; min-width: 0; }
+
+/* ============================================================
+   Topbar
+   ============================================================ */
+.topbar {
+  position: sticky; top: 0; z-index: 60;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar__inner {
+  display: flex; align-items: center; gap: var(--space-4);
+  min-height: 56px; padding: 0 var(--space-5);
+}
+.search { position: relative; flex: 1 1 auto; max-width: 460px; }
+.search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); }
+.search input {
+  width: 100%; margin: 0; padding: 8px 10px 8px 32px;
+  font-family: var(--font-body); font-size: .8125rem; color: var(--text-heading);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  transition: var(--transition);
+}
+.search input::placeholder { color: var(--text-faint); }
+.search input:focus { background: var(--surface); border-color: var(--tertiary-color); }
+
+.topbar__right { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+
+/* Theme switch - a real two-state control, not decoration */
+.themeswitch {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.themeswitch button {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0; padding: 5px 10px;
+  font-family: var(--font-body); font-size: .6875rem; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase;
+  color: var(--text-muted); background: transparent;
+  border: 0; border-radius: 2px; cursor: pointer;
+  transition: var(--transition);
+}
+.themeswitch button:hover { color: var(--text-heading); }
+.themeswitch button[aria-pressed="true"] {
+  background: var(--surface); color: var(--text-heading);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+
+.avatar {
+  width: 30px; height: 30px; flex: none;
+  display: grid; place-items: center;
+  background: var(--primary-color); color: #fff;
+  border-radius: 50%; font-size: .6875rem; font-weight: 700;
+}
+
+/* ============================================================
+   Page
+   ============================================================ */
+.page { padding: 0 var(--space-5) 0; }
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--space-6); flex-wrap: wrap;
+  padding: var(--space-8) 0 var(--space-5);
+}
+.page-head .accent-rule {
+  width: 40px; height: 3px; margin-bottom: var(--space-3);
+  background: var(--secondary-color); border-radius: var(--radius);
+}
+.page-head p { color: var(--text-muted); font-size: .8125rem; margin-top: 6px; }
+.page-head__meta { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+/* ============================================================
+   KPI strip
+   ============================================================ */
+.kpis {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4); margin-bottom: var(--space-5);
+}
+.kpi {
+  position: relative; overflow: hidden; min-width: 0;
+  padding: var(--space-4) clamp(10px, 1.4vw, 18px);
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.kpi::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: var(--border-strong);
+}
+.kpi--brand::before  { background: var(--primary-color); }
+.kpi--accent::before { background: var(--secondary-color); }
+.kpi__label {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.kpi__value {
+  margin-top: 6px; font-size: clamp(1.0625rem, 2.6vw, 1.375rem);
+  font-weight: 700; color: var(--text-heading); letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.kpi__value small { font-size: .875rem; font-weight: 600; color: var(--text-muted); margin-left: 2px; }
+.kpi__note { margin-top: 4px; font-size: .6875rem; color: var(--text-muted); }
+
+/* ============================================================
+   Toolbar
+   ============================================================ */
+.toolbar {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding-bottom: var(--space-4);
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: var(--radius);
+  font-size: .6875rem; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.chip--ok   { background: var(--ok-bg);   color: var(--ok-fg);   border-color: rgba(190, 214, 0, .45); }
+.chip--info { background: var(--info-bg); color: var(--info-fg); border-color: rgba(0, 173, 208, .35); }
+.chip--warn { background: var(--warn-bg); color: var(--warn-fg); border-color: rgba(254, 209, 0, .5); }
+.chip--neu  { background: var(--neu-bg);  color: var(--neu-fg);  border-color: var(--border-strong); }
+.chip--cap  { background: var(--series-capital-soft);   color: var(--series-capital); }
+.chip--ope  { background: var(--series-operating-soft); color: var(--series-operating-text); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+.filterbar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-left: auto; }
+.fchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0; padding: 5px 10px;
+  font-family: var(--font-body); font-size: .75rem; font-weight: 600;
+  color: var(--text-body); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; transition: var(--transition);
+}
+.fchip:hover { border-color: var(--border-strong); color: var(--text-heading); }
+.fchip[aria-pressed="true"] {
+  background: var(--surface-active); border-color: var(--primary-color); color: var(--primary-color);
+}
+[data-theme="dark"] .fchip[aria-pressed="true"] { color: var(--link); border-color: var(--link); }
+.fchip .n { font-variant-numeric: tabular-nums; color: var(--text-faint); }
+.fchip[aria-pressed="true"] .n { color: inherit; opacity: .75; }
+
+/* ============================================================
+   Panel + table
+   ============================================================ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.panel__head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-4); flex-wrap: wrap;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.panel__head p { color: var(--text-muted); font-size: .75rem; margin-top: 3px; }
+.panel__foot {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  font-size: .75rem; color: var(--text-muted);
+}
+/* position:relative is load-bearing, not decoration: the .sr (screen-reader-only)
+   spans below are position:absolute with left:auto, so without a positioned
+   ancestor here their containing block jumps to #shell and they escape this
+   scroller - pushing the document ~170px wider and giving the whole page a
+   phantom horizontal scrollbar even though the table looks contained. */
+.table-wrap { overflow-x: auto; position: relative; }
+
+table.data { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+table.data th, table.data td {
+  padding: 9px 10px; text-align: right;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+  vertical-align: top;
+}
+table.data th:first-child, table.data td:first-child { text-align: left; }
+/* The project cell is the only one allowed to wrap. It carries the long project
+   name and the meta line; leaving them nowrap made them the table's min-content
+   and forced ~740px even on a 700px screen. */
+table.data td:first-child { white-space: normal; }
+table.data thead th {
+  background: var(--surface-sunken);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+}
+table.data col.c-num { width: 104px; }
+table.data col.c-tot { width: 112px; }
+table.data col.c-st  { width: 74px; }
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr.prow { cursor: pointer; transition: var(--transition); }
+table.data tbody tr.prow:hover { background: var(--surface-hover); }
+table.data tbody tr.is-on { background: var(--surface-active); }
+table.data tbody tr.is-on td { border-bottom-color: var(--border-strong); }
+table.data tbody tr.is-on td:first-child { box-shadow: inset 3px 0 0 var(--primary-color); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Project cell */
+.pcell { display: block; }
+.pcell__code {
+  display: inline-block; font-family: var(--font-mono); font-size: .625rem;
+  color: var(--text-muted); letter-spacing: .01em; margin-bottom: 2px;
+}
+.pcell__name { display: block; font-weight: 600; color: var(--text-heading); font-size: .8125rem; }
+.pcell__meta { display: block; font-size: .6875rem; color: var(--text-muted); margin-top: 3px; }
+
+/* Capital / operating composition strip - proportional flex, not widths,
+   so it can never collapse the way an inline percentage box does. */
+.mix { display: flex; width: 100%; height: 4px; margin-top: 6px; border-radius: 2px; overflow: hidden; background: var(--track); }
+.mix span { flex-basis: 0; flex-shrink: 1; min-width: 2px; }
+.mix .m-cap { background: var(--series-capital); }
+.mix .m-ope { background: var(--series-operating); }
+.mix .m-oth { background: var(--series-other); }
+
+.money { color: var(--text-heading); font-weight: 600; }
+.money--zero { color: var(--text-faint); font-weight: 400; }
+.share { display: block; font-size: .625rem; color: var(--text-muted); font-weight: 400; }
+
+/* ============================================================
+   Drawer - the sliding side panel
+   ============================================================ */
+.drawer {
+  position: fixed; top: 0; right: 0; z-index: 90;
+  width: min(var(--drawer-w), 94vw); height: 100vh;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-drawer);
+  transform: translateX(102%);
+  visibility: hidden;
+  transition: transform var(--transition), visibility var(--transition);
+}
+.drawer.is-open { transform: none; visibility: visible; }
+
+.drawer__head {
+  flex: none; position: relative;
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.drawer__eyebrow {
+  font-family: var(--font-mono); font-size: .6875rem; color: var(--text-muted);
+  letter-spacing: .01em;
+}
+.drawer__name { font-size: 1.125rem; margin-top: 4px; padding-right: 34px; }
+.drawer__meta { font-size: .75rem; color: var(--text-muted); margin-top: 6px; }
+.drawer__chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.drawer__close {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; display: grid; place-items: center;
+  margin: 0; padding: 0;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; transition: var(--transition);
+}
+.drawer__close:hover { background: var(--surface-hover); color: var(--text-heading); }
+.drawer__body { flex: 1 1 auto; overflow-y: auto; padding: var(--space-5); }
+.drawer__foot {
+  flex: none; display: flex; gap: var(--space-2); flex-wrap: wrap;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.btn {
+  display: inline-block; margin: 0; padding: 9px 18px;
+  border: 1px solid transparent; border-radius: var(--radius);
+  background: var(--neutral-100); color: var(--neutral-800);
+  font-family: var(--font-body); font-size: .8125rem; font-weight: 600;
+  line-height: 1.2; text-align: center; text-decoration: none;
+  cursor: pointer; transition: var(--transition);
+}
+.btn:hover { text-decoration: none; }
+.btn--primary { background: var(--primary-color); color: #fff; }
+.btn--primary:hover, .btn--primary:focus-visible { background: #266a9d; color: #fff; }
+.btn--system {
+  background: var(--surface); color: var(--text-heading); border-color: var(--border-strong);
+}
+.btn--system:hover, .btn--system:focus-visible { background: var(--surface-hover); }
+.btn--ghost { background: transparent; color: var(--link); border-color: var(--border-strong); }
+.btn--ghost:hover, .btn--ghost:focus-visible { background: var(--surface-hover); color: var(--link); }
+.btn--sm { padding: 6px 12px; font-size: .75rem; }
+
+/* ---- Drawer sections ---- */
+.dsec { margin-bottom: var(--space-5); }
+.dsec:last-child { margin-bottom: 0; }
+.dsec__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-3); margin-bottom: var(--space-3);
+}
+.dsec__title {
+  font-size: .6875rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+
+/* Usage bar: committed (split by series) filling an approved-budget track. */
+.usage { display: flex; width: 100%; height: 10px; border-radius: var(--radius); overflow: hidden; background: var(--track); }
+.usage span { flex-basis: 0; flex-shrink: 1; min-width: 0; }
+.usage .u-cap { background: var(--series-capital); }
+.usage .u-ope { background: var(--series-operating); }
+.usage .u-oth { background: var(--series-other); }
+.usage .u-rest { background: transparent; }
+
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-3); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: .6875rem; color: var(--text-muted); }
+.legend i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.legend b { color: var(--text-heading); font-weight: 600; font-variant-numeric: tabular-nums; }
+.lg-cap { background: var(--series-capital); }
+.lg-ope { background: var(--series-operating); }
+.lg-oth { background: var(--series-other); }
+.lg-rest { background: transparent; border: 1px solid var(--border-strong); }
+
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.stat {
+  min-width: 0; padding: var(--space-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.stat__k {
+  font-size: .625rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.stat__v {
+  margin-top: 3px; font-size: .9375rem; font-weight: 700;
+  color: var(--text-heading); font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+
+/* ---- Budget bucket (details/summary gives free keyboard support) ---- */
+.bucket {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.bucket + .bucket { margin-top: var(--space-3); }
+.bucket > summary {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer; list-style: none;
+  background: var(--surface-sunken);
+  transition: var(--transition);
+}
+.bucket > summary::-webkit-details-marker { display: none; }
+.bucket > summary:hover { background: var(--surface-hover); }
+.bucket > summary::after {
+  content: ""; flex: none; width: 7px; height: 7px;
+  border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg); transition: var(--transition); margin-left: 2px;
+}
+.bucket[open] > summary::after { transform: rotate(-135deg); }
+.bucket__dot { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.b-mark { background: var(--series-capital); }
+.o-mark { background: var(--series-operating); }
+.x-mark { background: var(--series-other); }
+.bucket__name { font-size: .8125rem; font-weight: 600; color: var(--text-heading); }
+.bucket__code { font-family: var(--font-mono); font-size: .625rem; color: var(--text-muted); }
+.bucket__amt {
+  margin-left: auto; font-size: .8125rem; font-weight: 700; color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+.bucket__inner { padding: var(--space-4); border-top: 1px solid var(--border); }
+
+/* ---- Derivation summary, one per budget group ---- */
+.how {
+  margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.how__title {
+  font-size: .6875rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.how__steps { margin: var(--space-3) 0 0; padding: 0; list-style: none; counter-reset: how; }
+.how__steps li {
+  position: relative; padding-left: 26px;
+  font-size: .6875rem; line-height: 1.6; color: var(--text-body);
+}
+.how__steps li + li { margin-top: 7px; }
+/* The marker is a positioned pseudo-element rather than a list-style: a hanging
+   <ol> marker collides with the wrapped <code> runs at the 440px drawer width. */
+.how__steps li::before {
+  counter-increment: how; content: counter(how);
+  position: absolute; left: 0; top: 1px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--border); background: var(--surface-sunken);
+  font-family: var(--font-mono); font-size: .5625rem; line-height: 1;
+  color: var(--text-muted);
+}
+.how__steps strong { color: var(--text-heading); font-weight: 600; }
+.how code {
+  font-family: var(--font-mono); font-size: .625rem;
+  color: var(--text-heading); word-break: break-all;
+}
+/* The seven-segment pattern gets its own line: inline, the leading "04" stranded
+   itself at the end of the first wrapped line. `overflow-wrap` rather than
+   `word-break` so the segment values themselves are never split. */
+.how__acct {
+  display: block; margin: 5px 0; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono); font-size: .625rem; line-height: 1.7;
+  color: var(--text-heading); overflow-wrap: anywhere;
+}
+.how__foot {
+  margin-top: var(--space-3); padding-top: var(--space-3);
+  border-top: 1px dashed var(--border);
+  font-size: .625rem; line-height: 1.6; color: var(--text-muted);
+}
+
+/* ---- Line items ---- */
+.lines { list-style: none; margin: var(--space-4) 0 0; padding: 0; }
+.line { padding: var(--space-3) 0; border-top: 1px solid var(--border); }
+.line:first-child { border-top: 0; padding-top: 0; }
+.line__top { display: flex; align-items: baseline; gap: var(--space-2); }
+.line__no {
+  flex: none; font-family: var(--font-mono); font-size: .625rem;
+  color: var(--text-faint); letter-spacing: .04em;
+}
+.line__obj { font-size: .75rem; font-weight: 600; color: var(--text-heading); }
+.line__amt {
+  margin-left: auto; font-size: .8125rem; font-weight: 700; color: var(--text-heading);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.line__key {
+  display: block; margin-top: 3px;
+  font-family: var(--font-mono); font-size: .625rem; color: var(--text-muted);
+  word-break: break-all; line-height: 1.45;
+}
+.line__meta { display: block; margin-top: 3px; font-size: .6875rem; color: var(--text-muted); }
+.line__vendor {
+  display: block; margin-top: 3px; font-size: .6875rem; color: var(--text-body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.line__vendor b { color: var(--text-heading); font-variant-numeric: tabular-nums; }
+/* Fill is display:block inside a definite-width track - never inline. */
+.line__bar { display: block; width: 100%; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.line__bar span { display: block; height: 100%; border-radius: 2px; background: var(--series-capital); }
+.line__bar .f-ope { background: var(--series-operating); }
+.line__bar .f-oth { background: var(--series-other); }
+
+/* ---- Segment spine ---- */
+.spine { list-style: none; margin: 0; padding: 0; }
+.spine li {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+  font-size: .75rem;
+}
+.spine li:last-child { border-bottom: 0; }
+.spine .s-name { width: 96px; flex: none; color: var(--text-muted); }
+.spine .s-val { font-family: var(--font-mono); color: var(--text-heading); }
+.spine .s-const { margin-left: auto; font-size: .625rem; color: var(--text-faint); }
+
+/* ---- Notices ---- */
+.notice {
+  display: flex; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong); border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: .75rem; line-height: 1.55;
+}
+.notice strong { color: var(--text-heading); font-weight: 600; }
+.notice p { color: var(--text-body); }
+.notice + .notice { margin-top: var(--space-3); }
+.notice--info { border-left-color: var(--tertiary-color); }
+.notice--warn { border-left-color: var(--cc-fourth-color); }
+
+.empty { padding: var(--space-8) var(--space-5); text-align: center; color: var(--text-muted); font-size: .8125rem; }
+
+.foot {
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  color: var(--text-muted); font-size: .75rem; line-height: 1.6;
+}
+.foot code { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-body); }
+
+@media (max-width: 1080px) {
+  :root { --rail-w: 176px; --drawer-w: 440px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Buy back the ~46px the five-column table overruns by at this width. The
+     cost columns can only shrink as far as the widest figure they hold
+     ($98,767,709), so the padding and font do the work. */
+  table.data { font-size: .75rem; }
+  table.data th, table.data td { padding: 8px 6px; }
+  table.data col.c-st  { width: 66px; }
+  table.data col.c-num { width: 82px; }
+  table.data col.c-tot { width: 88px; }
+}
+@media (min-width: 1500px) {
+  :root { --drawer-w: 520px; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#projects">Skip to the project list</a>
+
+<div id="shell">
+
+  <!-- ======================= Rail ======================= -->
+  <nav class="rail" aria-label="Sections">
+    <div class="rail__brand">
+      <span class="brand__mark" aria-hidden="true">WC</span>
+      <span>
+        <span class="brand__name">Chart of Accounts</span>
+        <span class="brand__sub">Oracle Projects</span>
+      </span>
+    </div>
+
+    <div class="rail__group">
+      <p class="rail__title">Projects</p>
+      <a class="rail__link" href="#projects">Dashboard</a>
+      <a class="rail__link" href="#projects" aria-current="page">Projects <span class="cnt">10</span></a>
+      <a class="rail__link" href="#projects">Cost codes <span class="cnt">328</span></a>
+      <a class="rail__link" href="#projects">Vendors <span class="cnt">157</span></a>
+    </div>
+
+    <div class="rail__group">
+      <p class="rail__title">Funding</p>
+      <a class="rail__link" href="#projects">Budgets</a>
+      <a class="rail__link" href="#projects">Budget adjustments</a>
+      <a class="rail__link" href="#projects">Budget changes</a>
+      <a class="rail__link" href="#projects">SOV breakdown</a>
+    </div>
+
+    <div class="rail__group">
+      <p class="rail__title">Reports</p>
+      <a class="rail__link" href="#projects">Committed by month</a>
+      <a class="rail__link" href="#projects">Exposure</a>
+    </div>
+
+    <div class="rail__group">
+      <p class="rail__title">Settings</p>
+      <a class="rail__link" href="#projects">Extract runs</a>
+      <a class="rail__link" href="#projects">Members</a>
+    </div>
+  </nav>
+
+  <!-- ======================= Column ======================= -->
+  <div class="col">
+
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="search">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <label class="sr" for="q">Filter projects</label>
+          <input id="q" type="search" placeholder="Filter projects by name or level code&hellip;" autocomplete="off">
+        </div>
+
+        <div class="topbar__right">
+          <div class="themeswitch" role="group" aria-label="Colour theme">
+            <button type="button" id="t-light" aria-pressed="true">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M13 3l-1.4 1.4M4.4 11.6 3 13"
+                      stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              Light
+            </button>
+            <button type="button" id="t-dark" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z"
+                      stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+              </svg>
+              Dark
+            </button>
+          </div>
+          <span class="avatar" aria-hidden="true">DW</span>
+          <span class="sr">Signed in as Dana Whitfield</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="page">
+
+      <div class="page-head">
+        <div>
+          <div class="accent-rule" aria-hidden="true"></div>
+          <h1>Projects &amp; related budgets</h1>
+          <p>Ten levels with committed spend, and the operating and capital budgets bound to each.</p>
+        </div>
+        <div class="page-head__meta">
+          <span class="chip chip--neu"><span class="dot"></span>Snapshot 2026-08-06</span>
+          <button class="btn btn--system btn--sm" type="button">Add budget</button>
+          <button class="btn btn--ghost btn--sm" type="button">Export CSV</button>
+        </div>
+      </div>
+
+      <!-- KPI strip -->
+      <section class="kpis" aria-label="Portfolio summary">
+        <div class="kpi kpi--brand">
+          <p class="kpi__label">Committed in view</p>
+          <p class="kpi__value">$274,988,893</p>
+          <p class="kpi__note">847 lines across 10 projects</p>
+        </div>
+        <div class="kpi kpi--accent">
+          <p class="kpi__label">Capital &middot; Operating</p>
+          <p class="kpi__value">98.9%<small>&thinsp;/&thinsp;1.1%</small></p>
+          <div class="mix" role="img" aria-label="Capital 98.9 percent, operating 1.1 percent, relocation 0.1 percent">
+            <span class="m-cap" style="flex-grow:98.86"></span><span class="m-ope" style="flex-grow:1.054"></span><span class="m-oth" style="flex-grow:0.0831"></span>
+          </div>
+        </div>
+        <div class="kpi">
+          <p class="kpi__label">Purchase orders</p>
+          <p class="kpi__value">184</p>
+          <p class="kpi__note">114 vendor links, summed per project</p>
+        </div>
+        <div class="kpi">
+          <p class="kpi__label">Share of the extract</p>
+          <p class="kpi__value">63.9%</p>
+          <p class="kpi__note">of $430,569,027, on 30.4% of lines</p>
+        </div>
+      </section>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <h2>All projects</h2>
+        <div class="filterbar" role="group" aria-label="Filter by activity">
+          <button class="fchip" type="button" data-f="all" aria-pressed="true">All <span class="n">10</span></button>
+          <button class="fchip" type="button" data-f="active" aria-pressed="false">Active <span class="n">8</span></button>
+          <button class="fchip" type="button" data-f="dormant" aria-pressed="false">Dormant <span class="n">2</span></button>
+          <button class="fchip" type="button" data-f="operating" aria-pressed="false">Has operating <span class="n">4</span></button>
+        </div>
+      </div>
+
+      <!-- Project list -->
+      <section class="card" id="projects" aria-labelledby="list-h">
+        <div class="panel__head">
+          <div>
+            <h2 id="list-h">Projects</h2>
+            <p>Select a project to open its operating and capital budgets. Amounts are committed purchase-order value.</p>
+          </div>
+          <p id="count" aria-live="polite" class="num">10 projects</p>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr">Projects with committed capital and operating budget totals</caption>
+            <colgroup>
+              <col><col class="c-st"><col class="c-num"><col class="c-num"><col class="c-tot">
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Project</th>
+                <th scope="col">Status</th>
+                <th scope="col">Capital <span class="sr">purpose 6570</span></th>
+                <th scope="col">Operating <span class="sr">purpose 9000</span></th>
+                <th scope="col">Committed</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="empty" hidden>No project matches that filter.</p>
+
+        <div class="panel__foot">
+          <strong>Status is derived, not stored.</strong> Oracle carries no project status. Active = an order
+          dated within 90 days of the 2026-08-06 extract cut-off; Dormant = older. List amounts are rounded
+          to the dollar &mdash; open a project for cents.
+        </div>
+      </section>
+
+      <p class="foot">
+        Every figure on this screen is computed from <code>data/oracle/output.json</code> &mdash; 2,782 rows,
+        328 distinct cost-code combinations, $430,569,026.92 committed, order dates 2025-01-02 to 2026-08-06.
+        Project names are inferred from the <code>DESCRIPTION</code> field of the lines in each level; the
+        extract ships no project name. Approved budgets exist only in this app.
+      </p>
+    </main>
+  </div>
+</div>
+
+<!-- ======================= Drawer ======================= -->
+<aside class="drawer" id="drawer" aria-labelledby="dw-name" aria-hidden="true">
+  <div class="drawer__head">
+    <p class="drawer__eyebrow" id="dw-code">&nbsp;</p>
+    <h2 class="drawer__name" id="dw-name">No project selected</h2>
+    <p class="drawer__meta" id="dw-meta">&nbsp;</p>
+    <div class="drawer__chips" id="dw-chips"></div>
+    <button class="drawer__close" type="button" id="dw-close" aria-label="Close the budget panel">
+      <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="drawer__body" id="dw-body"></div>
+
+  <div class="drawer__foot">
+    <button class="btn btn--primary btn--sm" type="button">Open full project</button>
+    <button class="btn btn--system btn--sm" type="button">Add budget</button>
+    <button class="btn btn--ghost btn--sm" type="button">Export CSV</button>
+  </div>
+</aside>
+
+<noscript>
+  <p style="padding:24px">This screen renders its table and side panel with JavaScript.</p>
+</noscript>
+
+<script>
+/* ============================================================
+   Data - transcribed from data/oracle/output.json.
+   Per-combination figures are exact: each is a GROUP BY over the
+   lines whose seven segments equal the combination key.
+   ============================================================ */
+const OBJECTS = {
+  '522': 'Construction, non-CMAR / direct award',
+  '523': 'Mechanical &amp; HVAC contracts',
+  '526': 'Design &amp; professional services',
+  '527': 'Construction, CMAR / GMP',
+  '529': 'Testing, inspection &amp; survey',
+  '532': 'Advertising, legal &amp; offsite',
+  '541': 'Furniture, fixtures &amp; equipment'
+};
+const OBJECT_SHORT = {
+  '522': 'Construction, direct', '523': 'HVAC contracts', '526': 'Design services',
+  '527': 'CMAR / GMP', '529': 'Testing &amp; survey', '532': 'Advertising &amp; legal',
+  '541': 'Furniture &amp; equipment'
+};
+const PURPOSES = {
+  '6570': { label: 'Capital budget',   short: 'Capital',    cls: 'b-mark', seg: 'u-cap', line: '',      chip: 'chip--cap' },
+  '9000': { label: 'Operating budget', short: 'Operating',  cls: 'o-mark', seg: 'u-ope', line: 'f-ope', chip: 'chip--ope' },
+  '6560': { label: 'Relocation budget',short: 'Relocation', cls: 'x-mark', seg: 'u-oth', line: 'f-oth', chip: 'chip--neu' }
+};
+const SEGMENTS = [
+  ['FUND', '04'], ['PURPOSE', '6570 / 9000 / 6560'], ['PROGRAM', '862'], ['OBJECT_', '9 in extract'],
+  ['LEVEL_', 'this project'], ['COST_CENTER', '0840'], ['FUTURE_USE', '000']
+];
+
+/* combos: [object, purpose, lines, orders, vendors, amount, top vendor, top vendor amount]
+   The full seven-segment combination key is derived, never stored - it is
+   FUND-PURPOSE-PROGRAM-OBJECT_-LEVEL_-COST_CENTER-FUTURE_USE, and four of those
+   seven segments are constant across the whole extract (04, 862, 0840, 000). */
+const PROJECTS = [
+  { lv:'0454', code:'CC-0454-527', name:'North Garner MS &ndash; Renovation', site:'North Garner Middle School',
+    status:'dormant', owner:'Sam Okafor', lines:9, orders:9, vendors:8,
+    amount:98767709, first:'2025-04-08', last:'2026-04-06',
+    note:'98.9% of the commitment sits in one CMAR contract. No order in this level after 2026-04-06, 122 days before the extract cut-off.',
+    combos:[
+      ['527','6570',1,1,1,97681625,'Clancy &amp; Theys &ndash; The Daniele Company, a joint venture',97681625],
+      ['529','6570',4,4,3,977835,'Froehling &amp; Robertson Inc',727375],
+      ['526','6570',1,1,1,52200,'Skinner Farlow Kirwan Architecture PA',52200],
+      ['529','6560',2,2,2,46549,'All American Relocation Inc',40405],
+      ['532','6570',1,1,1,9500,'The John R McAdams Company',9500]
+    ]},
+  { lv:'0453', code:'CC-0453-527', name:'Lockhart ES &ndash; Renovation', site:'Lockhart Elementary School',
+    status:'active', owner:'Priya Raman', lines:13, orders:9, vendors:9,
+    amount:58908168, first:'2025-01-10', last:'2026-07-13',
+    note:'Two lines of a single CMAR order carry 98.6% of the level. The remaining eleven lines are the project&rsquo;s whole soft-cost tail.',
+    combos:[
+      ['527','6570',2,1,1,58068785.60,'New Atlantic Contracting Inc',58068785.60],
+      ['529','6570',7,5,5,503672.90,'Geotechnologies Inc PA',297337],
+      ['526','6570',1,1,1,156800,'DTW Architects &amp; Planners Ltd',156800],
+      ['529','6560',2,2,2,154909.50,'All American Relocation Inc',151709.50],
+      ['532','6570',1,1,1,24000,'DTW Architects &amp; Planners Ltd',24000]
+    ]},
+  { lv:'0526', code:'CC-0526-527', name:'Morrisville HS (H-14) &ndash; Davis Dr. / Little Dr. site', site:'Morrisville High School',
+    status:'active', owner:'Marcus Bell', lines:168, orders:27, vendors:16,
+    amount:40431570.14, first:'2025-01-08', last:'2026-05-13',
+    note:'153 of the 168 lines are operating and account for 1.2% of the level. Purchase-order count and dollar value point in opposite directions here.',
+    combos:[
+      ['527','6570',1,1,1,38469116,'T.A. Loving Company',38469116],
+      ['526','6570',5,1,1,774900,'Evoke Studio Architecture PLLC',774900],
+      ['529','6570',8,5,4,690701.75,'Froehling &amp; Robertson Inc',618111.75],
+      ['541','9000',153,19,9,485155.19,'Institutional Interiors Inc',292179.24],
+      ['529','6560',1,1,1,11697.20,'All American Relocation Inc',11697.20]
+    ]},
+  { lv:'1420', code:'CC-1420-541', name:'Fuquay-Varina ES &ndash; Renovation (PR-22-030)', site:'Fuquay-Varina Elementary School',
+    status:'active', owner:'Lena Ortiz', lines:225, orders:40, vendors:23,
+    amount:33549525.25, first:'2025-01-28', last:'2026-07-23',
+    note:'The widest line-to-value gap on this screen: 213 of 225 lines are operating, worth 3.2%. The two construction lines are worth 94.5%.',
+    combos:[
+      ['527','6570',2,1,1,31698231.99,'New Atlantic Contracting Inc',31698231.99],
+      ['541','9000',213,32,16,1090120.60,'Perfection Equipment Co.',422002.50],
+      ['541','6570',2,1,1,428736.66,'Landscape Structures, Inc.',428736.66],
+      ['529','6570',8,6,5,332436,'S &amp; ME Inc',271556]
+    ]},
+  { lv:'0700', code:'CC-0700-529', name:'Safety &amp; Security Implementations &ndash; Phase 1A', site:'District-wide',
+    status:'active', owner:'Ray Chen', lines:22, orders:22, vendors:6,
+    amount:12701018.42, first:'2025-01-14', last:'2026-07-02',
+    note:'Not one site. Descriptions in this level reference 69, 67 and 61 schools, so the level behaves as a programme rather than a project.',
+    combos:[
+      ['526','6570',3,3,3,6728692,'Moseley Architects PC',2484032],
+      ['529','6570',19,19,4,5972326.42,'Harrod &amp; Assoc Constructors Inc',5411200]
+    ]},
+  { lv:'2594', code:'CC-2594-523', name:'Wakefield MS &ndash; HVAC renovation', site:'Wakefield Middle School',
+    status:'active', owner:'Angela Fitzpatrick', lines:6, orders:6, vendors:6,
+    amount:8019344.38, first:'2025-10-24', last:'2026-06-03',
+    note:'Four lines carry 88.0% of the level. Oracle&rsquo;s own description text misspells &ldquo;mechanical&rdquo; as &ldquo;MECAHNICAL&rdquo; on the $7,057,500 order.',
+    combos:[
+      ['523','6570',1,1,1,7057500,'Comfort Systems USA (Midatlantic) LLC',7057500],
+      ['526','6570',1,1,1,470300,'Cheatham &amp; Associates PA',470300],
+      ['541','6570',2,2,2,398174.38,'Carrier Corporation',379444],
+      ['529','6570',2,2,2,93370,'Heapy Engineering Inc',79320]
+    ]},
+  { lv:'2624', code:'CC-2624-523', name:'Willow Springs ES &ndash; HVAC renovation + roof replacement', site:'Willow Springs Elementary School',
+    status:'dormant', owner:'Devon Marsh', lines:7, orders:7, vendors:5,
+    amount:5943225, first:'2025-03-31', last:'2026-05-05',
+    note:'Last order 2026-05-05 &mdash; 93 days before the cut-off, three days outside the Active window. Two separate capital scopes, no operating.',
+    combos:[
+      ['523','6570',1,1,1,4048000,'Comfort Systems USA (Midatlantic) LLC',4048000],
+      ['522','6570',1,1,1,1062786,'Owens Roofing Inc',1062786],
+      ['526','6570',4,4,2,604429,'Dewberry Engineers Inc',510700],
+      ['541','6570',1,1,1,228010,'Carrier Corporation',228010]
+    ]},
+  { lv:'0832', code:'CC-0832-522', name:'Wakelon ES &ndash; modular unit installation', site:'Wakelon ES, Carver ES, Durant Road MS',
+    status:'active', owner:'Priya Raman', lines:53, orders:31, vendors:16,
+    amount:5873547.63, first:'2025-03-04', last:'2026-08-04',
+    note:'One level code, three campuses: descriptions name Wakelon ES, Carver ES and Durant Road MS. The largest order is a non-CMAR modular install.',
+    combos:[
+      ['522','6570',6,4,4,4457663.69,'Scotia Construction Inc',4297813.69],
+      ['526','6570',5,5,1,730000,'Gurel Architecture Inc',730000],
+      ['529','6570',15,14,4,297862.50,'John Micheal Kennedy',201937.50],
+      ['541','9000',21,4,4,183479.94,'Perfection Equipment Co.',147261.80],
+      ['541','6570',4,2,2,163176,'Loman Garrett Inc',151176],
+      ['532','6570',1,1,1,25900,'John Davenport Engineering, Inc.',25900],
+      ['529','6560',1,1,1,15465.50,'All American Relocation Inc',15465.50]
+    ]},
+  { lv:'0458', code:'CC-0458-526', name:'Ligon MS &ndash; Renovation', site:'Ligon Middle School',
+    status:'active', owner:'Sam Okafor', lines:7, orders:3, vendors:3,
+    amount:5410911, first:'2025-02-06', last:'2026-06-10',
+    note:'Three orders only, all design fees. 98.8% of the level is the architect&rsquo;s contract, so construction value is not yet committed anywhere.',
+    combos:[
+      ['526','6570',4,1,1,5348156,'LS3P Associates Ltd',5348156],
+      ['529','6570',3,2,2,62755,'Terracon Consultants Inc',43505]
+    ]},
+  { lv:'0523', code:'CC-0523-527', name:'Swift Creek ES &ndash; Renovation', site:'Swift Creek Elementary School',
+    status:'active', owner:'Dana Whitfield', lines:337, orders:30, vendors:22,
+    amount:5383873.99, first:'2025-04-16', last:'2026-06-12',
+    note:'The only level here where operating spend is material, at 21.2%. None of the 320 operating lines names the project &mdash; identity comes from the level code, not the text.',
+    combos:[
+      ['527','6570',3,1,1,3343434,'J E Dunn Construction',3343434],
+      ['541','9000',320,23,15,1139145.58,'Institutional Interiors Inc',386274.78],
+      ['541','6570',2,1,1,442200.91,'Landscape Structures, Inc.',442200.91],
+      ['529','6570',5,3,3,269887,'Terracon Consultants Inc',239637],
+      ['532','6570',7,4,4,189206.50,'LS3P Associates Ltd',126084]
+    ]}
+];
+
+/* ============================================================
+   Derived values
+   ============================================================ */
+const money  = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money0 = n => '$' + Math.round(Number(n)).toLocaleString('en-US');
+/* Abbreviated form, used only for the secondary sub-lines in the table so the
+   columns stay narrow enough to fit without a horizontal scroll. The exact
+   figure is always in the column above it and in the drawer. */
+const moneyShort = n => {
+  const v = Number(n);
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + Math.round(v / 1e3) + 'K';
+  return money0(v);
+};
+const pct    = n => (n * 100).toFixed(1) + '%';
+/* One decimal turns a real 0.05% into "0.0%" and a real 99.95% into "100.0%",
+   which reads as "there is none" / "there is all of it". Neither is true. */
+const pctSlim = n => (n > 0 && n < 0.001) ? '<0.1%' : (n < 1 && n > 0.999) ? '>99.9%' : pct(n);
+const num    = n => Number(n).toLocaleString('en-US');
+const comboKey = (p, c) => '04-' + c[1] + '-862-' + c[0] + '-' + p.lv + '-0840-000';
+
+/* Approved budget is app-native - Oracle has no budget table. This mockup
+   derives it so the bar has something to fill: committed x 1.10, rounded up
+   to the next $10,000. Stated in the drawer so nobody reads it as Oracle data. */
+const ALLOC_RULE = 'Approved budget is committed &times; 1.10 rounded up to the next $10,000. Oracle has no budget table &mdash; in the app this figure is entered by staff.';
+const allocate = n => Math.ceil((n * 1.1) / 10000) * 10000;
+
+function bucketsOf(p) {
+  const order = ['6570', '9000', '6560'];
+  const map = {};
+  p.combos.forEach(c => {
+    const pur = c[1];
+    (map[pur] = map[pur] || []).push(c);
+  });
+  return order.filter(k => map[k]).map(k => {
+    const combos = map[k];
+    const committed = combos.reduce((s, c) => s + c[5], 0);
+    return {
+      purpose: k,
+      label: PURPOSES[k].label,
+      combos,
+      committed,
+      alloc: allocate(committed),
+      lines: combos.reduce((s, c) => s + c[2], 0),
+      orders: combos.reduce((s, c) => s + c[3], 0),
+      vendors: combos.reduce((s, c) => s + c[4], 0),
+      max: Math.max.apply(null, combos.map(c => c[5]))
+    };
+  });
+}
+
+PROJECTS.forEach(p => {
+  p.b = bucketsOf(p);
+  p.cap = (p.b.find(x => x.purpose === '6570') || { committed: 0 }).committed;
+  p.ope = (p.b.find(x => x.purpose === '9000') || { committed: 0 }).committed;
+  p.oth = (p.b.find(x => x.purpose === '6560') || { committed: 0 }).committed;
+  p.budget = p.b.reduce((s, x) => s + x.alloc, 0);
+  p.remaining = p.budget - p.amount;
+  p.used = p.amount / p.budget;
+});
+
+/* ============================================================
+   Table
+   ============================================================ */
+const ROWS = document.getElementById('rows');
+
+function mixBar(p, cls) {
+  const seg = [['m-cap', p.cap], ['m-ope', p.ope], ['m-oth', p.oth]]
+    .filter(s => s[1] > 0)
+    .map(s => '<span class="' + s[0] + '" style="flex-grow:' + (s[1] / p.amount * 100).toFixed(4) + '"></span>')
+    .join('');
+  return '<span class="mix ' + (cls || '') + '" role="img" aria-label="Capital ' + pct(p.cap / p.amount) +
+         ', operating ' + pct(p.ope / p.amount) + ' of committed value">' + seg + '</span>';
+}
+
+function statusChip(s) {
+  return s === 'active'
+    ? '<span class="chip chip--info"><span class="dot"></span>Active</span>'
+    : '<span class="chip chip--neu"><span class="dot"></span>Dormant</span>';
+}
+
+function renderTable(list) {
+  ROWS.innerHTML = list.map(p => (
+    '<tr class="prow" data-lv="' + p.lv + '" tabindex="-1">' +
+      '<td>' +
+        '<span class="pcell">' +
+          '<span class="pcell__code">' + p.code + '</span>' +
+          '<span class="pcell__name">' + p.name + '</span>' +
+          '<span class="pcell__meta">Level ' + p.lv + ' &middot; ' + p.b.length + ' cost ' +
+            (p.b.length === 1 ? 'code' : 'codes') + ' &middot; ' + num(p.lines) + ' lines &middot; ' +
+            p.orders + ' orders &middot; Owner: ' + p.owner + '</span>' +
+          mixBar(p) +
+        '</span>' +
+      '</td>' +
+      '<td>' + statusChip(p.status) + '</td>' +
+      '<td class="num"><span class="money">' + money0(p.cap) + '</span>' +
+        '<span class="share">' + pctSlim(p.cap / p.amount) + '</span></td>' +
+      '<td class="num">' + (p.ope > 0
+        ? '<span class="money">' + money0(p.ope) + '</span><span class="share">' + pctSlim(p.ope / p.amount) + '</span>'
+        : '<span class="money money--zero">&mdash;</span>') + '</td>' +
+      '<td class="num"><span class="money">' + money0(p.amount) + '</span>' +
+        '<span class="share">of ' + moneyShort(p.budget) + '</span></td>' +
+    '</tr>'
+  )).join('');
+}
+
+/* ============================================================
+   Drawer
+   ============================================================ */
+const drawer  = document.getElementById('drawer');
+const dwCode  = document.getElementById('dw-code');
+const dwName  = document.getElementById('dw-name');
+const dwMeta  = document.getElementById('dw-meta');
+const dwChips = document.getElementById('dw-chips');
+const dwBody  = document.getElementById('dw-body');
+let current = null;
+
+function usageBar(p, height) {
+  const parts = [['u-cap', p.cap], ['u-ope', p.ope], ['u-oth', p.oth]]
+    .filter(s => s[1] > 0)
+    .map(s => '<span class="' + s[0] + '" style="flex-grow:' + s[1] + '"></span>')
+    .join('');
+  const rest = '<span class="u-rest" style="flex-grow:' + Math.max(p.remaining, 0) + '"></span>';
+  return '<div class="usage" role="img" aria-label="Committed ' + money(p.amount) + ' of an approved ' +
+         money(p.budget) + '; ' + pct(p.used) + ' committed">' + parts + rest + '</div>';
+}
+
+function legend(p) {
+  const items = [
+    ['lg-cap', 'Capital', p.cap],
+    ['lg-ope', 'Operating', p.ope],
+    ['lg-oth', 'Relocation', p.oth],
+    ['lg-rest', 'Uncommitted', Math.max(p.remaining, 0)]
+  ].filter(i => i[0] === 'lg-rest' || i[2] > 0);
+  return '<div class="legend">' + items.map(i =>
+    '<span><i class="' + i[0] + '"></i>' + i[1] + ' <b>' + money(i[2]) + '</b></span>').join('') + '</div>';
+}
+
+/* The derivation, stated once per budget group and in the order it actually
+   happens, so a reviewer can re-run it against the extract line by line.
+   Steps 1-4 are reads over output.json; step 5 is arithmetic on step 2, because
+   Oracle ships no budget table and the approved figure has to come from
+   somewhere. Every number below is computed, not typed - it cannot drift. */
+function howBlock(p, b) {
+  const nObj = b.combos.length;
+  const remaining = b.alloc - b.committed;
+  const used = b.committed / b.alloc;
+  const gross = b.committed * 1.1;
+  const label = PURPOSES[b.purpose].label.toLowerCase();
+
+  return '<div class="how">' +
+    '<p class="how__title">How we arrived at the ' + label + '</p>' +
+    '<ol class="how__steps">' +
+
+      '<li><strong>Match the account.</strong> Take every extract line whose seven segments read' +
+        '<code class="how__acct">04 &middot; ' + b.purpose + ' &middot; 862 &middot; &lt;object&gt; &middot; ' +
+        p.lv + ' &middot; 0840 &middot; 000</code>' +
+        'Only the object segment is free to vary. <strong>' + num(b.lines) + '</strong> of the ' +
+        'extract&rsquo;s 2,782 lines match.</li>' +
+
+      '<li><strong>Add the amounts.</strong> Sum <code>AMOUNT</code> across those lines: ' +
+        '<strong>' + money(b.committed) + '</strong> committed. That one number is the source for every ' +
+        'other figure in this section.</li>' +
+
+      '<li><strong>Split it by object code.</strong> The same lines carry <strong>' + nObj +
+        '</strong> distinct object ' + (nObj === 1 ? 'code' : 'codes') + ', so they group into ' + nObj +
+        ' cost-code ' + (nObj === 1 ? 'row' : 'rows') + ' above. Each row amount and share is a subtotal of ' +
+        'those ' + num(b.lines) + ' lines, not a separate extract.</li>' +
+
+      '<li><strong>Count inside each code, then add.</strong> Lines, orders and vendor links are counted per ' +
+        'cost code and summed. A purchase order spanning two object codes is counted under both, so these ' +
+        'totals can exceed the project&rsquo;s distinct order and vendor counts.</li>' +
+
+      '<li><strong>Derive the approved budget.</strong> Oracle has no budget table, so it is computed from the ' +
+        'commitment: ' + money(b.committed) + ' &times; 1.10 = ' + money(gross) + ', rounded <em>up</em> to the ' +
+        'next $10,000 &rarr; <strong>' + money0(b.alloc) + '</strong>. Remaining is approved &minus; committed = ' +
+        '<strong>' + money0(remaining) + '</strong>, i.e. ' + pctSlim(used) + ' committed.' +
+        /* The step is coarse against a small commitment - a $51,204 figure lands
+           on $60,000 - so say so rather than let the number look arbitrary. */
+        ((b.alloc - gross) > b.committed * 0.01
+          ? ' On a budget this size the $10,000 step adds ' + money0(b.alloc - gross) +
+            ' on top of the 10%, which is why the headroom here is much wider than a tenth.'
+          : '') + '</li>' +
+
+    '</ol>' +
+    '<p class="how__foot">Steps 1&ndash;4 read <code>data/oracle/output.json</code>. Step 5 is the only ' +
+      'figure this screen invents, and in the app it is entered by staff &mdash; the 10% headroom is a ' +
+      'placeholder, not a policy.</p>' +
+  '</div>';
+}
+
+function bucketBlock(p, b, idx) {
+  const meta = PURPOSES[b.purpose];
+  const remaining = b.alloc - b.committed;
+  const used = b.committed / b.alloc;
+
+  const lines = b.combos.map((c, i) => {
+    const share = c[5] / b.committed;
+    const label = OBJECTS[c[0]] || ('Object ' + c[0]);
+    return '<li class="line">' +
+      '<div class="line__top">' +
+        '<span class="line__no">' + String(i + 1).padStart(4, '0') + '</span>' +
+        '<span class="line__obj">' + c[0] + ' &middot; ' + label + '</span>' +
+        '<span class="line__amt">' + money(c[5]) + '</span>' +
+      '</div>' +
+      '<code class="line__key">' + comboKey(p, c) + '</code>' +
+      '<span class="line__meta">' + num(c[2]) + ' lines &middot; ' + c[3] + ' order' + (c[3] === 1 ? '' : 's') +
+        ' &middot; ' + c[4] + ' vendor' + (c[4] === 1 ? '' : 's') + ' &middot; ' + pct(share) + ' of this budget</span>' +
+      '<span class="line__vendor">Largest: ' + c[6] + ' <b>' + money(c[7]) + '</b></span>' +
+      '<span class="line__bar"><span class="' + meta.line + '" style="width:' + (share * 100).toFixed(2) + '%"></span></span>' +
+    '</li>';
+  }).join('');
+
+  return '<details class="bucket" open>' +
+    '<summary>' +
+      '<span class="bucket__dot ' + meta.cls + '" aria-hidden="true"></span>' +
+      '<span class="bucket__name">' + meta.label + '</span>' +
+      '<span class="bucket__code">purpose ' + b.purpose + '</span>' +
+      '<span class="bucket__amt">' + money(b.committed) + '</span>' +
+    '</summary>' +
+    '<div class="bucket__inner">' +
+      '<div class="usage" role="img" aria-label="' + meta.label + ': committed ' + money(b.committed) +
+        ' of ' + money(b.alloc) + '">' +
+        '<span class="' + meta.seg + '" style="flex-grow:' + b.committed + '"></span>' +
+        '<span class="u-rest" style="flex-grow:' + Math.max(remaining, 0) + '"></span>' +
+      '</div>' +
+      '<div class="stats">' +
+        '<div class="stat"><p class="stat__k">Approved</p><p class="stat__v">' + money0(b.alloc) + '</p></div>' +
+        '<div class="stat"><p class="stat__k">Committed</p><p class="stat__v">' + money0(b.committed) + '</p></div>' +
+        '<div class="stat"><p class="stat__k">Remaining</p><p class="stat__v">' + money0(remaining) + '</p></div>' +
+      '</div>' +
+      '<p class="line__meta" style="margin-top:10px">' + pctSlim(used) + ' committed &middot; ' +
+        num(b.lines) + ' lines &middot; ' + b.orders + ' orders &middot; ' + b.vendors +
+        ' vendor links &middot; ' + b.combos.length + ' cost ' + (b.combos.length === 1 ? 'code' : 'codes') + '</p>' +
+      '<ul class="lines">' + lines + '</ul>' +
+      howBlock(p, b) +
+    '</div>' +
+  '</details>';
+}
+
+function renderDrawer(p) {
+  dwCode.innerHTML = p.code + ' &middot; level ' + p.lv;
+  dwName.innerHTML = p.name;
+  dwMeta.innerHTML = p.site + '<br>' + num(p.lines) + ' lines &middot; ' + p.orders + ' orders &middot; ' +
+    p.vendors + ' vendors &middot; ' + p.combos.length + ' cost codes<br>' +
+    'Orders ' + p.first + ' to ' + p.last + ' &middot; owner ' + p.owner;
+  dwChips.innerHTML =
+    statusChip(p.status) +
+    (p.ope > 0 ? '<span class="chip chip--cap">Capital ' + pct(p.cap / p.amount) + '</span>' +
+                 '<span class="chip chip--ope">Operating ' + pct(p.ope / p.amount) + '</span>'
+               : '<span class="chip chip--cap">All capital</span>') +
+    '<span class="chip chip--neu"><span class="dot"></span>Fund 04 &middot; 0840</span>';
+
+  const spine = SEGMENTS.map(s =>
+    '<li><span class="s-name">' + s[0] + '</span><span class="s-val">' +
+    (s[0] === 'LEVEL_' ? p.lv : s[1]) + '</span>' +
+    (s[0] === 'LEVEL_' ? '<span class="s-const">this project</span>' : '') + '</li>').join('');
+
+  dwBody.innerHTML =
+    /* 1 - usage summary */
+    '<section class="dsec">' +
+      '<div class="dsec__head"><h3 class="dsec__title">Budget usage</h3>' +
+        '<span class="chip chip--neu">' + pctSlim(p.used) + ' committed</span></div>' +
+      usageBar(p) + legend(p) +
+      '<div class="stats">' +
+        '<div class="stat"><p class="stat__k">Approved</p><p class="stat__v">' + money0(p.budget) + '</p></div>' +
+        '<div class="stat"><p class="stat__k">Committed</p><p class="stat__v">' + money0(p.amount) + '</p></div>' +
+        '<div class="stat"><p class="stat__k">Remaining</p><p class="stat__v">' + money0(p.remaining) + '</p></div>' +
+      '</div>' +
+      '<div class="notice notice--warn" style="margin-top:16px">' +
+        '<span aria-hidden="true">&#9873;</span>' +
+        '<p><strong>Committed is not spent.</strong> This extract carries purchase-order commitments only. ' +
+        'Oracle supplies no invoice or payment figure, so no spend percentage is shown on this screen. ' +
+        ALLOC_RULE + '</p>' +
+      '</div>' +
+    '</section>' +
+
+    /* 2 - the two budget groups */
+    '<section class="dsec">' +
+      '<div class="dsec__head"><h3 class="dsec__title">Related budgets</h3>' +
+        '<span class="chip chip--neu">' + p.b.length + ' group' + (p.b.length === 1 ? '' : 's') + '</span></div>' +
+      p.b.map((b, i) => bucketBlock(p, b, i)).join('') +
+    '</section>' +
+
+    /* 3 - the number */
+    '<section class="dsec">' +
+      '<div class="dsec__head"><h3 class="dsec__title">Cost-code spine</h3></div>' +
+      '<ul class="spine">' + spine + '</ul>' +
+      '<div class="notice notice--info" style="margin-top:12px">' +
+        '<span aria-hidden="true">&#9432;</span>' +
+        '<p>Object and purpose labels on this screen are <strong>proposed</strong>. The extract ships the ' +
+        'codes only &mdash; no lookup table exists in it. A cost code binds to a project only when all ' +
+        'seven segments match exactly, so an order in object 522 will not fall into a code registered as 527.</p>' +
+      '</div>' +
+    '</section>' +
+
+    /* 4 - project note */
+    '<section class="dsec">' +
+      '<div class="dsec__head"><h3 class="dsec__title">What to watch</h3></div>' +
+      '<div class="notice"><span aria-hidden="true">&#9873;</span><p>' + p.note + '</p></div>' +
+    '</section>';
+}
+
+function select(lv, focus) {
+  const p = PROJECTS.find(x => x.lv === lv);
+  if (!p) return;
+  current = lv;
+  Array.prototype.forEach.call(ROWS.children, tr => tr.classList.toggle('is-on', tr.dataset.lv === lv));
+  renderDrawer(p);
+  drawer.classList.add('is-open');
+  drawer.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = '';
+  if (focus) drawer.querySelector('.drawer__close').focus();
+}
+
+function closeDrawer() {
+  drawer.classList.remove('is-open');
+  drawer.setAttribute('aria-hidden', 'true');
+  const tr = ROWS.querySelector('tr.is-on');
+  if (tr) tr.focus();
+}
+
+ROWS.addEventListener('click', e => {
+  const tr = e.target.closest('tr.prow');
+  if (tr) select(tr.dataset.lv, false);
+});
+ROWS.addEventListener('keydown', e => {
+  const tr = e.target.closest('tr.prow');
+  if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(tr.dataset.lv, true); }
+});
+document.getElementById('dw-close').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawer.classList.contains('is-open')) closeDrawer(); });
+
+/* ============================================================
+   Filters
+   ============================================================ */
+let filter = 'all', query = '';
+
+function apply() {
+  const q = query.trim().toLowerCase();
+  const list = PROJECTS.filter(p => {
+    if (filter === 'active' && p.status !== 'active') return false;
+    if (filter === 'dormant' && p.status !== 'dormant') return false;
+    if (filter === 'operating' && !(p.ope > 0)) return false;
+    if (q && !(p.name + ' ' + p.code + ' ' + p.lv + ' ' + p.site).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  renderTable(list);
+  const on = ROWS.querySelector('tr[data-lv="' + current + '"]');
+  if (on) on.classList.add('is-on');
+  document.getElementById('count').textContent = list.length + (list.length === 1 ? ' project' : ' projects');
+  document.getElementById('empty').hidden = list.length > 0;
+}
+
+document.querySelectorAll('.fchip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    filter = btn.dataset.f;
+    document.querySelectorAll('.fchip').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    apply();
+  });
+});
+document.getElementById('q').addEventListener('input', e => { query = e.target.value; apply(); });
+
+/* ============================================================
+   Theme
+   ============================================================ */
+const root = document.documentElement;
+const bLight = document.getElementById('t-light');
+const bDark  = document.getElementById('t-dark');
+
+function setTheme(mode) {
+  root.setAttribute('data-theme', mode);
+  bLight.setAttribute('aria-pressed', String(mode === 'light'));
+  bDark.setAttribute('aria-pressed', String(mode === 'dark'));
+  try { localStorage.setItem('projects-theme', mode); } catch (e) {}
+}
+bLight.addEventListener('click', () => setTheme('light'));
+bDark.addEventListener('click', () => setTheme('dark'));
+
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('projects-theme'); } catch (e) {}
+  if (!saved) {
+    saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  setTheme(saved);
+})();
+
+/* ============================================================
+   Go
+   ============================================================ */
+apply();
+select('0523', false);
+</script>
+</body>
+</html>

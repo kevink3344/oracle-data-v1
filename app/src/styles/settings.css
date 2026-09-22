@@ -1,0 +1,517 @@
+/* ==========================================================================
+   Settings — the organization register, and the sign-in screen.
+
+   Two pages share this sheet because they are the two halves of one thing: the
+   register is what a super admin may change, and the sign-in screen is where the
+   role that decides that comes from. Splitting them into two files would put the
+   `.idcard` both of them use in neither.
+
+   ★ IT EXTENDS RATHER THAN REDECLARES. The page is a `.stack` of `.panel`s with a
+   `.page-head` above them, like every other screen in the app; the fields are
+   `.field` / `.input` and the buttons are `.btn`. Everything here is the part
+   that has no ancestor to inherit from:
+
+     - `.acc*`  — an accordion. `.panel__head` was written for a title and a
+                  count; here it holds a *button* and an action cluster, so the
+                  head's own padding moves onto the toggle and the head stops
+                  aligning on a text baseline it no longer has.
+     - `.picklist` / `.opt*` — the one case where it copies rather than extends.
+                  `.opt` is the combination picker's option row in
+                  `newproject.css`, 10px of padding and a cursor. Three of its
+                  properties are wrong for a checkbox list (see below) and the
+                  rest are exactly right, so it is reused with those three
+                  restated instead of a parallel set of near-identical rules.
+     - `.org*`  — the register rows. Nothing like them exists.
+     - `.preview` — the sentence that says what the selection reads, built to sit
+                  between the last field and the submit button.
+
+   ★ `.notice--ok` IS NOT HERE. It belongs beside the other three notice variants
+   in `components.css`, and that is where it was added: a success notice that
+   lived in a feature sheet would be a fourth variant with a second home.
+
+   ========================================================================== */
+
+/* --- the accordion ---------------------------------------------------- */
+
+/* `.panel` clips its children (`overflow: hidden`) so the head's border-bottom can
+   run to the panel's rounded corners. Nothing below needs to escape. */
+
+.acc .panel__head {
+  /* The head holds two buttons. `align-items: baseline` on the inherited rule was
+     for a title and a count, where lining the count up with the text *is* the
+     intent; two different-sized buttons on a text baseline sit visibly off. */
+  align-items: center;
+  /* And the padding moves onto the toggle, so the whole width of the head above
+     the panel body is one click target rather than a label with dead space
+     either side of it. */
+  padding: 0;
+}
+
+.acc__toggle {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  /* `font: inherit` before the rest, or the button keeps the UA's 13.33px Arial
+     and the letter-spacing below does nothing visible. */
+  font: inherit;
+  /* `.panel__title`'s typography, deliberately: this *is* the panel's title, and
+     an accordion header that did not match one would make the two kinds of panel
+     look like two kinds of component. */
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+.acc__toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+.acc__toggle:focus-visible {
+  /* Inside the button, not outside: the head's bottom border is 1px below it and
+     an outward ring would paint over it. */
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+.acc__caret {
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.acc__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding-right: 16px;
+}
+
+/* ★ `.panel__count` CARRIES `margin-left: auto` AND THAT HAS TO BE UNDONE HERE.
+   Its job in every other panel is to push the count to the far right of a head
+   that holds a title and nothing else. In this head the count is *inside* the
+   action cluster, next to the button it belongs with, and the auto margin would
+   tear the two apart with all the free space of a 208px-to-1180px panel between
+   them. The selector is two classes deep for that reason and not to win an
+   argument — an unscoped reset would move every other panel's count. */
+.acc__actions .panel__count {
+  margin-left: 0;
+}
+
+/* The note about organizations that name no program. It is a `.chart-note` in
+   the markup — same size and colour as every other explanatory line — and this
+   promotes it only as far as saying *this one is worth reading*. */
+.chart-note.acc__warn {
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+/* --- the register ----------------------------------------------------- */
+
+.orglist {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orgrow {
+  display: grid;
+  /* Five columns and every one of them `minmax(0, …)`: a grid item's default
+     `min-width: auto` is its content's, so one long organization name would widen
+     its column past its share and squash the others rather than wrapping. The
+     scope label is the long one — it lists the programs.
+
+     The fifth column is the Edit control and it is `auto` for the same reason the
+     slug is: content-sized, and the only column here that is a *widget* rather
+     than a fact. */
+  grid-template-columns:
+    minmax(0, 1.4fr)
+    minmax(0, 1.8fr)
+    minmax(0, 1fr)
+    minmax(0, auto)
+    minmax(0, auto);
+  gap: 4px 14px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  /* The left border is the row's only marker of state, so it exists at 3px on
+     every row and is only *coloured* on the default one. A border that was added
+     rather than coloured would shift every cell in that row 3px to the right. */
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.orgrow + .orgrow {
+  margin-top: 6px;
+}
+
+.orgrow--default {
+  border-left-color: var(--primary-color);
+  background: var(--surface-sunken);
+}
+
+.orgrow__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.orgrow__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+.orgrow__scope {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.orgrow__count {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  /* Every row's count sits under the one above it when they are a column of
+     figures rather than a sentence. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* An organization whose scope selects nothing. It is not an error and it is not
+   nothing either: it is a tenant that reads an empty slice of the ledger, which
+   is exactly the thing this page exists to make visible. `.orgrow__count` gives
+   it the size and this gives it the weight. */
+.orgrow__none {
+  color: var(--warn-fg);
+  font-weight: 700;
+}
+
+.orgrow__slug {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  text-align: right;
+  /* The key is derived from the name and can be long; `anywhere` lets it break
+     inside a hyphen rather than push the column wider than `auto` allows. */
+  overflow-wrap: anywhere;
+}
+
+.orgrow__slug code {
+  font-size: 0.6875rem;
+}
+
+/* The Edit cell.
+   `align-self: center` rather than inheriting the row's `baseline`: a `<button>`
+   participating in baseline alignment is aligned by the baseline of the text
+   *inside* it, which happens to look right here and would stop looking right the
+   moment the button gained an icon or its padding changed. Centring it is the
+   statement that this is a control in the row and not another fact about it. */
+.orgrow__act {
+  display: flex;
+  justify-content: flex-end;
+  align-self: center;
+}
+
+/* `btn--sm` is sized for a table toolbar; inside a 10px-padded row its 6px of
+   vertical padding makes the row 32px tall for a 5px label. Trimmed to the row's
+   own rhythm. Two classes, so it wins on specificity rather than on load order —
+   `components.css` is imported before this sheet, and `.btn--sm` alone would tie. */
+.btn--sm.orgrow__edit {
+  padding: 3px 10px;
+  font-size: 0.6875rem;
+}
+
+/* --- the edit panel --------------------------------------------------- */
+
+/* ★ NOTHING IN THIS BLOCK IS LOAD-ORDER DEPENDENT. `.drawer`, `.drawer__head`,
+   `.drawer__body` and `.drawer__foot` all live in `panel.css`, which `main.tsx`
+   imports BEFORE this sheet — so every rule below either uses a compound selector
+   that outranks the one it adjusts, or only touches properties the drawer never
+   sets. The one trap this avoids is the `.input.input--short` lesson: a lone
+   override of an inherited property in a later sheet is a rule that works until
+   somebody reorders the imports. */
+
+/* The four fields are a fragment, so their parent is the `<form>` — and the form's
+   children are not all fields. `.field + .field` (from `newproject.css`) spaces
+   them from the second one on; this spaces *every* child after the first, which is
+   what puts air between the warning, the notices and the first field. */
+.orgpanel .drawer__body > form > * + * {
+  margin-top: var(--space-6);
+}
+
+/* The default-organization warning is a `.chart-note.acc__warn` reused verbatim
+   from the register, so it keeps that look — it only needs the note's own 10px
+   top margin removed, because the rule above places it. */
+.orgpanel .acc__warn {
+  margin-top: 0;
+}
+
+.orgpanel .notice {
+  margin-top: 0;
+}
+
+/* The footer holds two buttons and a sentence of consequence. `flex-basis: 100%`
+   is what wraps the sentence onto its own line without a wrapper element. */
+.orgpanel .drawer__foot {
+  align-items: center;
+}
+
+.orgpanel__note {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* The picker can hold every program the chart pairs with a fund. Bounded so the
+   Save button in the footer stays reachable without scrolling past a long list. */
+.orgpanel .picklist {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* --- the new-organization form ---------------------------------------- */
+
+.orgform {
+  margin-top: 18px;
+  padding-top: 18px;
+  /* A dashed rule rather than a solid one, and only here: the form is not a
+     section of the panel, it is an alternative to the list above it, and the
+     register can be empty while the form is open. */
+  border-top: 1px dashed var(--border-strong);
+  /* The measure. A 640px form on a 1180px page is a form somebody can read
+     without moving their head; the panel is wider because the rows are. */
+  max-width: 640px;
+}
+
+.orgform__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* --- the program checkboxes ------------------------------------------ */
+
+.picklist {
+  display: flex;
+  flex-direction: column;
+  /* `gap` on the flex container, so `.opt + .opt`'s 4px has to be cancelled
+     below or every row after the first gets both. */
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+/* ★ THE THREE OVERRIDES, EACH BECAUSE `.opt` WAS WRITTEN FOR A DIFFERENT WIDGET.
+   In `newproject.css` an `.opt` is one row of a combination listbox: a single
+   block of text, an active state, and aria-selected. Here it is a `<label>`
+   holding a checkbox and two spans, and:
+     display  — a block label puts the checkbox, the code and the count on one
+                line as inline content, so the count cannot be aligned or pushed;
+                flex is what makes the row a row.
+     margin   — `.opt + .opt` is the listbox's spacing; `gap` above replaces it.
+     colour   — the border is declared on `.opt` as *transparent* so the active
+                listbox row can gain a border without moving. Nothing is active
+                here, so the row would be borderless and float on the sunken
+                background instead of reading as a thing you can tick. */
+.picklist .opt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-color: var(--border);
+}
+
+.picklist .opt + .opt {
+  margin-top: 0;
+}
+
+.picklist .opt:hover {
+  background: var(--surface-hover);
+}
+
+/* Focus is on the checkbox, so the ring has to be drawn on the row around it —
+   otherwise the only sign of a keyboard user's position is a 13px square. */
+.picklist .opt:focus-within {
+  border-color: var(--primary-color);
+  outline: 2px solid var(--tertiary-color);
+  outline-offset: -1px;
+}
+
+.opt__code {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.opt__meta {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* A program already on the tenant that the chosen fund does not pair with.
+   The server accepts it — it validates shape, not membership — so the honest
+   thing is to show it and say why rather than to drop it silently. Warn colours
+   on a row that is still a perfectly legal choice, and note that *ticked* is not
+   what makes it loose: the fund is. */
+.picklist .opt--loose {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.picklist .opt--loose .opt__meta {
+  color: var(--warn-fg);
+}
+
+/* --- the read-as preview ---------------------------------------------- */
+
+.preview {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  /* The one coloured edge in the form, and it is the same device the notices use:
+     it says this block is about the whole form rather than being another field. */
+  border-left: 3px solid var(--tertiary-color);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.preview__label {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.preview__scope {
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.preview__rows {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the start year --------------------------------------------------- */
+
+/* ★ TWO CLASSES, NOT ONE. `.input` sets `width: 100%` and the two rules carry the
+   same specificity, so a lone `.input--short` would win only by load order — this
+   sheet before `newproject.css` and a four-digit year becomes a full-width box
+   with no error anywhere. Written as `.input.input--short` the intent survives a
+   reorder of `main.tsx`. */
+.input.input--short {
+  width: 96px;
+  /* Four figures read as a year when they are all the same width, and the field
+     is too narrow for a layout shift to be anything but annoying. */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* --- the identity card ------------------------------------------------ */
+
+/* A `<dl>` of `Name / Address / Organization / Scope`. Four short facts, so they
+   go across rather than down, and `auto-fit` lets three fit in a narrow panel
+   without a breakpoint. */
+.idcard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+
+.idcard > div {
+  /* Same reason as every other grid item in this file: the organization name is
+     the long one and would otherwise widen its column past its share. */
+  min-width: 0;
+}
+
+.idcard dt {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.idcard dd {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/* The action row, used at the foot of both cards. `flex-start` and not `center`:
+   the hint beside the button is two or three lines tall and the button belongs
+   with the first of them. */
+.idcard__actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+/* `.field__hint` carries `margin-top: 6px` for the case it was written for — under
+   a field. Here it sits *beside* a control, where 6px of drop is a misalignment
+   rather than spacing. */
+.idcard__actions .field__hint {
+  margin-top: 0;
+  flex: 1 1 220px;
+  max-width: 62ch;
+}
+
+/* --- narrow screens --------------------------------------------------- */
+
+/* Below the panel's own breakpoint the four register columns stop being a table
+   and become a stack of facts. `auto` on the last column is what has to go first:
+   a right-aligned slug on a row of its own reads better left-aligned. */
+@media (max-width: 900px) {
+  .orgrow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .orgrow__slug {
+    text-align: left;
+  }
+  /* Two `nowrap` cells in a one-column grid would still be fine, but the count
+     and the slug on separate lines want a little air between them. */
+  .orgrow__count {
+    margin-top: 2px;
+  }
+  /* The button is the last cell, so in one column it lands under the slug — where
+     `flex-end` would push it to the far edge of the row, away from the thing it
+     edits. `margin-top` because the grid `gap` of 2px is tuned for lines of text. */
+  .orgrow__act {
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+}

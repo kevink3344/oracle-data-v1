@@ -1,0 +1,1189 @@
+/* ============================================================================
+   Vendor companies — the payee register and its check panel.
+
+   Extends `.panel`, `.table-wrap`, `table.data`, `.filterbar`, `.pager`, `.dsec`,
+   `.drawer`, `.btn`, `.notice`, `.chart-note`, `.chkstats`/`.chkstat*`,
+   `.chkrows`/`.chkrow*`, `.chkempty`/`.chkempty__hint`, `.pager__gap` and
+   `.scopenote`, all of which it inherits from tokens.css, base.css,
+   components.css, projects.css, panel.css, objectdetail.css and checks.css.
+   Nothing here redeclares any of them.
+
+   ★ THE TWO PRIMITIVES THIS SHEET BORROWS FROM `checks.css` ARE BORROWED ON
+     PURPOSE AND NOT COPIED. `.chkstats`, `.chkstat*`, `.chkrows`, `.chkrow*`,
+     `.chkempty` and `.chknote` are already in the stylesheet bundle, and a
+     second set of near-identical rules under `vc*` names is how two pages that
+     should look the same stop looking the same. The only classes defined here
+     are the ones that describe something this screen has and the checks
+     register does not: a vendor table, a disclosure per check, and an invoice
+     table with an account column.
+
+   ★ `.vcfilter__box` IS A DELIBERATE VERBATIM DUPLICATE of `.chkfilter__box`.
+     Same reasoning as that sheet's own duplicate of `.objfilter__box`: the
+     search control is the same control on all three pages, but the pages are
+     independent files and neither owns the other's CSS; promoting it to
+     components.css would touch two working screens for no gain.
+   ============================================================================ */
+
+/* --- filter bar ------------------------------------------------------- */
+
+.vcfilter__box {
+  position: relative;
+  flex: 1 1 320px;
+  min-width: 220px;
+  max-width: 520px;
+}
+
+.vcfilter__input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color var(--transition);
+}
+
+/* Room for the clear button, which is the only control in this box that is not the
+   input itself. Without it the text runs under the button at the far end of a long
+   company name. */
+.vcfilter__input {
+  padding-right: 62px;
+}
+
+.vcfilter__input::placeholder {
+  color: var(--text-faint);
+}
+
+.vcfilter__input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.vcfilter__input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+.vcfilter__clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.vcfilter__clear:hover {
+  color: var(--text-heading);
+  border-color: var(--border-strong);
+}
+
+.vcfilter__clear:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* The note a `?vendor=` link gets when the name it carried is not on the register.
+   It reuses `.chkempty`'s box because it is the same situation — "there is nothing
+   here to show you" — with the one difference that the reader did not type the
+   value, so it must be quoted back to them. Only the spacing differs: it sits
+   directly under the filter bar rather than filling the table's place. */
+.vcfilter__miss {
+  margin: 0 16px 12px;
+}
+
+.vcfilter__miss code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+
+/* --- the vendor table ------------------------------------------------- */
+
+/* Four fixed columns and one loose one. The vendor column takes the remainder
+   because a company name is the only genuinely unbounded value in the row —
+   `SUPERIOR MECHANICAL SERVICES, INC` is 33 characters and the longest here is
+   longer. `min-width` hands any overflow to `.table-wrap`, which already
+   scrolls.
+
+   ★ `min-width` MOVED FROM 780 TO 820 WHEN THE PAID COLUMN GAINED ITS MARKER, AND
+   THAT IS THE WHOLE REASON. The extra 40px is the Paid column's; widening the
+   fixed columns inside a table whose floor stayed at 780 would have taken the
+   difference out of the vendor column — the one column with no width of its own,
+   and the one containing the names. The arithmetic, since a reader here cannot see
+   it: fixed columns are 96 + 96 + 176 + 104 = 472 against a floor of 820, so the
+   vendor column gets 348px; before the marker it was 96 + 96 + 148 + 104 = 444
+   against 780, so 336px. Nothing lost, and 12px gained on the column that wraps.
+   Measured in the browser at 348, not worked out on paper. */
+table.data.vctable {
+  table-layout: fixed;
+  min-width: 820px;
+}
+
+table.data.vctable thead th,
+table.data.vctable tbody td {
+  padding: 10px 12px;
+}
+
+table.data.vctable col.c-count {
+  width: 96px;
+}
+
+/* ★ 176 AND NOT 148, BECAUSE THIS COLUMN NOW HOLDS A SECOND LINE. `8 unpaid ·
+   $23,021` measures ~119px at 0.6875rem mono, and the cell's 12px padding either
+   side leaves 124px of content inside 148 — 5px of slack, which is where a cell
+   with no room for fractional layout to round clips its own text. 176 leaves 33px.
+   `nowrap` on the marker means it cannot wrap out of the way; the column has to
+   be wide enough. */
+table.data.vctable col.c-paid {
+  width: 176px;
+}
+table.data.vctable col.c-latest {
+  width: 104px;
+}
+/* No width on the vendor col: under `table-layout: fixed` it takes what is left. */
+
+/* ★ FOUR CLASSES' WORTH OF SPECIFICITY, AND THE REASON IS THE ONE `checks.css`
+   RECORDS FOR THE SAME RULE. `table.data td:first-child { white-space: normal }`
+   is (0,2,2) and wins over a bare `.vc-num` at (0,1,0) — so a check number or an
+   amount would wrap mid-token and read as two values. Measured on the invoices
+   register: a rule that *looks* present, `grep` confirms is present, and loses on
+   specificity. Raise the selector; never reach for `!important`. */
+table.data.vctable td.vc-num {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The account code under a vendor name. It is evidence rather than a label, so it
+   gets the mono face at the smallest size on the page — and `--link` is avoided
+   here on purpose: this is not a link, and a link-coloured code would invite a
+   click that does nothing. */
+.vc-acct {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.01em;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+/* A vendor whose invoices no check reaches. Neutral, not alarming: it is a state
+   of the register, not a fault, and 29 of the 55 vendors are single-invoice
+   companies where the word replaces a `0` that would read as a measurement. */
+.vc-none {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ★ THE MARKER FOR THE INVOICES NOTHING PAID, ON THE ROW THAT HOLDS THEM.
+
+   It sits under the Paid figure because that is the figure it qualifies: `settled`
+   sums **every** invoice the register holds for the company, including the ones no
+   check reached, so the number above this line is the one a reader would otherwise
+   take as money received. Before this, the fact was reachable only by opening the
+   panel and reading a group inside it — for 55 companies that is not reading, it is
+   digging.
+
+   `--warn-fg` (defined per theme in `tokens.css`: #5c4a00 light, #f0d66a dark) is
+   the token `checks.css` already uses for a figure that reads as a caution, and it
+   is deliberately **not** `--link`: this is not a control, and colouring it like one
+   would invite a click that the whole row would answer instead.
+
+   `nowrap` because the count and the sum are one statement. Wrapped, `8 unpaid` and
+   `$23,021` sit on two lines and read as two separate facts about the company. */
+.vc-unpaid {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--warn-fg);
+  white-space: nowrap;
+}
+
+/* --- rows ------------------------------------------------------------- */
+
+table.data.vctable tbody tr.vctable__row {
+  cursor: pointer;
+}
+
+table.data.vctable tbody tr.vctable__row:hover {
+  background: var(--surface-sunken);
+}
+
+table.data.vctable tbody tr.is-open {
+  background: var(--surface-sunken);
+}
+
+/* The row is clickable for the mouse; this button is what makes it reachable by
+   keyboard and what gives the row an accessible name. Left-aligned and unadorned
+   so the cell still reads as a table cell, underlined only on hover — the same
+   contract as `.chk-link`. */
+.vc-link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  text-align: left;
+  cursor: pointer;
+}
+
+.vc-link:hover {
+  text-decoration: underline;
+  color: var(--link);
+}
+
+.vc-link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- the panel -------------------------------------------------------- */
+
+/* Wider than the checks drawer: this one holds a four-column invoice table under
+   each check, and the account column is 21–29 characters that must not wrap. */
+.vcpanel {
+  --drawer-w: 620px;
+}
+
+/* A company name, not a number — so the mono face the checks panel uses for its
+   heading would be wrong here, and the name has to be allowed to wrap rather than
+   push the close button off the panel. */
+.vcpanel .drawer__name {
+  font-size: 1.125rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+/* --- checks, each a disclosure ---------------------------------------- */
+
+.vcchecks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vchk {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.vchk.is-open {
+  border-color: var(--border-strong);
+}
+
+/* The whole header is one button: a disclosure that is reachable and operable by
+   keyboard, announces its own state, and names what it controls. A `<tr onClick>`
+   gives none of the three — and, verified on this app's other drawers, a
+   dispatched click on a table row does not focus it, so an
+   "opener keeps focus" test would report a bug that is not there. */
+.vchk__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px 9px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-heading);
+}
+
+.vchk__toggle:hover {
+  background: var(--surface-sunken);
+}
+
+.vchk__toggle:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: -3px;
+}
+
+.vchk__chev {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--text-faint);
+  transition: transform var(--transition);
+}
+
+.vchk__chev svg {
+  width: 11px;
+  height: 11px;
+}
+
+.vchk.is-open .vchk__chev {
+  transform: rotate(90deg);
+}
+
+.vchk__num,
+.vchk__date,
+.vchk__amount {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vchk__num {
+  font-weight: 700;
+  min-width: 74px;
+}
+
+.vchk__date {
+  color: var(--text-muted);
+  min-width: 78px;
+}
+
+.vchk__amount {
+  min-width: 96px;
+}
+
+/* The invoice count and what it adds to, pushed to the far edge so the column of
+   money lines up down the whole stack of checks. */
+.vchk__inv {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The group for invoices no check reaches. Not a disclosure — there is nothing to
+   open, there is no check — so it takes the same shape as an open group's header
+   without pretending to be one. */
+.vchk__head--plain {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px 9px 10px;
+}
+
+.vchk__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.vchk__meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The bound the comment below promises. `overflow-y: auto` with no `max-height`
+   would be a scroll container that never scrolls, and a sticky `thead` needs a
+   scrolling ancestor to stick inside — so the two rules are one mechanism and are
+   written together. */
+.vchk__list {
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+/* --- the invoice table inside a check --------------------------------- */
+
+/* Scrolls on its own, so a check with a hundred invoices scrolls here instead of
+   pushing the Total section off the bottom of the panel. The widest check in this
+   register reaches 15 rows, so in practice nothing scrolls — the bound is for the
+   register that grows, and it is the same 46vh the checks panel uses so the two
+   panels behave identically when it does bite. */
+.vinvtable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vinvtable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Four classes' worth again, for the reason recorded on the table above. */
+.vinvtable td.vc-num {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The account is the one cell that may be long, and it is the cell that explains
+   the scope — so it is allowed to break rather than to widen the panel. */
+.vinvtable td.vc-acct--cell {
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.vinvtable tfoot th,
+.vinvtable tfoot td {
+  padding: 8px 10px;
+  background: var(--surface);
+  border-top: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vinvtable tfoot th {
+  text-align: left;
+}
+
+.vinvtable .n {
+  text-align: right;
+}
+
+/* A credit is signed and coloured, never silently made positive — the same rule
+   the checks register keeps and for the same reason: a credit rendered as a
+   normal amount is the figure a reader adds twice. */
+.vcinvoices__credit {
+  color: var(--warn-fg);
+}
+
+/* ★ `--link` AND NOT `--primary-color`. The brand token is fixed at #165788 and
+   is never re-declared for `[data-theme='dark']`, where it sits near 1.6:1 — and
+   this is 12px mono inside a sunken table, the lowest-contrast surface on the
+   page. `--link` is the one accent token with a per-theme value; verified 7.63:1
+   light and 7.53:1 dark at this size on the invoices register.
+
+   Scoped through the table because `.vinvtable td.vc-num` sets `color` at (0,3,1)
+   and a bare `a.vc-invlink` at (0,1,1) would lose to it — the same specificity
+   trap the note above records, one property over. */
+.vinvtable td a.vc-invlink {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.vinvtable td a.vc-invlink:hover {
+  text-decoration: underline;
+}
+
+.vinvtable td a.vc-invlink:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- notes inside the panel ------------------------------------------- */
+
+.vcnote {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* An account code standing in for a label in a `.chkrow`. Allowed anywhere it
+   needs to break, because a 29-character combination in a narrow panel is exactly
+   the content that overflows a fixed-width column. */
+.vc-break {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* --- narrow screens --------------------------------------------------- */
+
+/* Below 720px the panel is nearly the whole viewport. The invoice table's account
+   column is the first thing worth dropping — it is the scope evidence, and the
+   panel's own Accounts section still carries every code — and the check header
+   sheds its date, which the open group shows in full.
+
+   ★ `.vspanel` IS IN THIS LIST BECAUSE THE PANEL IT NAMES IS A DIFFERENT ELEMENT.
+   The vendor-sites drawer is `.drawer.vspanel`, not `.drawer.vcpanel`, so a rule
+   written for one does not reach the other — and a stored panel width of 900px on a
+   700px screen would put the close button off screen with nothing to say so. */
+@media (max-width: 720px) {
+  .vcpanel,
+  .vspanel {
+    --drawer-w: 100vw;
+  }
+
+  .vinvtable thead th:nth-child(3),
+  .vinvtable td:nth-child(3) {
+    display: none;
+  }
+
+  .vchk__date {
+    display: none;
+  }
+
+  /* The sticky header is worth less than the rows when the box is this short. */
+  .vinvtable thead th {
+    position: static;
+  }
+}
+
+/* ============================================================================
+   Vendor sites — the address level under a vendor company.
+
+   Shares this sheet's inheritance: `.panel`, `.table-wrap`, `table.data`,
+   `.filterbar`, `.chkstats`/`.chkstat*`, `.chkrows`/`.chkrow*`, `.chkempty`,
+   `.scopenote`, `.pager`, `.drawer`, `.btn` and `.chart-note` all come from the
+   bundle. The only classes declared here are the ones this screen has and the
+   vendor register does not: a tab strip, a deprecation marker, a two-line vendor
+   cell, and a money cell that can honestly read zero.
+
+   ★ THE TAB STRIP IS LINKS, NOT BUTTONS, AND THAT IS WHY IT IS STYLED AS TEXT.
+     The tab is a query parameter, so each tab is an address — bookmarkable,
+     shareable, survivable through a reload. A `<button>` that called a setter
+     would look identical and lose all of that, so nothing here may depend on
+     `button` styling to look clickable.
+   ============================================================================ */
+
+/* --- the tab strip ----------------------------------------------------- */
+
+.vstabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vstab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 14px 8px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  text-decoration: none;
+  color: var(--text-muted);
+  transition: color var(--transition), background var(--transition);
+}
+
+.vstab:hover {
+  color: var(--text-heading);
+  background: var(--surface-sunken);
+}
+
+.vstab:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: -2px;
+}
+
+/* The selected tab is drawn as the sheet the table sits on: it gains the panel
+   background and loses its bottom border, so the border under the strip appears
+   to break behind it. That is the whole visual difference — no colour change
+   beyond the label, because a coloured tab would compete with the row markers. */
+.vstab.is-on {
+  color: var(--text-heading);
+  background: var(--surface);
+  border-color: var(--border);
+  border-bottom-color: var(--surface);
+}
+
+.vstab__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.vstab__n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.vstab.is-on .vstab__n {
+  color: var(--text-muted);
+}
+
+/* The blurb wraps to its own line inside the tab rather than sitting beside the
+   label, because on the Deprecated tab it is a sentence and on Active it is a
+   phrase; forcing them onto one line would make the two tabs different heights. */
+.vstab__blurb {
+  flex: 0 0 100%;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* --- the split, stated as arithmetic ----------------------------------- */
+
+.vs-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 16px 12px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.vs-split strong {
+  color: var(--text-heading);
+}
+
+.vs-split__sep {
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+
+/* --- the note a tab explains itself with ------------------------------- */
+
+.vs-note {
+  margin: 0 16px 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--primary-color);
+  background: var(--surface-sunken);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.vs-note p {
+  margin: 0 0 8px;
+}
+
+.vs-note p:last-child {
+  margin-bottom: 0;
+}
+
+.vs-note strong {
+  color: var(--text-heading);
+}
+
+.vs-note code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+
+.vs-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.vs-signal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* The legend keys use the same pair as the chips they explain, so a reader matching a
+   key to a row marker is matching ink rather than looking up a name. */
+.vs-signal__k {
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.vs-signal__k--retired {
+  border-style: dashed;
+}
+
+.vs-signal__v {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the row markers --------------------------------------------------- */
+
+/* The chips sit UNDER the site code rather than beside it. Beside, a two-signal row
+   would push the code cell past its declared width — and with `table-layout: fixed`
+   that overflow lands on the vendor column, which is the one holding the names. */
+.vs-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.vs-reasons--panel {
+  margin-top: 0;
+}
+
+/* ★ THE CHIP IS A COLOUR PAIR FROM `tokens.css`, NOT A BORDER TINT, AND THAT IS A
+   CONTRAST DECISION. The first draft of these rules set only a border colour and let
+   the chip inherit the row's text — which is fine on the panel and wrong on a row that
+   is `is-open`, where the backdrop is the sunken surface. The status pairs
+   (`--warn-bg`/`--warn-fg`, `--err-bg`/`--err-fg`) are documented as text-on-surface
+   pairs each at or above 4.5:1, and they are re-declared for the dark theme, so the
+   chip carries its own verified backdrop in both themes instead of depending on
+   whatever is behind it.
+
+   ★ ONE TINT FOR ALL THREE SIGNALS, NOT A SEVERITY LADDER. `retired` and `not a
+   purchasing site` are both reasons a site should not be used, and the register does
+   not rank them — a chip colour that implied one is worse than another would be the
+   page inventing a judgement the data does not carry. The two are told apart by the
+   date that only one of them has, and by it being a dashed edge. */
+.vs-reason {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.625rem;
+  line-height: 1.5;
+  /* A signal is a sentence in three cases and two words in one, so it wraps rather
+     than widening the cell it is in. `overflow-wrap` covers the longest unbroken
+     run, which is the date. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.vs-reason__k {
+  color: inherit;
+}
+
+.vs-reason__d {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  /* Same ink as the phrase it follows — see the note above. Differentiating the date
+     by colour would need a third pair for one 10-character string. */
+  color: inherit;
+  opacity: 0.85;
+}
+
+.vs-reason--retired {
+  border-style: dashed;
+}
+
+/* Declared rather than left to inherit, and that is the point of it: the base rule
+   above could be changed to a dashed edge and this one would keep the standing
+   prohibitions solid. A modifier with no rule of its own is a name in the markup that
+   the sheet does not answer — and nothing anywhere reports one. */
+.vs-reason--flag {
+  border-style: solid;
+}
+
+/* --- the table --------------------------------------------------------- */
+
+/* Five columns: the vendor column is the only one without a width, so the four fixed
+   ones are what decide how much room the names get.
+   The arithmetic, since a reader here cannot see it: fixed columns are
+   220 + 92 + 168 + 116 = 596 against a floor of 900, so the vendor column gets
+   304px — enough for `BARNHILL / D A EVERETTE, A JOINT V`, the longest name in
+   the register, on one line at 0.8125rem. The floor moves whenever a fixed column
+   does, or the difference comes out of the vendor column, which is the only one
+   with no width of its own.
+
+   ★ THE ORDER CHANGED AND NO NUMBER DID, WHICH IS NOT AN OVERSIGHT. Under
+     `table-layout: fixed` a column's share comes from its own declared width and from
+     how many columns are left unsized — never from where it sits — so leading the row
+     with the vendor asked nothing of the arithmetic above. What did change is which
+     column each width belongs to: `.c-vendor` (unsized, ~304px) now carries the name,
+     its gear mark and the city line; `.c-site` (220px) carries only the mono code and
+     up to three chips, which is what the 220 was measured for.
+
+   ★ THREE OF THESE COLUMNS HOLD TWO LINES AND THAT IS WHY THEY ARE WIDE.
+     `.c-vendor` carries the name and the city line, plus the mark on a renamed row;
+     `.c-site` carries the code and up to three signal chips; `.c-paid` carries the
+     money and, on 26 of the 800 rows, the phrase `no in-scope money`. A column
+     measured for its long value alone would clip the second line — and this table
+     is `table-layout: fixed`, so the clip is silent. */
+table.data.vstable {
+  table-layout: fixed;
+  min-width: 900px;
+}
+
+table.data.vstable thead th,
+table.data.vstable tbody td {
+  padding: 9px 12px;
+}
+
+table.data.vstable col.c-site {
+  width: 220px;
+}
+
+table.data.vstable col.c-count {
+  width: 92px;
+}
+
+table.data.vstable col.c-paid {
+  width: 168px;
+}
+
+table.data.vstable col.c-latest {
+  width: 116px;
+}
+
+/* ★ THERE IS NO RULE FOR `col.c-vendor`, AND ITS ABSENCE IS LOAD-BEARING. Under
+   `table-layout: fixed` a column with no declared width takes whatever the sized ones
+   leave — here the 304px the four fixed columns do not use, which is the whole reason the
+   longest name in the register fits on one line. Size this column too and every column is
+   sized, so the extra above 596 gets shared out by the browser's own rule instead of
+   landing on the names. */
+
+/* ★ THE VENDOR NAME IS THE ROW'S OPENER, AND THE ONLY THING IN THE ROW IN THE TAB
+   ORDER. The `<tr onClick>` in the markup is a mouse convenience; this button is what
+   makes the panel reachable by keyboard and what gives the row an accessible name.
+   Styled as text plus a hover affordance, never as a bordered button — a control in the
+   first cell of every row would make an 800-row register a wall of buttons. The same
+   contract as `.vc-link` on the companies register, so the two vendor tables behave
+   alike.
+
+   ★ `width: fit-content` RATHER THAN FILLING THE CELL. A block button defaults to the
+   cell's full width, which would draw the focus ring as a 300-odd-pixel box of empty
+   space instead of around the name. `max-width: 100%` keeps a long name wrapping inside
+   the column rather than pushing past it. */
+button.vs-link {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.vs-link:hover .vs-vendor {
+  text-decoration: underline;
+  color: var(--link);
+}
+
+button.vs-link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The name the row is filed under — the first line of the cell, and the widest thing in
+   the table, which is why the column holding it is the one with no declared width. */
+.vs-vendor {
+  display: block;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/* ★ THE LEDGER'S OWN KEY, AND NOT A LINK ANY MORE. The code was the opener until the
+   vendor led the row; the name does that now, so this is plain text. `--link` is avoided
+   on purpose, exactly as `.vc-acct` avoids it on the companies register: this is not a
+   control, and a link-coloured code would invite a click that the row would quietly
+   answer instead. `--text-body` and not the `--text-faint` the city line wears — this is
+   the key a reader comes to the row for, and it has to stay legible on the sunken
+   background an open row wears. */
+.vs-code {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* The second line of the vendor cell. It is the address's own city/state rather than a
+   repetition of the address, because the address lines are what the panel is for — the
+   list needs only enough to tell two same-named vendors apart, and `RALEIGH, NC` does
+   that for a fraction of the height. */
+.vs-where {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.vstable__row.is-open {
+  background: var(--surface-sunken);
+}
+
+/* A zero beside real orders is a fact, so it is marked rather than blanked: the money
+   stays `$0.00` and this line says why. Silence would read as a missing value, and a
+   dash would read as a missing row. */
+.vs-nomoney {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-faint);
+  white-space: normal;
+}
+
+/* Used inside the panel, where a value — a site code, a street line, a second address
+   line that exists — is longer than the label column and must break rather than push
+   the panel wider. */
+.vs-break {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* An order row in the panel whose in-scope lines total nothing. The order is real and
+   is listed either way; the tint is what stops the figure looking like a gap. */
+td.n.vc-num.vs-zero {
+  color: var(--text-faint);
+}
+
+/* --- the footnote and the unavailable state ---------------------------- */
+
+.vs-foot {
+  padding: 0 16px 12px;
+}
+
+/* Reuses `.chkempty`'s box, because it is the same situation — "there is nothing here
+   to show you" — with one difference that matters: this one is not a data condition but
+   a missing database, so it must not offer the reader a way to fix their query. */
+.vsunavailable {
+  margin: 0 16px 12px;
+}
+
+/* The two rules below are the only styling the plain-language database-down message
+   needs. `.chkempty` already supplies the box, the centring, the muted body colour and
+   the `.chkempty__hint` measure, so nothing here restates any of it.
+
+   ★ NEITHER SETS A COLOUR, WHICH IS THE POINT. `.vsunavailable__flag` inherits
+     `--text-muted` from `.chkempty` — 4.8:1 on `--surface` in light, 6.6:1 on the dark
+     surface — and `.vsunavailable__lead` takes `--text-heading`, the token every other
+     heading on the panel already uses (14.4:1 light). A "the database is down" message
+     is not the reader's error and must not be dressed as one, so this deliberately uses
+     neither of the bundle's two coloured flag treatments: `.scopenote__flag` (a
+     `--warn-bg` pill) and `.notice--err`. It is a state of the world, and the page's
+     neutral empty-state box is already the right place to say it.
+
+   ★ THE FLAG IS UPPERCASE BECAUSE IT IS A LABEL, NOT A SENTENCE. The bundle's existing
+     uppercase-label rule is `.vinvtable thead th` in this same sheet — `--text-muted`,
+     0.625rem, `letter-spacing: 0.05em` — and this follows it at 0.6875rem, on the
+     reasoning that a label standing alone above a paragraph reads smaller than one in a
+     header row. The sentence underneath stays in sentence case and does the talking; an
+     all-caps sentence is harder to read and shouts. */
+.vsunavailable__flag {
+  margin: 0 0 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.vsunavailable__lead {
+  font-size: 0.875rem;
+  color: var(--text-heading);
+}
+
+/* The export sits at the end of the filter bar, so it takes the bar's own baseline
+   rather than floating: it exports the rows the bar and the tab have selected, which is
+   a fact better carried by adjacency than by a label. */
+.vsexport {
+  white-space: nowrap;
+}
+
+/* --- the detail panel -------------------------------------------------- */
+
+/* The panel borrows `.drawer` wholesale and only narrows the two things a two-line
+   address makes narrower. `overflow-wrap` is on, because `2851 VAN HURON DR STE 100`
+   is the shortest useful street line and `4601 CREEKSTONE DR STE 100` the longest. */
+.vspanel .chkrow__k {
+  overflow-wrap: anywhere;
+}
+
+.vspanel .drawer__name {
+  overflow-wrap: anywhere;
+}
+
+/* --- the location map in the site panel -------------------------------- */
+
+/* The frame, so the border and the corner clip are one element's job and a canvas that
+   has not drawn yet reads as a sunken panel rather than a white hole in the drawer. */
+.vsmap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+/* ★ THE MAP CONTAINER MUST HAVE A HEIGHT OF ITS OWN, OR MAPBOX DRAWS NOTHING. Mapbox
+   measures this element's box once, at construction, and sizes its canvas to it; a
+   container whose height comes from its content is zero tall at that moment, so the
+   canvas comes out 0 × 0 and the panel shows an empty frame with no error anywhere —
+   the same silent collapse as an inline element given a percentage size. `position` is
+   `relative` because Mapbox positions its own controls (attribution, logo) absolutely
+   against this box, and because an absolutely positioned child escapes any ancestor
+   scroller that is not its containing block. */
+.vsmap__canvas {
+  position: relative;
+  height: 220px;
+}
+
+/* Attribution is required on the tiles and is left switched on; only its type is
+   brought down to the panel's own scale so it does not shout. */
+.vsmap__canvas .mapboxgl-ctrl-attrib {
+  font-size: 0.625rem;
+}
+
+/* The key: a swatch and its label, twice. A two-column grid rather than a flex row,
+   because with `gap` alone the four children are evenly spaced and the reader cannot
+   tell which swatch belongs to which caption. */
+.vsmap__key {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 6px 8px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* The white ring is the same separation the pins carry on the tiles; on the panel the
+   hairline shadow is what keeps a pale swatch from vanishing into a white surface. */
+.vsmap__swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+  vertical-align: -1px;
+}
+
+.vsmap__swatch--small {
+  width: 9px;
+  height: 9px;
+  border-width: 1px;
+}
+
+.vsmap__coord {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ★ THE BAND RAMP STAYS AN INLINE PARAGRAPH AND MUST NOT BE MADE FLEX. Each of its
+   spans holds bare text beside its swatch (the separator and the label), and a bare
+   text node next to an element inside a flex container becomes its own flex item — the
+   gap then lands between the fragments of a single label and five bands render as a
+   row of ragged pieces. The swatches sit in the text line instead. */
+.vsmap__bands {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.vsmap__legend,
+.vsmap__note {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* The caveat the server sends when it suppressed something. It is a warning *about* the
+   figures above it, so it is set off by a rule rather than by whitespace alone — the
+   reader should not have to work out whether it belongs to this section. */
+.vsmap__note {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* `DriveFacts` is a `.chkrows`, which is a bordered box of rows, so its trailing
+   sentence takes a row's own padding and the same divider the rows use rather than the
+   margins above. */
+.chkrows.vsmap__facts {
+  margin-top: 10px;
+}
+
+.vsmap__facts .vsmap__legend {
+  margin-top: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── The turns of the drawn route ────────────────────────────────────────────
+   Folded behind a `<details>` summary: a stored route here is 5–69 turns, and the
+   open panel already holds the address, the status card and the register legend.
+   The rule above the summary is the same divider the facts' legend uses, because
+   the list is a continuation of the same section rather than a new one. */
+.vsmap__turns {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.vsmap__turns > summary {
+  cursor: pointer;
+  color: var(--link);
+}
+
+/* ★ A BOUNDED SCROLLER, NOT AN UNBOUNDED LIST. 69 turns at this size is roughly
+   900px of text — taller than the drawer. The cap keeps the turns reachable
+   without the section they belong to scrolling off the top. */
+.vsmap__turnlist {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  max-height: 220px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.vsmap__turnlist > li {
+  margin-bottom: 4px;
+}
+
+.vsmap__turninstruction {
+  color: var(--text-body);
+}
+
+.vsmap__turnroad {
+  color: var(--text-muted);
+}
+
+/* `display: block` so the step's own length starts its own line rather than
+   running on after the instruction and being read as part of the sentence. */
+.vsmap__turnmiles {
+  display: block;
+  color: var(--text-faint);
+}
+
+/* Below 720px the drawer is nearly the whole viewport and the address above the map is
+   the reason the reader opened the panel, so the map gives up height rather than
+   pushing the address off the first screen. */
+@media (max-width: 720px) {
+  .vsmap__canvas {
+    height: 180px;
+  }
+}

@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swift Creek ES &ndash; Renovation &middot; Oracle Projects</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=Solway:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Tokens - copied verbatim from dashboard-monthly-trend.html
+   ============================================================ */
+:root {
+  --primary-color: #165788;
+  --secondary-color: #df6d1c;
+  --tertiary-color: #00add0;
+  --cc-fifth: #6e273d;
+  --cc-seventh: #c90062;
+  --cc-eighth: #455560;
+
+  --neutral-0: #ffffff;
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #727272;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+
+  --surface: #ffffff;
+  --surface-sunken: #fafafa;
+  --text-body: #525252;
+  --text-heading: #262626;
+  --text-muted: #727272;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  --font-body: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-accent: 'Solway', Georgia, serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  --radius: 3px;
+  --radius-sm: 3px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  --shadow-sm: 0 4px 24px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 32px rgba(0,0,0,.12);
+  --transition: .4s all;
+
+  --status-ok: #BED600;
+  --status-info: #00add0;
+  --status-warning: #fed100;
+  --status-error: #c90062;
+  --status-neutral: #455560;
+
+  /* Two-series categorical palette. Both clear 3:1 on white (WCAG 1.4.11). */
+  --series-capital: #165788;
+  --series-operating: #df6d1c;
+
+  --gutter: 40px;
+  --z-base: 0; --z-dropdown: 200; --z-toast: 500;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: .9375rem;
+  line-height: 1.6;
+  color: var(--text-body);
+  background: var(--surface-sunken);
+}
+h1, h2, h3 { font-family: var(--font-accent); color: var(--text-heading); margin: 0; line-height: 1.25; }
+h1 { font-size: clamp(1.5rem, 3vw, 1.875rem); font-weight: 700; }
+h2 { font-size: 1.0625rem; font-weight: 700; }
+h3 { font-size: .9375rem; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--primary-color); }
+code { font-family: var(--font-mono); font-size: .8125rem; }
+:focus-visible { outline: 3px solid var(--tertiary-color); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+.container { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter); }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ============================================================
+   Topbar
+   ============================================================ */
+.topbar {
+  position: sticky; top: 0; z-index: var(--z-dropdown);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.topbar__inner { display: flex; align-items: center; gap: var(--space-6); min-height: 56px; }
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.brand__mark {
+  width: 26px; height: 26px; flex: none;
+  background: var(--primary-color); color: #fff;
+  display: grid; place-items: center; border-radius: var(--radius);
+  font-weight: 700; font-size: .8125rem;
+}
+.brand__name { font-family: var(--font-accent); font-weight: 700; font-size: .9375rem; color: var(--text-heading); white-space: nowrap; }
+.nav { margin-left: auto; display: flex; gap: var(--space-1); overflow-x: auto; }
+.nav a {
+  display: block; padding: 7px 12px; border-radius: var(--radius);
+  font-size: .8125rem; font-weight: 600; color: var(--neutral-700);
+  text-decoration: none; white-space: nowrap; transition: var(--transition);
+}
+.nav a:hover { background: var(--neutral-100); color: var(--text-heading); }
+.nav a[aria-current="page"] { background: var(--primary-color); color: #fff; }
+
+/* ============================================================
+   Chips
+   ============================================================ */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: var(--radius);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .02em;
+  text-transform: uppercase; border: 1px solid transparent; white-space: nowrap;
+}
+.chip--ok { background: rgba(190,214,0,.18); color: #4d5c00; border-color: rgba(190,214,0,.45); }
+.chip--info { background: rgba(22,87,136,.08); color: var(--primary-color); border-color: rgba(22,87,136,.22); }
+.chip--warn { background: rgba(223,109,28,.10); color: #9a4607; border-color: rgba(223,109,28,.32); }
+.chip--error { background: rgba(201,0,98,.08); color: #97004a; border-color: rgba(201,0,98,.25); }
+.chip--neutral { background: var(--neutral-100); color: var(--neutral-700); border-color: var(--border-strong); }
+.chip--operating { background: rgba(223,109,28,.10); color: #9a4607; border-color: rgba(223,109,28,.32); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+/* ============================================================
+   Page head
+   ============================================================ */
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--space-6); flex-wrap: wrap;
+  padding: var(--space-8) 0 var(--space-5);
+}
+.page-head .accent-rule { width: 40px; height: 3px; margin-bottom: var(--space-3); background: var(--secondary-color); }
+.page-head p { color: var(--text-muted); font-size: .8125rem; margin-top: 6px; }
+.page-head__meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.crumbs { font-size: .75rem; color: var(--text-muted); margin-bottom: var(--space-2); }
+.crumbs a { text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.page-head__sub { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn {
+  padding: 9px 18px; border: 1px solid transparent; border-radius: var(--radius);
+  background: var(--neutral-100); color: var(--neutral-800);
+  font-family: var(--font-body); font-size: .8125rem; font-weight: 600;
+  line-height: 1.2; cursor: pointer; transition: var(--transition);
+}
+.btn:hover { background: var(--neutral-200); }
+.btn--primary { background: var(--primary-color); color: #fff; }
+.btn--primary:hover { background: #266a9d; }
+.btn--system { background: var(--surface); border-color: var(--border-strong); color: var(--neutral-700); }
+.btn--system:hover { background: var(--neutral-50); border-color: var(--neutral-500); }
+.btn--ghost { background: transparent; color: var(--primary-color); border-color: rgba(22,87,136,.3); }
+.btn--ghost:hover { background: rgba(22,87,136,.06); }
+.btn--sm { padding: 6px 12px; font-size: .75rem; }
+
+/* ============================================================
+   Cards / panels
+   ============================================================ */
+.card {
+  background: var(--surface); color: var(--neutral-800);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.panel { padding: var(--space-5); }
+.panel__head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: var(--space-4); padding-bottom: var(--space-4); margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.panel__head p { color: var(--text-muted); font-size: .75rem; margin-top: 3px; }
+.panel__foot {
+  padding-top: var(--space-4); margin-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: .75rem; line-height: 1.65;
+}
+.subhead {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: var(--space-2);
+}
+section.block { margin-bottom: var(--space-4); }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+
+/* ============================================================
+   KPI tiles
+   ============================================================ */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4); }
+.kpis--five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kpi {
+  min-width: 0; padding: var(--space-4) clamp(10px, 1.6vw, 20px);
+  position: relative; overflow: hidden;
+}
+.kpi::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--neutral-300); }
+.kpi--brand::before { background: var(--primary-color); }
+.kpi--accent::before { background: var(--secondary-color); }
+.kpi--muted::before { background: var(--neutral-400); }
+.kpi__label {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted); overflow-wrap: anywhere;
+}
+.kpi__value {
+  font-size: clamp(1.25rem, 2.9vw, 1.625rem); font-weight: 700;
+  color: var(--text-heading); line-height: 1.15; margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi__value small { font-size: .5625em; font-weight: 600; color: var(--text-muted); }
+.kpi__note { font-size: .6875rem; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+.kpi__note code { font-size: .6875rem; }
+.split { display: flex; gap: 3px; margin-top: 6px; height: 4px; border-radius: 2px; overflow: hidden; }
+.split i { display: block; }
+.split i.c { background: var(--series-capital); }
+.split i.o { background: var(--series-operating); }
+
+/* ============================================================
+   Chart - stacked horizontal bars
+   ============================================================ */
+.legend { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: .75rem; color: var(--neutral-600); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: block; }
+.legend i.c { background: var(--series-capital); }
+.legend i.o { background: var(--series-operating); }
+.legend i.z { background: var(--neutral-200); }
+
+/* Track is flex; fills are flex items stretched to full height.
+   (Never a percentage height on a flex item - use align-self: stretch.) */
+.hbar { display: grid; grid-template-columns: 52px 1fr 112px; align-items: center; gap: var(--space-3); padding: 3px 0; }
+.hbar__label {
+  font-family: var(--font-mono); font-size: .75rem; color: var(--neutral-700);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.hbar__track {
+  display: flex; align-items: stretch; height: 10px; width: 100%;
+  background: var(--neutral-100); border-radius: var(--radius); overflow: hidden;
+}
+.hbar__track i { display: block; align-self: stretch; }
+.hbar__track i.c { background: var(--series-capital); }
+.hbar__track i.o { background: var(--series-operating); }
+.hbar__track i.zero { width: 100%; background: repeating-linear-gradient(90deg, var(--neutral-200) 0 3px, transparent 3px 6px); }
+.hbar__value {
+  font-size: .75rem; color: var(--neutral-700); text-align: right;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.hbar__value span { display: block; font-weight: 400; font-size: .6875rem; color: var(--text-muted); }
+.hbar--peak .hbar__value { color: var(--text-heading); }
+
+/* ============================================================
+   Tables
+   ============================================================ */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table.data { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+table.data th, table.data td {
+  padding: 8px 12px; text-align: right;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data thead th {
+  background: var(--neutral-50);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+}
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr:hover { background: var(--neutral-50); }
+table.data tfoot td {
+  font-weight: 700; color: var(--text-heading);
+  background: var(--neutral-50); border-top: 1px solid var(--border-strong); border-bottom: 0;
+}
+table.data td.key, table.data th.key { text-align: left; }
+table.data code { font-size: .75rem; }
+.num { font-variant-numeric: tabular-nums; }
+.money { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-heading); }
+/* These two selectors must out-specify `table.data th, table.data td { white-space: nowrap }`
+   (0,1,2), otherwise the description cell is sized to 440px but its text never wraps and
+   simply overflows the cell, blowing every table out to ~1400px. */
+table.data td.wrap, table.data th.wrap { white-space: normal; min-width: 240px; max-width: 460px; }
+table.data td.desc, table.data th.desc {
+  font-size: .75rem; color: var(--neutral-600); line-height: 1.5;
+  white-space: normal; min-width: 240px; max-width: 440px;
+}
+tr.zero td { color: var(--text-muted); }
+tr.zero .desc { font-style: italic; }
+
+/* Vendor names and the date range are the second-longest columns in the line
+   tables. Letting them wrap costs nothing and keeps the description column on
+   screen instead of a horizontal scroll away. */
+.ccblock table.data td:nth-child(2),
+.ccblock table.data th:nth-child(2) { white-space: normal; min-width: 120px; max-width: 190px; }
+.panel > .table-wrap table.data td:nth-child(2),
+.panel > .table-wrap table.data th:nth-child(2) { white-space: normal; min-width: 120px; max-width: 190px; }
+.panel > .table-wrap table.data td:last-child,
+.panel > .table-wrap table.data th:last-child { white-space: normal; min-width: 130px; max-width: 190px; }
+/* The cost-code summary is an 8-column table; 8px of side padding instead of 12px
+   is the difference between fitting the container and a 48px horizontal scroll. */
+.panel > .table-wrap table.data th,
+.panel > .table-wrap table.data td { padding-left: 8px; padding-right: 8px; }
+
+/* ============================================================
+   Cost-code blocks (the grouped-together part)
+   ============================================================ */
+.ccblock { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.ccblock + .ccblock { margin-top: var(--space-3); }
+.ccblock__head {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+.ccblock__head code { font-size: .8125rem; font-weight: 700; color: var(--text-heading); }
+.ccblock__title { font-size: .8125rem; font-weight: 600; color: var(--text-heading); }
+.ccblock__title span { font-weight: 400; color: var(--text-muted); }
+.ccblock__stat { margin-left: auto; font-size: .75rem; color: var(--neutral-600); font-variant-numeric: tabular-nums; }
+.ccblock__stat b { color: var(--text-heading); }
+.ccblock__stat .sep { color: var(--neutral-300); padding: 0 4px; }
+.ccblock .table-wrap { border: 0; border-radius: 0; }
+.ccblock .table-wrap table.data { border: 0; }
+.ccblock__foot {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border);
+  font-size: .6875rem; color: var(--text-muted); line-height: 1.6;
+}
+.bar { display: block; height: 3px; }
+.bar--capital { background: var(--series-capital); }
+.bar--operating { background: var(--series-operating); }
+
+/* ============================================================
+   Callout / notice
+   ============================================================ */
+.callout {
+  display: flex; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(223,109,28,.3);
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius);
+  background: rgba(223,109,28,.05);
+  font-size: .8125rem; line-height: 1.65;
+}
+.callout strong { color: #9a4607; }
+.callout p { color: var(--neutral-700); }
+.callout p + p { margin-top: 6px; }
+.callout code { font-size: .75rem; }
+.callout--info { border-color: rgba(22,87,136,.3); border-left-color: var(--primary-color); background: rgba(22,87,136,.04); }
+.callout--info strong { color: var(--primary-color); }
+.notice {
+  display: flex; gap: var(--space-3); align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: rgba(254,209,0,.14);
+  border: 1px solid rgba(254,209,0,.6);
+  font-size: .8125rem; line-height: 1.65;
+}
+.notice strong { color: var(--text-heading); }
+.notice .dot { margin-top: 6px; color: #8a7500; }
+.notice p { color: var(--neutral-700); }
+.notice p + p { margin-top: 6px; }
+.notice code { font-size: .75rem; }
+
+/* ============================================================
+   Definition lists / lists
+   ============================================================ */
+.dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,auto); margin: 0; }
+.dl dt, .dl dd {
+  margin: 0; padding: 7px 0; border-bottom: 1px solid var(--neutral-100);
+  font-size: .8125rem;
+}
+.dl dt { color: var(--text-muted); }
+.dl dd { text-align: right; font-weight: 600; color: var(--text-heading); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dl dd.dd--null { font-weight: 400; color: var(--text-muted); font-style: italic; }
+.dl dd small { display: block; font-weight: 400; font-size: .6875rem; color: var(--text-muted); }
+.dl tr:last-child { border-bottom: 0; }
+.dl > dt:last-of-type, .dl > dd:last-of-type { border-bottom: 0; }
+
+.findings { list-style: none; margin: 0; padding: 0; }
+.findings li {
+  display: grid; grid-template-columns: auto minmax(0,1fr); gap: var(--space-3);
+  padding: var(--space-3) 0; border-bottom: 1px solid var(--border);
+  font-size: .8125rem; line-height: 1.6;
+}
+.findings li:last-child { border-bottom: 0; padding-bottom: 0; }
+.findings li:first-child { padding-top: 0; }
+.findings strong { color: var(--text-heading); font-weight: 600; }
+.findings p { color: var(--text-muted); font-size: .75rem; margin-top: 3px; }
+.findings code { font-size: .75rem; }
+.bullet {
+  width: 18px; height: 18px; border-radius: 50%; flex: none; margin-top: 2px;
+  display: grid; place-items: center;
+  font-size: .625rem; font-weight: 700; color: #fff;
+}
+.bullet--ok { background: #5f6d00; }
+.bullet--warn { background: #9a4607; }
+.bullet--info { background: var(--primary-color); }
+.bullet--error { background: #97004a; }
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.foot {
+  padding: var(--space-6) 0 var(--space-10);
+  color: var(--text-muted); font-size: .75rem; line-height: 1.7;
+  border-top: 1px solid var(--border); margin-top: var(--space-8);
+}
+.foot code { font-size: .6875rem; color: var(--neutral-700); }
+.foot p + p { margin-top: 4px; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1100px) {
+  .kpis--five { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1023px) {
+  :root { --gutter: 24px; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 800px) {
+  .kpis, .kpis--five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hbar { grid-template-columns: 46px 1fr 92px; }
+}
+@media (max-width: 599px) {
+  .topbar__inner { flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) 0; }
+  .nav { margin-left: 0; width: 100%; }
+  .page-head { align-items: flex-start; }
+  .ccblock__stat { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container topbar__inner">
+    <div class="brand">
+      <div class="brand__mark" aria-hidden="true">O</div>
+      <div>
+        <div class="brand__name">Oracle Data</div>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Main">
+      <a href="#">Overview</a>
+      <a href="#">Trends</a>
+      <a href="#">Accounts</a>
+      <a href="#" aria-current="page">Projects</a>
+      <a href="#">Sync log</a>
+    </nav>
+    <span class="chip chip--ok"><span class="dot"></span>Synced 10:17</span>
+  </div>
+</header>
+
+<main class="container">
+
+  <div class="page-head">
+    <div>
+      <div class="crumbs"><a href="#">Projects</a> &rsaquo; <code>CC-0523-527</code></div>
+      <div class="accent-rule" aria-hidden="true"></div>
+      <h1>Swift Creek ES &ndash; Renovation</h1>
+      <p>Full renovation of Swift Creek Elementary &mdash; CMAR construction (GMP-01&ndash;03), offsite roadway and utility work, property and easement acquisition, materials testing and special inspections, and replacement of three playgrounds.</p>
+      <div class="page-head__sub">
+        <span class="chip chip--ok"><span class="dot"></span>Active</span>
+        <span class="chip chip--info">Capital + Operating</span>
+        <span class="chip chip--neutral">Level 0523</span>
+        <span class="chip chip--neutral">FY 2026</span>
+        <span class="chip chip--neutral">Owner: Dana Whitfield</span>
+      </div>
+    </div>
+    <div class="page-head__meta">
+      <button class="btn btn--system" type="button">Export CSV</button>
+      <button class="btn btn--ghost" type="button">Edit project</button>
+      <button class="btn btn--primary" type="button">Add cost code</button>
+    </div>
+  </div>
+
+  <!-- ===================== Roll-up KPI strip ===================== -->
+  <section class="kpis kpis--five" aria-label="Project roll-up">
+    <div class="card kpi kpi--brand">
+      <div class="kpi__label">Committed</div>
+      <div class="kpi__value">$5,383,873.99</div>
+      <div class="kpi__note">337 Oracle PO lines across 5 cost codes</div>
+    </div>
+    <div class="card kpi kpi--brand">
+      <div class="kpi__label">Cost codes bound</div>
+      <div class="kpi__value">5</div>
+      <div class="kpi__note">4 capital &middot; 1 operating</div>
+      <div class="split" role="img" aria-label="17 capital lines versus 320 operating lines">
+        <i class="c" style="width:5%"></i><i class="o" style="width:95%; background:var(--series-operating)"></i>
+      </div>
+    </div>
+    <div class="card kpi kpi--brand">
+      <div class="kpi__label">Purchase orders</div>
+      <div class="kpi__value">30</div>
+      <div class="kpi__note">22 vendors &middot; 2025-04-16 &rarr; 2026-06-12</div>
+    </div>
+    <div class="card kpi kpi--accent">
+      <div class="kpi__label">Capital</div>
+      <div class="kpi__value">$4,244,728.41</div>
+      <div class="kpi__note">17 lines &middot; purpose <code>6570</code></div>
+    </div>
+    <div class="card kpi kpi--accent">
+      <div class="kpi__label">Operating</div>
+      <div class="kpi__value">$1,139,145.58</div>
+      <div class="kpi__note">320 lines &middot; purpose <code>9000</code></div>
+    </div>
+  </section>
+
+  <div class="callout callout--info" style="margin-bottom:var(--space-4)">
+    <div>
+      <p>
+        <strong>Row count is not a size proxy.</strong> The four capital codes hold <strong>17 of 337 lines
+        (5.0%)</strong> but <strong>$4,244,728.41 &mdash; 78.8% of the money</strong>. The single largest
+        commitment in the project is <code>04-6570-862-527-0523-0840-000</code>: <strong>1 purchase order,
+        3 lines, $3,343,434.00</strong>. Meanwhile the operating code has 320 lines and $1,139,145.58.
+        Sorting any project list by row count will rank this project wrongly.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===================== Monthly activity ===================== -->
+  <section class="card panel chart-card" aria-labelledby="trend-title" style="margin-bottom:var(--space-4)">
+    <div class="panel__head">
+      <div>
+        <h2 id="trend-title">Committed by month</h2>
+        <p>Sum of Oracle <code>AMOUNT</code> by <code>ORDER_DATE</code> &middot; all five bound cost codes</p>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <span><i class="c"></i>Capital</span>
+        <span><i class="o"></i>Operating</span>
+        <span><i class="z"></i>No activity</span>
+      </div>
+    </div>
+
+    <div role="img" aria-label="Stacked bar chart of monthly committed amount from April 2025 to June 2026. September 2025 peaks at $1,893,955.00.">
+
+      <div class="hbar">
+        <span class="hbar__label">Apr 25</span>
+        <span class="hbar__track"><i class="c" style="width:3.97%"></i></span>
+        <span class="hbar__value">$75,200.00<span>4 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">May 25</span>
+        <span class="hbar__track"><i class="c" style="width:7.71%"></i></span>
+        <span class="hbar__value">$145,980.00<span>1 line</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Jun 25</span>
+        <span class="hbar__track"><i class="c" style="width:23.35%"></i></span>
+        <span class="hbar__value">$442,200.91<span>2 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Jul 25</span>
+        <span class="hbar__track"><i class="zero" title="no activity"></i></span>
+        <span class="hbar__value">$0.00<span>no activity</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Aug 25</span>
+        <span class="hbar__track"><i class="zero" style="background:repeating-linear-gradient(90deg,rgba(223,109,28,.35) 0 3px,transparent 3px 6px)"></i></span>
+        <span class="hbar__value">$0.00<span>1 line &middot; $0.00</span></span>
+      </div>
+
+      <div class="hbar hbar--peak">
+        <span class="hbar__label">Sep 25</span>
+        <span class="hbar__track"><i class="c" style="width:100%"></i></span>
+        <span class="hbar__value">$1,893,955.00<span>2 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Oct 25</span>
+        <span class="hbar__track"><i class="zero"></i></span>
+        <span class="hbar__value">$0.00<span>no activity</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Nov 25</span>
+        <span class="hbar__track"><i class="zero"></i></span>
+        <span class="hbar__value">$0.00<span>no activity</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Dec 25</span>
+        <span class="hbar__track"><i class="c" style="width:1.92%"></i></span>
+        <span class="hbar__value">$36,384.00<span>2 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Jan 26</span>
+        <span class="hbar__track"><i class="c" style="width:.79%"></i></span>
+        <span class="hbar__value">$15,000.00<span>1 line</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Feb 26</span>
+        <span class="hbar__track"><i class="c" style="width:82.52%"></i><i class="o" style="width:8.41%"></i></span>
+        <span class="hbar__value">$1,722,261.33<span>21 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Mar 26</span>
+        <span class="hbar__track"><i class="c" style="width:3.21%"></i><i class="o" style="width:27.09%"></i></span>
+        <span class="hbar__value">$573,994.51<span>92 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Apr 26</span>
+        <span class="hbar__track"><i class="o" style="width:10.66%"></i></span>
+        <span class="hbar__value">$201,854.11<span>67 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">May 26</span>
+        <span class="hbar__track"><i class="c" style="width:.64%"></i><i class="o" style="width:13.94%"></i></span>
+        <span class="hbar__value">$276,144.13<span>143 lines</span></span>
+      </div>
+
+      <div class="hbar">
+        <span class="hbar__label">Jun 26</span>
+        <span class="hbar__track"><i class="o" style="width:.05%"></i></span>
+        <span class="hbar__value">$900.00<span>1 line</span></span>
+      </div>
+
+    </div>
+
+    <div class="panel__foot">
+      Bars are scaled to the September 2025 peak of <strong style="color:var(--text-heading)">$1,893,955.00</strong>.
+      Two months carry a line but no money: August 2025 is a single <code>$0.00</code> encumbrance line for
+      easement and condemnation filings (<code>PO 279130</code>), and June 2026 is a <code>$900.00</code>
+      equipment line. Neither is an ingestion error &mdash; a zero-amount row is a real Oracle row and is kept.
+    </div>
+  </section>
+
+  <!-- ===================== Cost codes under this project ===================== -->
+  <section class="card panel block" aria-labelledby="codes-title">
+    <div class="panel__head">
+      <div>
+        <h2 id="codes-title">Cost codes under this project</h2>
+        <p>Five Oracle account combinations grouped under <code>CC-0523-527</code> &middot; all share level <code>0523</code></p>
+      </div>
+      <span class="chip chip--ok"><span class="dot"></span>5 of 5 claimed</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data">
+        <caption class="sr">Cost codes bound to this project, with row counts, committed amounts, purchase orders and vendors</caption>
+        <thead>
+          <tr>
+            <th scope="col" class="key">Cost code</th>
+            <th scope="col" class="key">Function</th>
+            <th scope="col">Purpose</th>
+            <th scope="col">Lines</th>
+            <th scope="col">Committed</th>
+            <th scope="col">POs</th>
+            <th scope="col">Vendors</th>
+            <th scope="col">First &ndash; last activity</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="key"><code>04-6570-862-527-0523-0840-000</code></td>
+            <td class="key">Construction (CMAR)</td>
+            <td><span class="chip chip--info">Capital</span></td>
+            <td class="num">3</td>
+            <td class="money">$3,343,434.00</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td class="num">2025-04-16 &rarr; 2026-02-20</td>
+          </tr>
+          <tr>
+            <td class="key"><code>04-9000-862-541-0523-0840-000</code></td>
+            <td class="key">Furniture &amp; equipment</td>
+            <td><span class="chip chip--operating">Operating</span></td>
+            <td class="num">320</td>
+            <td class="money">$1,139,145.58</td>
+            <td class="num">23</td>
+            <td class="num">15</td>
+            <td class="num">2026-02-02 &rarr; 2026-06-12</td>
+          </tr>
+          <tr>
+            <td class="key"><code>04-6570-862-541-0523-0840-000</code></td>
+            <td class="key">Playground equipment</td>
+            <td><span class="chip chip--info">Capital</span></td>
+            <td class="num">2</td>
+            <td class="money">$442,200.91</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td class="num">2025-06-16 &rarr; 2025-06-16</td>
+          </tr>
+          <tr>
+            <td class="key"><code>04-6570-862-529-0523-0840-000</code></td>
+            <td class="key">Testing, survey &amp; inspection</td>
+            <td><span class="chip chip--info">Capital</span></td>
+            <td class="num">5</td>
+            <td class="money">$269,887.00</td>
+            <td class="num">3</td>
+            <td class="num">3</td>
+            <td class="num">2025-04-22 &rarr; 2026-01-13</td>
+          </tr>
+          <tr>
+            <td class="key"><code>04-6570-862-532-0523-0840-000</code></td>
+            <td class="key">Site improvements &amp; offsite</td>
+            <td><span class="chip chip--info">Capital</span></td>
+            <td class="num">7</td>
+            <td class="money">$189,206.50</td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+            <td class="num">2025-04-22 &rarr; 2026-05-20</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td class="key">5 cost codes</td>
+            <td class="key">&mdash;</td>
+            <td>&mdash;</td>
+            <td class="num">337</td>
+            <td class="money">$5,383,873.99</td>
+            <td class="num">32 <abbr title="per-cost-code count">*</abbr></td>
+            <td class="num">22</td>
+            <td class="num">2025-04-16 &rarr; 2026-06-12</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="panel__foot">
+      <strong style="color:var(--text-heading)">* 32 is not 30, and that is correct.</strong>
+      The project has <strong>30 distinct purchase orders</strong>, but two of them post lines to two cost codes
+      each: <code>PO 241273</code> appears on both <code>&hellip;-529-</code> and <code>&hellip;-532-</code>, and
+      <code>PO 261588</code> likewise. Adding the per-code counts gives 1 + 23 + 1 + 3 + 4 = 32.
+      Any &ldquo;N of M POs&rdquo; figure is therefore a <em>set union</em>, never a sum &mdash; and a project
+      that claims a cost code already held by another project will double-count it in the other direction.
+    </div>
+  </section>
+
+  <!-- ===================== Underlying Oracle lines ===================== -->
+  <section class="block" aria-labelledby="lines-title">
+    <div class="card panel" style="margin-bottom:var(--space-4)">
+      <div class="panel__head">
+        <div>
+          <h2 id="lines-title">Underlying Oracle lines</h2>
+          <p>The raw <code>PO_LINES</code> rows behind each bound cost code, newest first is off &mdash; listed oldest first to read as a project history</p>
+        </div>
+        <span class="chip chip--neutral">Read-only</span>
+      </div>
+
+      <!-- ---- 527 : Construction CMAR ---- -->
+      <div class="ccblock">
+        <div class="bar bar--capital"></div>
+        <div class="ccblock__head">
+          <code>04-6570-862-527-0523-0840-000</code>
+          <span class="ccblock__title">Construction (CMAR) <span>&middot; object <code>527</code></span></span>
+          <span class="chip chip--info">Capital</span>
+          <span class="ccblock__stat">
+            <b>3</b> lines <span class="sep">&middot;</span>
+            <b>$3,343,434.00</b> <span class="sep">&middot;</span>
+            <b>1</b> PO <span class="sep">&middot;</span>
+            <b>1</b> vendor
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr">Oracle PO lines on the construction cost code</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="key">PO</th>
+                <th scope="col" class="key">Vendor</th>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+                <th scope="col" class="key">Line description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="zero">
+                <td class="key"><code>241860-4</code></td>
+                <td class="key">J E DUNN CONSTRUCTION</td>
+                <td class="num">2025-04-16</td>
+                <td class="money">$0.00</td>
+                <td class="desc wrap">GMP-02 &mdash; RECONCILIATION FOR GMP-01 &amp; OFFSITE BID PACKAGE 31D PARTIAL FUNDING &mdash; CMAR-GMP-02 &middot; <em>BOE 4/22/2025, added 4/16/25 CR per J BEAVIN</em></td>
+              </tr>
+              <tr>
+                <td class="key"><code>241860-5</code></td>
+                <td class="key">J E DUNN CONSTRUCTION</td>
+                <td class="num">2025-09-24</td>
+                <td class="money">$1,816,698.00</td>
+                <td class="desc wrap">GMP #3 RECONCILIATION OF OFFSITE BID PACKAGE 31D &middot; <em>BOE 10/7/2025, added 9/24/2025 CR per J BEAVIN</em></td>
+              </tr>
+              <tr>
+                <td class="key"><code>241860-6</code></td>
+                <td class="key">J E DUNN CONSTRUCTION</td>
+                <td class="num">2026-02-20</td>
+                <td class="money">$1,526,736.00</td>
+                <td class="desc wrap">GMP-02 &mdash; RECONCILIATION FOR GMP-01 &amp; OFFSITE BID PACKAGE 31D PARTIAL FUNDING &mdash; CMAR-GMP-02</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td class="key" colspan="3">3 lines &middot; 1 PO</td>
+                <td class="money">$3,343,434.00</td>
+                <td class="key"><em>62.1% of the project in three rows</em></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="ccblock__foot">
+          The <code>$0.00</code> line is not noise: it is the original GMP-02 encumbrance, later reconciled by
+          the two lines above it. Keeping it preserves the audit trail &mdash; deleting zero-amount rows would
+          erase the fact that GMP-02 existed in April 2025.
+        </div>
+      </div>
+
+      <!-- ---- 9000 : Operating furniture ---- -->
+      <div class="ccblock">
+        <div class="bar bar--operating"></div>
+        <div class="ccblock__head">
+          <code>04-9000-862-541-0523-0840-000</code>
+          <span class="ccblock__title">Furniture &amp; equipment <span>&middot; object <code>541</code></span></span>
+          <span class="chip chip--operating">Operating</span>
+          <span class="ccblock__stat">
+            <b>320</b> lines <span class="sep">&middot;</span>
+            <b>$1,139,145.58</b> <span class="sep">&middot;</span>
+            <b>23</b> POs <span class="sep">&middot;</span>
+            <b>15</b> vendors
+          </span>
+        </div>
+
+        <div style="padding:var(--space-3) var(--space-4) 0">
+          <div class="notice">
+            <span class="dot" aria-hidden="true"></span>
+            <div>
+              <p>
+                <strong>None of these 320 lines names the project.</strong> Every description is a catalogue
+                item, so the only thing tying this cost code to Swift Creek is its level code <code>0523</code>.
+                Grouping it here is a decision a person made, not something the data proves.
+              </p>
+              <p>
+                It is also the largest slice by volume: <strong>320 of 337 lines (95.0%)</strong> for
+                <strong>$1,139,145.58 (21.2% of the money)</strong>, spread over 15 vendors &mdash; the classic
+                signature of a district-wide furniture account rather than a single school.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:var(--space-3)">
+          <table class="data">
+            <caption class="sr">The six largest Oracle PO lines on the operating furniture cost code</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="key">PO</th>
+                <th scope="col" class="key">Vendor</th>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+                <th scope="col" class="key">Line description &middot; item no.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="key"><code>282854-12</code></td>
+                <td class="key">PERFECTION EQUIPMENT CO.</td>
+                <td class="num">2026-03-10</td>
+                <td class="money">$44,194.50</td>
+                <td class="desc wrap">ARO4242 &mdash; ALLIED 42 X 42 SQUARE TABLE, AERO ADJ LEGS 19&ndash;31&quot;H &middot; <code>7770800002</code></td>
+              </tr>
+              <tr>
+                <td class="key"><code>282854-2</code></td>
+                <td class="key">PERFECTION EQUIPMENT CO.</td>
+                <td class="num">2026-03-10</td>
+                <td class="money">$41,283.20</td>
+                <td class="desc wrap">2875 &mdash; COLUMBIA OMNIA 15.5&quot; HIGH, 4-LEG STACKING CHAIR WITH CASTERS &middot; <code>7770800002</code></td>
+              </tr>
+              <tr>
+                <td class="key"><code>282854-4</code></td>
+                <td class="key">PERFECTION EQUIPMENT CO.</td>
+                <td class="num">2026-03-10</td>
+                <td class="money">$39,235.24</td>
+                <td class="desc wrap">2877 &mdash; COLUMBIA OMNIA 17.5&quot; HIGH, 4-LEG STACKING CHAIR WITH CASTERS &middot; <code>7770800002</code></td>
+              </tr>
+              <tr>
+                <td class="key"><code>282854-1</code></td>
+                <td class="key">PERFECTION EQUIPMENT CO.</td>
+                <td class="num">2026-03-10</td>
+                <td class="money">$39,206.84</td>
+                <td class="desc wrap">2873 &mdash; COLUMBIA OMNIA 13.5&quot; HIGH, 4-LEG STACKING CHAIR WITH CASTERS &middot; <code>7770800002</code></td>
+              </tr>
+              <tr>
+                <td class="key"><code>282537-1</code></td>
+                <td class="key">UNIVERSAL EQUIPMENT COMPANY</td>
+                <td class="num">2026-02-26</td>
+                <td class="money">$38,241.00</td>
+                <td class="desc wrap">TC-65 &mdash; DIRECTOR TABLE, 8&prime;L TABLE, STOOLS: SHADOW GREY, TOP: LIMBER MAPLE W/ BLACK EDGE &middot; <code>7770800002</code></td>
+              </tr>
+              <tr>
+                <td class="key"><code>282536-2</code></td>
+                <td class="key">THRIFTY OFFICE FURNITURE OF NC</td>
+                <td class="num">2026-02-26</td>
+                <td class="money">$30,432.25</td>
+                <td class="desc wrap">PAR 260-S-CT HANDL &mdash; 36 X 24 X 66 MOBILE STORAGE CABINET W/ RUBBER SAFETY BUMPERS &middot; <code>7770800002</code></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td class="key" colspan="3">6 of 320 lines shown</td>
+                <td class="money">$232,593.03</td>
+                <td class="key"><em>20.4% of this cost code</em></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="ccblock__foot">
+          Top vendors by committed amount on this code:
+          <strong>INSTITUTIONAL INTERIORS INC</strong> 178 lines / $386,274.78 &middot;
+          <strong>PERFECTION EQUIPMENT CO.</strong> 27 / $306,776.78 &middot;
+          <strong>INTERIOR SYSTEMS INC</strong> 31 / $121,393.92 &middot;
+          <strong>BRAME SPECIALTY COMPANY</strong> 32 / $116,609.91 &middot;
+          <strong>THRIFTY OFFICE FURNITURE OF NC</strong> 4 / $76,034.18 &middot;
+          <strong>UNIVERSAL EQUIPMENT COMPANY</strong> 4 / $51,092.00.
+          A 178-line vendor with no project naming anywhere is the strongest single argument for asking
+          a person to confirm this binding.
+        </div>
+      </div>
+
+      <!-- ---- 541 : Playground ---- -->
+      <div class="ccblock">
+        <div class="bar bar--capital"></div>
+        <div class="ccblock__head">
+          <code>04-6570-862-541-0523-0840-000</code>
+          <span class="ccblock__title">Playground equipment <span>&middot; object <code>541</code></span></span>
+          <span class="chip chip--info">Capital</span>
+          <span class="ccblock__stat">
+            <b>2</b> lines <span class="sep">&middot;</span>
+            <b>$442,200.91</b> <span class="sep">&middot;</span>
+            <b>1</b> PO <span class="sep">&middot;</span>
+            <b>1</b> vendor
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr">Oracle PO lines on the playground equipment cost code</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="key">PO</th>
+                <th scope="col" class="key">Vendor</th>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+                <th scope="col" class="key">Line description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="key"><code>276666-1</code></td>
+                <td class="key">LANDSCAPE STRUCTURES, INC.</td>
+                <td class="num">2025-06-16</td>
+                <td class="money">$432,700.91</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &nbsp;PLAY EQUIPMENT &amp; WAREHOUSE &mdash; PURCHASE WITH INSTALLATION OF PLAYGROUND EQUIPMENT AND SURFACING FOR THREE PLAYGROUNDS</td>
+              </tr>
+              <tr>
+                <td class="key"><code>276666-2</code></td>
+                <td class="key">LANDSCAPE STRUCTURES, INC.</td>
+                <td class="num">2025-06-16</td>
+                <td class="money">$9,500.00</td>
+                <td class="desc wrap">SHIPPING / FREIGHT CHARGE &middot; item <code>2220222222</code></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td class="key" colspan="3">2 lines &middot; 1 PO</td>
+                <td class="money">$442,200.91</td>
+                <td class="key"><em>matches the description on line 1 only</em></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="ccblock__foot">
+          A worked example of why the picker ranks on more than one signal: line 1 names the project outright,
+          line 2 is a freight charge that mentions nothing. Both belong &mdash; but only one is evidence.
+        </div>
+      </div>
+
+      <!-- ---- 529 : Testing / survey ---- -->
+      <div class="ccblock">
+        <div class="bar bar--capital"></div>
+        <div class="ccblock__head">
+          <code>04-6570-862-529-0523-0840-000</code>
+          <span class="ccblock__title">Testing, survey &amp; inspection <span>&middot; object <code>529</code></span></span>
+          <span class="chip chip--info">Capital</span>
+          <span class="ccblock__stat">
+            <b>5</b> lines <span class="sep">&middot;</span>
+            <b>$269,887.00</b> <span class="sep">&middot;</span>
+            <b>3</b> POs <span class="sep">&middot;</span>
+            <b>3</b> vendors
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr">Oracle PO lines on the testing, survey and inspection cost code</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="key">PO</th>
+                <th scope="col" class="key">Vendor</th>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+                <th scope="col" class="key">Line description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="key"><code>261588-8</code></td>
+                <td class="key">TRANSYSTEMS CORPORATION</td>
+                <td class="num">2025-04-22</td>
+                <td class="money">$15,250.00</td>
+                <td class="desc wrap">MISC COST &mdash; OFFSITE &amp; ONSITE SURVEY, MAPPING AND STAKING</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241273-4</code></td>
+                <td class="key">TERRACON CONSULTANTS INC</td>
+                <td class="num">2025-05-06</td>
+                <td class="money">$145,980.00</td>
+                <td class="desc wrap">MISC COST &mdash; ADDITIONAL MATERIAL TESTING AND SPECIAL INSPECTIONS FOR REMAINDER OF ONSITE WORK &middot; <em>BOE 6/3/2025, added 5/6/25 CR per J BEAVIN</em></td>
+              </tr>
+              <tr>
+                <td class="key"><code>241273-5</code></td>
+                <td class="key">TERRACON CONSULTANTS INC</td>
+                <td class="num">2025-09-16</td>
+                <td class="money">$77,257.00</td>
+                <td class="desc wrap">MATERIAL &amp; TESTING INSPECTIONS FOR ONSITE WORK &mdash; MISC COST</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241273-6</code></td>
+                <td class="key">TERRACON CONSULTANTS INC</td>
+                <td class="num">2025-12-19</td>
+                <td class="money">$16,400.00</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &mdash; MISC COSTS &mdash; MATERIAL TESTING AND INSPECTION FOR THE SCM&rsquo;S</td>
+              </tr>
+              <tr>
+                <td class="key"><code>281840-1</code></td>
+                <td class="key">WHITLEY ELECTRONICS INC</td>
+                <td class="num">2026-01-13</td>
+                <td class="money">$15,000.00</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO-0020 &mdash; MISC COSTS &mdash; TESTING AND INSPECTION OF VOICE, DATA, AND FIBER</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td class="key" colspan="3">5 lines &middot; 3 POs</td>
+                <td class="money">$269,887.00</td>
+                <td class="key"><em>2 of 5 lines name the project</em></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="ccblock__foot">
+          <code>PO 241273</code> on this code is one of the two POs that also posts to
+          <code>&hellip;-532-</code>. It is counted once in the project&rsquo;s 30 purchase orders and twice in the
+          per-code column above.
+        </div>
+      </div>
+
+      <!-- ---- 532 : Site improvements ---- -->
+      <div class="ccblock">
+        <div class="bar bar--capital"></div>
+        <div class="ccblock__head">
+          <code>04-6570-862-532-0523-0840-000</code>
+          <span class="ccblock__title">Site improvements &amp; offsite <span>&middot; object <code>532</code></span></span>
+          <span class="chip chip--info">Capital</span>
+          <span class="ccblock__stat">
+            <b>7</b> lines <span class="sep">&middot;</span>
+            <b>$189,206.50</b> <span class="sep">&middot;</span>
+            <b>4</b> POs <span class="sep">&middot;</span>
+            <b>4</b> vendors
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr">Oracle PO lines on the site improvements cost code</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="key">PO</th>
+                <th scope="col" class="key">Vendor</th>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+                <th scope="col" class="key">Line description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="key"><code>241726-9</code></td>
+                <td class="key">LS3P ASSOCIATES LTD</td>
+                <td class="num">2025-04-22</td>
+                <td class="money">$57,700.00</td>
+                <td class="desc wrap">DCPO #6 &mdash; BEE SAFE &amp; TOC LANDSCAPE &amp; REIMBURSABLE TOC TRANSPORTATION REWORK</td>
+              </tr>
+              <tr>
+                <td class="key"><code>261588-9</code></td>
+                <td class="key">TRANSYSTEMS CORPORATION</td>
+                <td class="num">2025-04-22</td>
+                <td class="money">$2,250.00</td>
+                <td class="desc wrap">OFFSITE COST &mdash; OFFSITE &amp; ONSITE SURVEY, MAPPING AND STAKING</td>
+              </tr>
+              <tr class="zero">
+                <td class="key"><code>279130-1</code></td>
+                <td class="key">HOWARD, STALLINGS, FROM, ATKINS, ANGELL &amp; DAVIS PA</td>
+                <td class="num">2025-08-27</td>
+                <td class="money">$0.00</td>
+                <td class="desc wrap">FUNDS FOR EASEMENT COMPENSATION AND/OR CONDEMNATION FILINGS &amp; FEES ASSOCIATED W/ PROPERTY INTERESTS LOCATED ON OR NEAR 6221 YATES MILLS POND RD, RALEIGH, NC 27606 RELATED TO PUBLIC INFRASTRUCTURE IMPROVEMENTS ASSOCIATED WITH THE RENOVATION</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241726-10</code></td>
+                <td class="key">LS3P ASSOCIATES LTD</td>
+                <td class="num">2025-12-09</td>
+                <td class="money">$19,984.00</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &mdash; OFFISITE COSTS &mdash; DPCO #7 ADDITIONAL SERVICES REQUIRED TO COMPLETE THE CA OF OFFSITE ROADWAY IMPROVEMENTS</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241726-11</code></td>
+                <td class="key">LS3P ASSOCIATES LTD</td>
+                <td class="num">2026-02-26</td>
+                <td class="money">$36,200.00</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &mdash; OFFSITE COSTS &mdash; EXISTING GAS MAIN SUE A LOCATES DUE TO CMAR CONFLICT AND DELAY CLAIM ALONG TRYON ROAD AND YATES MILL ROAD</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241273-7</code></td>
+                <td class="key">TERRACON CONSULTANTS INC</td>
+                <td class="num">2026-03-23</td>
+                <td class="money">$60,872.50</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &mdash; MISC COSTS &mdash; MATERIAL TESTING AND SPECIAL INSPECTIONS FOR OFFSITE ROADWAY IMPROVEMENTS AND DRIVES</td>
+              </tr>
+              <tr>
+                <td class="key"><code>241726-12</code></td>
+                <td class="key">LS3P ASSOCIATES LTD</td>
+                <td class="num">2026-05-20</td>
+                <td class="money">$12,200.00</td>
+                <td class="desc wrap">SWIFT CREEK ES-RENO &mdash; OFFSITE COSTS &mdash; LIMITED AREA BOUNDARY SURVEY AND STAKING OF THE RIGHT OF WAY FOR GAS INSTALLATION BY ENBRIDGE</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td class="key" colspan="3">7 lines &middot; 4 POs</td>
+                <td class="money">$189,206.50</td>
+                <td class="key"><em>4 of 7 lines name the project</em></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="ccblock__foot">
+          The <code>$0.00</code> condemnation line is why this cost code has four vendors but only three that
+          ever invoiced. Note also the misspelling preserved from Oracle:
+          <code>OFFISITE</code> on <code>241726-10</code>. Text is never normalised on ingest.
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== Coverage + signal review ===================== -->
+  <div class="grid-2">
+
+    <section class="card panel" aria-labelledby="cov-title">
+      <div class="panel__head">
+        <div>
+          <h2 id="cov-title">Coverage</h2>
+          <p>Bound versus unbound activity on level <code>0523</code></p>
+        </div>
+        <span class="chip chip--ok"><span class="dot"></span>Level closed</span>
+      </div>
+
+      <dl class="dl">
+        <dt>Cost codes on level <code>0523</code></dt>
+        <dd>5</dd>
+        <dt>Bound to this project</dt>
+        <dd>5 <small>100%</small></dd>
+        <dt>Unbound siblings</dt>
+        <dd>0</dd>
+        <dt>Oracle lines on the level</dt>
+        <dd>337</dd>
+        <dt>Lines invisible to this project</dt>
+        <dd>0</dd>
+        <dt>Lines unclaimed by any project</dt>
+        <dd>0</dd>
+        <dt>Codes on other levels that matched a text signal</dt>
+        <dd>1</dd>
+        <dt>Invoice lines matched</dt>
+        <dd class="dd--null">not linked</dd>
+      </dl>
+
+      <div class="callout callout--info">
+        <div>
+          <p><strong>Why invoices read &ldquo;not linked&rdquo;.</strong> The AP extract joins on
+          <code>PO_HEADER_ID</code>, but the purchasing extract only carries <code>ORDER_NUMBER</code> &mdash;
+          the two identifier spaces do not intersect at all. Contract-to-invoice reconciliation is a separate
+          phase; showing a zero here would be a lie dressed as a number.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card panel" aria-labelledby="sig-title">
+      <div class="panel__head">
+        <div>
+          <h2 id="sig-title">Signal review</h2>
+          <p>Rows the picker offered that do <em>not</em> belong to this project</p>
+        </div>
+        <span class="chip chip--warn"><span class="dot"></span>1 demoted</span>
+      </div>
+
+      <ul class="findings">
+        <li>
+          <span class="bullet bullet--warn" aria-hidden="true">!</span>
+          <div>
+            <strong>Text search is not a binding rule.</strong>
+            <p>A search for &ldquo;swift&rdquo; returns <strong>6 combinations</strong>. This project owns
+            <strong>5</strong> of them. The 6th is the one below.</p>
+          </div>
+        </li>
+        <li>
+          <span class="bullet bullet--error" aria-hidden="true">&times;</span>
+          <div>
+            <strong><code>04-6570-862-529-0713-0840-000</code> &mdash; false positive</strong>
+            <p>Level <code>0713</code>, not <code>0523</code>. 11 lines, $365,417.38, 11 POs, 5 vendors.
+            One of its descriptions mentions Swift Creek, which is why it surfaced at all. It belongs to a
+            county-wide facility-assessment level.
+            <strong>Already bound to <code>CC-0713-529</code></strong> &mdash; the picker renders it disabled
+            with the holder&rsquo;s name rather than hiding it, so you can see the conflict instead of
+            wondering why a project is missing.</p>
+          </div>
+        </li>
+        <li>
+          <span class="bullet bullet--ok" aria-hidden="true">&#10003;</span>
+          <div>
+            <strong>Level code is the grouping key, not the description.</strong>
+            <p>Only 4 of the project&rsquo;s 337 lines contain the phrase &ldquo;swift creek&rdquo;. A
+            description-only search finds 8 lines across 4 combinations and misses the
+            <strong>320-line</strong> operating code entirely. Scoping siblings by
+            <code>level_code</code> is what makes the group complete.</p>
+          </div>
+        </li>
+        <li>
+          <span class="bullet bullet--info" aria-hidden="true">i</span>
+          <div>
+            <strong>Two POs span two cost codes.</strong>
+            <p><code>PO 241273</code> and <code>PO 261588</code> each post lines to both
+            <code>529</code> and <code>532</code>. Per-code order counts total 32; the project has 30 distinct
+            purchase orders.</p>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+  </div>
+
+  <footer class="foot">
+    <p>
+      <strong style="color:var(--text-heading)">All figures on this screen were computed from
+      <code>data/oracle/output.json</code></strong> &mdash; the 2,782-row purchasing extract &mdash; and are
+      reproducible from it. Grand total across all 328 combinations: $430,569,026.92.
+    </p>
+    <p>
+      Project roll-up: 337 lines / $5,383,873.99 / 30 distinct POs / 22 vendors / 2025-04-16 to 2026-06-12.
+      Purpose split: capital <code>6570</code> 17 lines $4,244,728.41; operating <code>9000</code>
+      320 lines $1,139,145.58. The 32-versus-30 purchase-order difference is explained by POs 241273 and
+      261588 posting to two cost codes each.
+    </p>
+    <p>
+      The <code>$0.00</code> lines on <code>241860-4</code>, <code>279130-1</code> and elsewhere are genuine
+      Oracle rows and are retained. Zero-amount rows are never filtered out on ingest.
+    </p>
+  </footer>
+
+</main>
+
+</body>
+</html>

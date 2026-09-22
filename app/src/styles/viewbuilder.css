@@ -1,0 +1,554 @@
+/* ============================================================================
+   View builder — `app/src/routes/ViewBuilder.tsx`.
+
+   §10.4 of docs/plans/view-builder.md puts the rule for this file plainly: only
+   two things on the screen need CSS that does not already exist. Everything else
+   composes from what is here — `.panel*` from projects.css and dashboard.css,
+   `.page-head` / `.accent-rule` / `.stack` / `.grid-2` from shell.css, `.field` /
+   `.input` / `.textarea` / `.subhead` from newproject.css, `.btn*` and `.notice*`
+   from components.css, `.table-wrap` / `table.data` / `.linkish` from
+   projects.css, `.sr` from base.css.
+
+   So this file is in two parts, in that order, and the split is the point:
+
+     1. THE EDITOR and THE COLUMN PICKER — the two things that are genuinely new.
+     2. STRUCTURAL HELPERS — the handful of one-line grids the new markup needs
+        to sit next to the existing classes at all. Each has one line of comment
+        saying why it is not already a class in the app.
+
+   Nothing here re-declares a colour, a radius, a shadow or a font stack. Every
+   value is a token, and the one font that is new to the app — a monospace stack
+   for the editor — already exists as `--font-mono`, defined in tokens.css and
+   used by the mockups. A second literal font stack here would be the thing that
+   drifts.
+
+   Loaded from `app/src/main.tsx` after fundingsearch.css and before rail.css:
+   nothing in here is expanded by the rail, but rail.css is documented as the
+   last word on the shell, so a page stylesheet belongs before it.
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   1a. The SQL editor
+   --------------------------------------------------------------------------- */
+
+/* Monospace, and a real control border so it reads as a field next to `.input`.
+   `focus-within` rather than `:focus`, because the focus ring belongs on the
+   box: the textarea inside it has no border of its own. Same rule as
+   `.input:focus` in newproject.css — one accent border plus a 3px tertiary
+   outline — so the editor is not the one control on the page that focuses
+   differently. */
+.vb-editor {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.vb-editor:focus-within {
+  border-color: var(--primary-color);
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* The gutter.
+ *
+ * ★ THE FONT SIZE AND LINE HEIGHT HERE MUST EQUAL THE TEXTAREA'S, TO THE PIXEL.
+ *   The numbers are not a column of the text: they are a second `div` per line
+ *   that has to land on the same baseline as the code beside it. Change one and
+ *   the gutter drifts a line every forty lines — and it drifts silently, because
+ *   nothing looks broken, the numbers are simply wrong. So both values are
+ *   declared twice on purpose and the pairing is the contract.
+ *
+ * `overflow: hidden` is also deliberate: the textarea scrolls and the gutter does
+ * not, and the offset is applied in JS on `onScroll`. A gutter with its own
+ * scrollbar would be a second, independent scroll position to keep in sync. */
+.vb-editor__gutter {
+  flex: none;
+  width: 3.25rem;
+  padding: 10px 8px 10px 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  text-align: right;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* The editor's own padding-top must match the gutter's, for the same reason. */
+.vb-editor__area {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 260px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-heading);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  tab-size: 2;
+  resize: vertical;
+  overflow: auto;
+  white-space: pre;
+}
+
+/* The wrapper owns the ring, so the inner textarea must not draw a second one.
+   `outline: none` without a replacement would be an accessibility bug; the
+   replacement is `.vb-editor:focus-within` above. */
+.vb-editor__area:focus {
+  outline: none;
+}
+
+.vb-editor__hint {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------------------
+   1b. The column picker
+   --------------------------------------------------------------------------- */
+
+/* A second header row above the result's own header row. Each visible column
+   gets a label, a format and a move pair, so the picker is stacked *over* the
+   grid it configures rather than beside it — the thing being changed stays
+   under the control that changes it. `.table-wrap` already scrolls this
+   horizontally when there are more columns than fit. */
+.vb-picker th {
+  vertical-align: middle;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.vb-picker__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.vb-picker__hide {
+  display: flex;
+  align-items: center;
+}
+
+.vb-picker__label {
+  width: 10rem;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+}
+
+.vb-picker__format {
+  width: 6.5rem;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+}
+
+/* The move buttons carry a single glyph, so `.btn--sm`'s 6px 12px is mostly
+   empty space — three of these side by side would be wider than the label
+   field. Tightened, not restyled: the colour, radius and hover come from
+   `.btn--system`. */
+.vb-picker__move {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.vb-picker__move .btn {
+  padding: 3px 6px;
+  line-height: 1;
+}
+
+/* The real column name, under its label, when the two differ. A label is a
+   display choice; the name is what a query has to say, and someone reading a
+   saved view needs to be able to see the difference. */
+.vb-table__key {
+  display: block;
+  font-weight: 400;
+  font-size: 0.625rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Structural helpers
+   --------------------------------------------------------------------------- */
+
+/* A tighter stack than `.stack` (16px), for fields inside a `.panel__body`
+   that already has 16px of its own padding. */
+.vb-fields {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Side-by-side controls. `.page-head__actions` does this in the page head, but
+   it is scoped to the head; this is the same intent inside a panel. */
+.vb-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vb-inline__narrow {
+  flex: none;
+  width: 5.5rem;
+}
+
+/* A label row with a control at the end — "Parameters  [Add]". */
+.vb-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
+.vb-subhead .field__label {
+  margin-bottom: 0;
+}
+
+/* The action row. `margin-top` is set here rather than by a wrapper because the
+   row follows a hint paragraph whose own margin is 6px. */
+.vb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
+/* The saved-view picker in the page head. A fixed width so "New view" does not
+   move as the list of views grows. */
+.vb-pick {
+  width: 18rem;
+  flex: none;
+}
+
+/* The two empty states that carry a sentence rather than a number. Sized as body
+   copy, not as a caption: "Not run yet" is a statement about the view, and it
+   should not be mistaken for a load that did not arrive. */
+.vb-empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+.vb-empty--quiet {
+  color: var(--text-muted);
+}
+
+/* A null cell. Muted rather than bolded: the absence of a value is not the
+   finding, and a row of loud dashes would read as an error state. Same idea as
+   the rail's `—` for a count that has not loaded. */
+.vb-null {
+  color: var(--text-faint);
+}
+
+/* The result body is a stack of notices, a table and a footer, and
+   `.panel__body` supplies only the padding. */
+.vb-result {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.vb-footer {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.vb-footer__meta {
+  display: block;
+  color: var(--text-faint);
+}
+
+/* A confirmation, in the success colour. Sits inside the panel rather than in a
+   toast: it is about the form the button belongs to, and it should still be
+   there when the pointer has moved on. */
+.vb-note {
+  color: var(--ok-fg);
+}
+
+.vb-runhint {
+  margin-top: var(--space-4);
+}
+
+/* The publish readiness line, under the buttons.
+   Deliberately NOT the green of `.vb-note`: it is usually naming something that
+   still has to happen before the view is watchable, and it is on screen
+   permanently rather than appearing in answer to a click. The rule down its left
+   edge ties it to the actions above — it is a statement about the buttons, not a
+   fourth paragraph of help text, and the status word it leads with is the thing
+   to read. */
+.vb-readiness {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-strong);
+}
+
+/* --- parameters -------------------------------------------------------- */
+
+/* Name, label, type, default, value, remove. Fixed widths for the four narrow
+   controls so the columns line up between the header row and every input row —
+   which is the only thing that makes this grid readable rather than a wall of
+   equal-looking boxes. */
+.vb-params {
+  display: grid;
+  gap: 6px;
+}
+
+.vb-params__head {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr) 6rem 6rem 6rem 2rem;
+  gap: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.vb-params__row {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr) 6rem 6rem 6rem 2rem;
+  gap: 6px;
+  align-items: center;
+}
+
+.vb-params__row .input {
+  padding: 6px 8px;
+  font-size: 0.8125rem;
+}
+
+/* A validation message spans the whole row rather than landing in a cell of its
+   own, which would push the remove button into the next one. */
+.vb-params__row .field__err,
+.vb-params__row .field__hint {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.vb-input--err {
+  border-color: var(--err-fg);
+}
+
+/* --- declared columns -------------------------------------------------- */
+
+/* The Display panel: show/hide, label, format, per column. The picker on the
+   result grid does the same job against the columns that actually came back;
+   this one is for the state before a first run, when there is nothing to
+   reconcile against. */
+.vb-columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.vb-columns__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 7rem;
+  gap: 6px;
+  align-items: center;
+}
+
+.vb-columns__row .input {
+  padding: 5px 8px;
+  font-size: 0.75rem;
+}
+
+.vb-columns__show {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vb-columns__show code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* --- starting points --------------------------------------------------- */
+
+/* The empty state's list of ported queries, and the statements inside one once
+   it is opened. Indented with a rule so the statements read as children of the
+   file rather than as a second list. */
+.vb-starts {
+  list-style: none;
+  margin: var(--space-3) 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.vb-starts__body {
+  margin: 6px 0 10px 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
+.vb-starts__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+/* --- the error pane ---------------------------------------------------- */
+
+/* ★ `white-space: pre-wrap`, NOT `pre`. The message is the driver's own string
+ *   and its line breaks are part of it, so it must not be re-flowed into one
+ *   paragraph — but a single long line (SQLite puts the whole statement in some
+ *   messages) must still wrap inside the pane rather than scroll off it. A
+ *   message you have to scroll sideways to read is a message that gets skimmed.
+ *   `word-break: break-word` is for the same reason: a 50,000-character
+ *   statement has no spaces to break at. */
+.vb-error__code {
+  margin: 0;
+}
+
+.vb-error__message {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vb-error__fix {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.vb-error__lead {
+  font-weight: 700;
+}
+
+.vb-error__hint {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+/* The schema's own notes. Set apart from the diagnosis on purpose: the message
+   above is about *this* failure, and these are standing facts about the objects
+   it mentioned. Someone debugging should be able to tell which is which. */
+.vb-error__notes {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--err-border);
+}
+
+.vb-error__notes ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.vb-error__notes li {
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.vb-error__notes code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+/* The statement that was sent, collapsed. Behind a summary because it is long
+   and its presence is only useful in some failures — but never hidden, because
+   "what exactly did you send?" is the first question about a syntax error, and
+   the answer must not require a second run. */
+.vb-error__statement {
+  margin-top: var(--space-3);
+  font-size: 0.75rem;
+}
+
+.vb-error__statement summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.vb-error__statement pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+/* ---------------------------------------------------------------------------
+   No subscriptions section.
+
+   `.vb-subs` styled the subscribe panel's list of watchers, and that panel and
+   its heading moved to `Views` when the control did. The four rules went with it
+   rather than staying behind: dead CSS is not inert, because the next person to
+   render a list of watchers finds rules that already fit and adopts a layout
+   nobody chose — and `Views` has its own stylesheet precisely so the two screens
+   are free to differ.
+
+   `.vb-inline`, which the removed name field also used, is still live: the
+   parameter rows use it. Only the list rules were orphaned.
+
+   --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   Narrow widths.
+
+   `.grid-2` already collapses to one column at 900px, so the page does that
+   without help. What needs help are the two fixed-column grids: six columns of
+   form control cannot fit in a 320px column, and the picker row's label and
+   format fields are wider than the cell they label.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .vb-params__head {
+    display: none;
+  }
+
+  .vb-params__row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .vb-columns__row {
+    grid-template-columns: minmax(0, 1fr) 7rem;
+  }
+
+  /* The name field keeps the full width and the label moves up beside it, so
+     a parameter reads as one block rather than five unrelated inputs. */
+  .vb-params__row .input:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .vb-pick {
+    width: 100%;
+  }
+}

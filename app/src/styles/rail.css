@@ -1,0 +1,238 @@
+/* ==========================================================================
+   Rail — the expandable menu tree.
+
+   `shell.css` still owns the rail shell (`.rail`, `.rail__brand`, `.rail__link`,
+   `.cnt`, `.rail__foot`) and this file only adds what the tree needs on top:
+   a group header that is a real button, a panel to expand, and the utility
+   section. It loads after `shell.css` (see `main.tsx`), so these rules win.
+
+   The one thing to keep in mind when editing: `.rail` is a flex column and
+   `.rail__foot` is the provenance stamp that sits at the bottom of it. The
+   utility section is pinned down there with it — which means the `margin-top:
+   auto` moved from the foot onto the utility wrapper, and the foot now follows
+   the wrapper instead of being pushed apart from it.
+   ========================================================================== */
+
+/* The header was a label; now it is the control that opens the group, so it has
+   to lose the button chrome and gain a hit area and a hover state. */
+.rail__title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 8px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+.rail__title:hover { background: var(--surface-hover); color: var(--text-muted); }
+.rail__title:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+
+/* The group holding the page you are on. Brighter than the rest of the headers,
+   so a reader who has scrolled the rail can find their place without opening
+   anything. */
+.rail__title--here { color: var(--text-heading); }
+
+.rail__chev {
+  flex: none;
+  width: 9px;
+  font-size: 0.5625rem;
+  line-height: 1;
+  text-align: center;
+}
+
+/* The panel is `hidden` when shut, never unmounted — `aria-controls` has to name
+   something that exists, and the arrow-key walk uses the DOM to tell which rows
+   are on screen. `[hidden]` alone would lose to `display: flex` below. */
+.rail__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+
+  /* ★ Nesting. Measured, not guessed: a group button is `padding-left: 8px` with
+     a 9px chevron and a 5px gap, so its *label* starts 22px in — at x=34 — while
+     a leaf's label started at x=20. Children were rendering 14px to the LEFT of
+     the name they belong to, lined up with the chevron, so an open group read as
+     a flat list of siblings rather than a tree. Indenting the panel puts a leaf's
+     label under its group's label, which is where a reader looks for it.
+
+     The guide is drawn at the chevron's centre (x=24) and not at the label, so the
+     two columns stay legible: controls on the left, names on the right. */
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.rail__panel[hidden] { display: none; }
+
+/* The wrapper now holds a button and a panel rather than the rows themselves. */
+.rail__group { gap: 0; }
+
+/* ★ The rail scrolls, and its scrollbar is not a detail on a 208px column.
+   Measured with four groups open: `offsetWidth - clientWidth` was **32px**, so
+   every row's label lost a sixth of the rail's width and "Unclaimed
+   combinations" / "Commitments vs actuals" wrapped onto two lines. Thin is the
+   fix rather than `scrollbar-gutter: stable`, because on a rail this narrow the
+   gutter is the scarce resource — reserving 32px permanently to avoid a one-off
+   reflow is the worse trade. */
+.rail { scrollbar-width: thin; }
+
+/* --------------------------------------------------------------------------
+   Reference & setup — the utility section (§10.3).
+
+   Deliberately quieter than the six work blocks above it: a rule, a smaller
+   zone label, and no counts. None of these leaves is a question a reader asks
+   mid-task; they are the vocabulary and the configuration behind the answers.
+   -------------------------------------------------------------------------- */
+
+.rail__util {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.rail__util-title {
+  padding: 0 8px 6px;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  opacity: 0.75;
+}
+
+/* `.rail__foot` is the only other element that used to claim the free space.
+   Handing the slack to the utility wrapper keeps the rule, the two groups and
+   the provenance stamp together at the bottom as one block. */
+.rail__util + .rail__foot { margin-top: 14px; }
+
+.rail__group--util .rail__title { padding-left: 8px; }
+
+/* --------------------------------------------------------------------------
+   Leaf decoration
+   -------------------------------------------------------------------------- */
+
+/* A measure that is computed rather than read out of a column. §5.2 is explicit
+   that allocations are arithmetic — `Allocations − Encumbrances − Expenditures`
+   — and this app is careful about provenance everywhere else, so a figure that
+   is not an extract column has to say so. */
+.rail__tag {
+  flex: none;
+  padding: 1px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* A leaf whose screen has not been built. The link still works — it goes to a
+   page that names the reason, which is §8's recommended option rather than
+   greying the row out — so the marker says "planned", not "disabled". The full
+   reason is the link's `title` and a screen-reader-only note inside it. */
+.rail__soon {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border: 1px solid var(--text-faint);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------------
+   The settings gear
+
+   ★ THE RULE LIVES HERE AND NOT IN `shell.css`, EVEN THOUGH THE ELEMENT IT
+   STYLES IS THE LAST CHILD OF `.rail__brand`. The file header above says
+   `shell.css` owns `.rail__brand`, and that is still true — but everything in
+   this file loads *after* `shell.css` for the specific reason that it has the
+   last word on the shell, and the gear's whole job is to sit in a row that
+   `shell.css` laid out without it. Its `margin-left: auto` claims free space
+   that a rule in `shell.css` would have to be re-read to predict.
+   -------------------------------------------------------------------------- */
+
+.rail__gear {
+  /* ★ IT IS PLACED BY THE GRID IN `shell.css` NOW, SO THE AUTO MARGIN IS GONE. It was
+     `margin-left: auto`, which claimed the free space at the right edge of a flex row —
+     and the free space it claimed was the wordmark's, which is why the product's name
+     used to break one word per line. The brand's header row is now a grid of
+     `auto 1fr` and this is `justify-self: end` in its second column: the same pixel,
+     arrived at without borrowing from the words. */
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.8125rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.rail__gear:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--text-heading);
+}
+
+/* The same ring the group headers use, including the negative offset: at 22px
+   against a 208px rail an outward ring would touch the border-right. */
+.rail__gear:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+/* --------------------------------------------------------------------------
+   Narrow screens
+   -------------------------------------------------------------------------- */
+
+/*
+ * ★ THE CHIP-ROW TREATMENT IS GONE, BECAUSE THE LAYOUT IT WAS WRITTEN FOR IS GONE.
+ *
+ *   This block used to re-stack each group and turn its panel into a *wrapping chip
+ *   row*, on the reasoning that a full-width rail below 720px had horizontal room to
+ *   spend. That was true of the layout it was written for: `shell.css` made the rail a
+ *   full-width block above the content, so a group could afford to lay its links out
+ *   side by side.
+ *
+ *   The rail is now an off-canvas drawer — `position: fixed`, `width: min(84vw,
+ *   var(--rail-w))` — so it is *narrower* than the desktop rail, not wider, and the
+ *   chip row would wrap 27 leaves into a dense grid inside a 176px panel. The drawer
+ *   should look like the rail it is a narrow-screen form of, so the desktop tree
+ *   treatment (indent, guide line, one link per row) is what applies at every width.
+ *
+ *   ★ SO THIS BLOCK IS NOW EMPTY OF OVERRIDES, AND THAT IS THE POINT RATHER THAN AN
+ *     OVERSIGHT. `shell.css` owns the drawer's geometry at this breakpoint; nothing
+ *     here needs to contradict it. Keeping the media query with only this comment
+ *     would be noise, so the rules are deleted and the reasoning is recorded here —
+ *     where the next person to reach for a narrow-screen rail override will look.
+ *
+ *   The one thing that *did* have to change is in `shell.css`: it still carried
+ *   `.rail__group { flex-direction: row; flex-wrap: wrap }` and
+ *   `.rail__title { flex-basis: 100% }` from the stacked layout, which would have put
+ *   a group's header and its panel side by side inside the drawer. Those are removed
+ *   there too, for the same reason.
+ */

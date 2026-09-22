@@ -1,0 +1,428 @@
+/* ============================================================================
+   The Activity register.
+
+   Extends `.panel`, `.combo__*`, `.chart-note`, `.chip`, `.btn` and `.drawer`
+   rather than redeclaring them — every shared control on this page is the shared
+   control, so this sheet only owns what is unique to the register: the controls
+   row, the two tabs, the count cell, and the facts strip.
+
+   ★ THE COUNT AND THE SILENCE GET TWO TREATMENTS, AND THAT IS THE DESIGN. A
+   count of `0` and the words "not counted" must not be able to look alike at a
+   glance, or the page has exactly the confusion it was built to remove. So:
+     - a real count       -> 1.125rem, tabular, muted when zero
+     - a real count > 0   -> the same, larger and in the accent, row tinted
+     - no count at all    -> italic, small, muted, with no figure anywhere in it
+
+   ★ THE SHEET WAS ONCE WRITTEN FROM A CLASS INVENTORY RATHER THAN FROM THE
+   MARKUP, AND IT SHOWED. The date stepper and a second numeric column were
+   removed from the page; their rules stayed behind, and three classes the new
+   markup emits had no rules at all. An unused class produces no diagnostic and
+   neither does a missing one, so the two have to be reconciled by hand —
+   `grep` the route for every class this sheet invents before trusting it.
+   ============================================================================ */
+
+/* --- controls row ------------------------------------------------------ */
+
+.act__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* The button and the stamp it produced, kept together at the left end of the
+   row so the sentence about reading is never further from the control than the
+   search box is. */
+.act__buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ★ WHEN THE FIGURES WERE READ IS PART OF EVERY FIGURE ON THIS PAGE. The whole
+   honesty of the register rests on a reader knowing that a count is a reading,
+   so the reading's own timestamp sits beside the button that takes one rather
+   than in a footnote — mono and quiet, because it is a qualifier on the counts
+   below and must not compete with them.
+   
+   ★ "MUST NOT COMPETE" IS NOT THE SAME AS "MUST NOT BE LEGIBLE", AND IT WAS BEING
+   TREATED AS THOUGH IT WERE. The label sat in `--text-faint` — **2.52:1** on white
+   at 12px — while the rule above states that the sentence *is* the honesty of the
+   page. The pair is now muted label (**4.81:1**) against a body-coloured value
+   (**7.82:1**), which keeps the qualifier quieter than the counts and still makes
+   the time the numbers were read something a reader can actually read. */
+.act__stamp {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.act__stamp code {
+  font-size: 0.75rem;
+  color: var(--text-body);
+}
+
+.act__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 15rem;
+  max-width: 22rem;
+}
+
+/* --- the two tabs ------------------------------------------------------ */
+
+.act__tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.act__tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+
+.act__tab:hover {
+  background: var(--surface-hover);
+}
+
+.act__tab.is-on {
+  background: var(--surface);
+  color: var(--text-heading);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.act__tab:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: -1px;
+}
+
+/* The chip's count is small and faint so the label reads first — the number is
+   a qualifier on the tab, not the tab. */
+.act__tabn {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.act__tab.is-on .act__tabn {
+  color: var(--primary-color);
+}
+
+/* The driver's own words, or a refusal, shown in place of the hint. Red is the
+   error ink and is used for both: a count the database would not give and a
+   target that would not take a write are the same thing to a reader, which is
+   that this page is telling them something they did not ask to be told. */
+.act__bad {
+  color: var(--err-fg);
+  font-weight: 600;
+}
+
+/* --- the table --------------------------------------------------------- */
+
+.act__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+}
+
+.act__table th,
+.act__table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.act__table thead th {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+  padding-bottom: 6px;
+}
+
+.act__table tbody th {
+  font-weight: 400;
+}
+
+/* Only the rows that moved are tinted. The tint is on the row rather than on the
+   count so a reader scanning the left edge can see the day's shape without
+   reading a single number. */
+.act__row--busy {
+  background: var(--surface-active);
+}
+
+.act__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.act__name code {
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.act__tag {
+  font-size: 0.625rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.act__tag--app {
+  color: var(--info-fg);
+  background: var(--info-bg);
+  border-color: var(--info-border);
+}
+
+/* ★ THE SCOPE TAG IS NOT DECORATION — IT IS THE ONLY THING ON THE ROW THAT SAYS
+   THE FIGURE BESIDE IT IS NOT THE TABLE'S OWN TOTAL. A reader who has selected
+   a different fund in the bar above has to be able to see, per row, that this
+   number obeys another rule; without it the page looks like it ignored them.
+
+   ★ IT IS PAINTED IN THE `ok` FAMILY AND NOT IN THE BRAND ACCENT, WHICH IS A
+   CONTRAST DECISION RATHER THAN A TASTE ONE. `--primary-color` has no dark-theme
+   override, so it is `#165788` on both surfaces — legible on white and almost
+   invisible on `#131e33`. `--ok-*` is declared in both themes and passes AA in
+   both. Green also says the right thing: a scoped count is the *better* answer,
+   narrowed to what this application is about, and not a caveat. */
+.act__tag--scope {
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+/* --- the Rows column --------------------------------------------------- */
+
+/* ★ THE COUNT IS THE ROW'S HEADLINE FIGURE NOW, AND IT IS SET LIKE ONE. It used
+   to share the row with a second numeric column and was deliberately quieter
+   than its neighbour; that neighbour is gone, so the count carries the row on
+   its own. It is tabular so a column of counts lines up on its digits, which is
+   what makes forty-five of them scannable as a shape before any is read. */
+.act__countcol {
+  width: 7rem;
+  white-space: nowrap;
+}
+
+.act__actcol {
+  width: 5.5rem;
+  text-align: right;
+}
+
+.act__table thead .act__actcol {
+  text-align: right;
+}
+
+/* --- the count cell: a count, or an admission that there is none --------- */
+
+.act__count {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.act__count--some {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--primary-color);
+}
+
+/* --- the movement line, under the count --------------------------------- */
+
+/* ★ SMALL, BECAUSE IT IS A QUALIFIER ON THE NUMBER ABOVE IT. The difference is
+   real information and it is not the row's subject: a reader looking for how
+   much is in a table must be able to take the count without being asked to read
+   a second figure at the same weight. Mono and tabular so the sign, the digits
+   and the date form three columns of their own down the register. */
+.act__delta {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* ▲ More rows than last time. */
+.act__delta--up {
+  color: var(--ok-fg);
+}
+
+/* ▼ Fewer rows. Warn-coloured rather than error-coloured: a falling count is a
+   fact about the table, not a fault in the reading, and row removals are a
+   totally ordinary thing for these tables to do. */
+.act__delta--down {
+  color: var(--warn-fg);
+}
+
+/* ■ Two readings that agree. Muted and light, because "nothing moved" is the
+   absence of news and should not compete with the rows that have some. */
+.act__delta--flat {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* ★ THE ONE READING THIS LINE MUST NEVER BE MISTAKEN FOR ZERO. It is the absence
+   of a comparison, which is a different statement from "no change" — so it is
+   prose in italics with no number anywhere in it, and never `0`.
+   
+   ★ AND IT IS `--text-muted`, NOT `--text-faint`, WHICH IS A CONTRAST FIX RATHER
+   THAN A TASTE ONE. `--text-faint` is `#a3a3a3` on white — measured **2.52:1** at
+   the 11px this line is set in, against AA's 4.5:1. A guarantee that a line cannot
+   be misread as zero is worth nothing while the line cannot be read at all.
+   `--text-muted` measures **4.81:1** light and **6.61:1** dark, and this table has
+   no row-hover surface (unlike `budgets`/`checks`/`invoices`/`purchaseorders`/
+   `vendors`, which all do), so the resting figure is the only figure. */
+.act__delta--first {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* ★ NOT A FIGURE AT ALL. Italic, small, muted — nothing about it can be misread
+   as a number, which is the one thing this cell has to guarantee.
+
+   ★ MUTED AND NOT FAINT, for the same measured reason as the line above: this is
+   the row's ANSWER, not a decorative hint, and `--text-faint` put it at **2.52:1**
+   (light) / **3.94:1** (dark) at 12px. Both fail AA. `--text-muted` clears it in
+   both themes. The italics, the smaller size and the dotted underline still carry
+   the "there is no number here" reading that the colour was doing. */
+.act__cannot {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-muted);
+  cursor: help;
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+/* ★ `display: block` PULLS THE MOVEMENT LINE ONTO ITS OWN ROW AND IS ALSO WHAT
+   MAKES IT PAINT. A percentage or a full-width child inside an inline box
+   collapses; here the line is only text, so `block` is doing the layout work —
+   the delta must never sit beside the count, or a row reading "12,450 +3" could
+   be read as one number. */
+.act__axes {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* --- the facts strip and the lists ------------------------------------ */
+
+.act__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin: 14px 0 4px;
+}
+
+.act__facts b {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-heading);
+  line-height: 1.15;
+}
+
+.act__facts span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* --- the panel's axis breakdown --------------------------------------- */
+
+.ax {
+  margin: 0 0 14px;
+}
+
+.ax dt {
+  font-size: 0.75rem;
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.ax dt code {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.ax dd {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.ax__n {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.ax__span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* The panel's close button is inside `.drawer__head`, which is `position:
+   relative` — so no extra rule is needed for placement. It is only listed here
+   to record why nothing had to be repositioned for a panel that is not the
+   project drawer. */
+
+@media (max-width: 720px) {
+  .act__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .act__search {
+    max-width: none;
+  }
+
+  /* ★ THE MOVEMENT LINE IS THE FIRST THING THAT MAY WRAP, AND THAT IS FINE — but
+     the count must not, because a count broken over two lines reads as two
+     numbers. `nowrap` is on the column for that reason, and the date moves to a
+     second line inside the cell rather than pushing the column wider. */
+  .act__countcol {
+    width: 5.5rem;
+    white-space: nowrap;
+  }
+
+  .act__stamp {
+    white-space: normal;
+  }
+}

@@ -1,0 +1,2567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart of Accounts &middot; Monthly Trend</title>
+<style>
+/* ============================================================
+   Tokens - extracted from https://www.wcpss.net/  (see docs/css/site-style.md)
+   ============================================================ */
+:root {
+  /* Brand - named slots from the site's inline <style id="fsHSLColors"> */
+  --primary-color:    #165788;
+  --secondary-color:  #df6d1c;
+  --tertiary-color:   #00add0;
+  --cc-fourth-color:  #fed100;
+  --cc-fifth-color:   #6e273d;
+  --cc-sixth-color:   #BED600;
+  --cc-seventh-color: #c90062;
+  --cc-eighth-color:  #455560;
+
+  /* Neutrals - by frequency in the source CSS */
+  --neutral-0:   #ffffff;
+  --neutral-50:  #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #727272;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+
+  /* Semantic */
+  --surface:        var(--neutral-0);
+  --surface-sunken: var(--neutral-100);
+  --text-body:      var(--neutral-600);
+  --text-heading:   var(--neutral-800);
+  --text-muted:     var(--neutral-500);
+  --border:         var(--neutral-200);
+  --border-strong:  var(--neutral-300);
+
+  /* Type */
+  --font-body:   'Open Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-accent: 'Solway', Georgia, serif;
+  --font-mono:   ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  /* Layout */
+  --content-width: 1180px;
+  --gutter: 40px;
+
+  /* Spacing - 4px rhythm from the source */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-15: 60px;
+
+  /* Shape & depth - PROJECT OVERRIDE: 3px on all rectangular surfaces (site-style.md 4.1) */
+  --radius:        3px;
+  --radius-sm:     3px;
+  --radius-none:   0;
+  --radius-pill:   999px;
+  --radius-circle: 50%;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .04), 0 4px 24px rgba(0, 0, 0, .06);
+  --shadow-md: 0 4px 32px rgba(0, 0, 0, .12);
+
+  /* Motion - the source's house transition */
+  --transition: .4s all;
+
+  /* Chart series - every value clears 3:1 on white (WCAG 1.4.11, non-text) */
+  --series-1: #165788;  /* 7.63:1  navy     */
+  --series-2: #df6d1c;  /* 3.31:1  orange   */
+  --series-3: #c90062;  /* 5.74:1  magenta  */
+  --series-4: #455560;  /* 7.72:1  slate - deliberately muted: aggregate remainder, drawn dashed */
+  --grid:     #d4d4d4;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: .9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-body);
+  background: var(--surface-sunken);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 700; color: var(--text-heading); line-height: 1.3; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.0625rem; font-weight: 600; }
+h3 { font-size: .8125rem; font-weight: 600; }
+
+p { margin: 0; }
+a { color: var(--primary-color); text-decoration: none; transition: var(--transition); }
+a:hover, a:focus-visible { color: var(--secondary-color); text-decoration: underline; }
+
+:focus-visible { outline: 3px solid var(--tertiary-color); outline-offset: 2px; }
+
+/* From site-style.md 9 - the source site has neither of these */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+.container {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+/* ============================================================
+   Top bar
+   ============================================================ */
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-height: 56px;
+}
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.brand__mark {
+  width: 26px; height: 26px;
+  border-radius: var(--radius);
+  background: var(--primary-color);
+  display: grid; place-items: center;
+  color: #fff; font-weight: 700; font-size: .75rem;
+  flex: none;
+}
+.brand__name { font-weight: 700; font-size: .9375rem; color: var(--text-heading); letter-spacing: -.01em; }
+
+.nav { display: flex; gap: var(--space-1); margin-left: auto; }
+.nav a {
+  display: inline-block;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  font-size: .8125rem;
+  color: var(--text-body);
+  transition: var(--transition);
+}
+.nav a:hover { background: var(--neutral-100); color: var(--primary-color); text-decoration: none; }
+.nav a[aria-current="page"] { background: var(--primary-color); color: #fff; font-weight: 600; }
+.nav a[aria-current="page"]:hover { background: var(--primary-color); color: #fff; }
+
+/* Sync state chip */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  border-radius: var(--radius);
+  font-size: .6875rem; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip--ok   { background: rgba(190, 214, 0, .18); color: #4d5c00; border-color: rgba(190, 214, 0, .45); }
+.chip--info { background: rgba(22, 87, 136, .08); color: var(--primary-color); border-color: rgba(22, 87, 136, .22); }
+.chip--warn { background: rgba(223, 109, 28, .10); color: #9a4607; border-color: rgba(223, 109, 28, .32); }
+.dot { width: 6px; height: 6px; border-radius: var(--radius-circle); background: currentColor; flex: none; }
+
+/* Two-state switch - which of the two extracts the page is reading. A segmented
+   pair rather than two buttons, because the states are exclusive: a control that
+   looks like a switch is read as one choice, and two buttons are read as two
+   actions. It keeps the chip's own metrics so the pair sits on one line, and
+   never re-flows the panel head, at any width. */
+.switch { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.seg__btn {
+  margin: 0;
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: .6875rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.seg__btn + .seg__btn { border-left: 1px solid var(--border); }
+.seg__btn:hover { background: var(--neutral-100); color: var(--primary-color); }
+.seg__btn:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.seg__btn[aria-pressed="true"] { background: var(--primary-color); color: #fff; }
+.seg__btn[aria-pressed="true"]:hover { background: var(--primary-color); color: #fff; }
+
+/* ============================================================
+   Page head
+   ============================================================ */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-8) 0 var(--space-5);
+}
+.page-head h1 { letter-spacing: -.02em; }          /* neutral, NOT the source's orange h1 (site-style.md 11) */
+.page-head .accent-rule {
+  width: 40px; height: 3px; margin-bottom: var(--space-3);
+  background: var(--secondary-color);                 /* orange kept as an accent only */
+  border-radius: var(--radius);
+}
+.page-head p { color: var(--text-muted); font-size: .8125rem; margin-top: 6px; }
+.page-head__meta { display: flex; align-items: center; gap: var(--space-4); }
+
+/* ============================================================
+   Buttons - ported from site-style.md 6.4
+   ============================================================ */
+.btn {
+  display: inline-block;
+  margin: 0;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--neutral-100);
+  color: var(--neutral-800);
+  font-family: var(--font-body);
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn:hover { text-decoration: none; }
+.btn--primary   { background: var(--primary-color); color: #fff; }
+.btn--primary:hover, .btn--primary:focus-visible { background: #266a9d; color: #fff; }
+.btn--system    { background: var(--neutral-100); color: var(--neutral-800); border-color: var(--border); }
+.btn--system:hover, .btn--system:focus-visible { background: var(--neutral-200); color: var(--neutral-800); }
+.btn--ghost     { background: transparent; color: var(--primary-color); border-color: rgba(22, 87, 136, .3); }
+.btn--ghost:hover, .btn--ghost:focus-visible { background: rgba(22, 87, 136, .06); color: var(--primary-color); }
+
+/* ============================================================
+   Cards / panels - site-style.md 7
+   ============================================================ */
+.card {
+  background: var(--surface);
+  color: var(--neutral-800);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.panel { padding: var(--space-5); }
+
+.panel__head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.panel__head p { color: var(--text-muted); font-size: .75rem; margin-top: 3px; }
+.panel__foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: .75rem; color: var(--text-muted);
+}
+
+/* ============================================================
+   KPI row
+   ============================================================ */
+/* ============================================================
+   KPI row - one line at every width above 560px.
+   minmax(0, 1fr) is deliberate: a bare 1fr resolves to min-content,
+   so a long unbreakable token like CODE_COMBINATION_ID would force
+   the row to wrap instead of letting the card shrink.
+   ============================================================ */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.kpi {
+  min-width: 0;
+  padding: var(--space-4) clamp(10px, 1.6vw, var(--space-5));
+  position: relative; overflow: hidden;
+}
+.kpi::before {                                  /* top-rule treatment from site-style.md 4.2 */
+  content: ""; position: absolute; inset: 0 0 auto 0;
+  height: 3px; background: var(--neutral-300);
+}
+.kpi--brand::before { background: var(--primary-color); }
+.kpi--accent::before { background: var(--secondary-color); }
+.kpi__label {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.kpi__value {
+  font-size: clamp(1.375rem, 3.4vw, 1.75rem);
+  font-weight: 700; color: var(--text-heading);
+  line-height: 1.15; margin-top: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.kpi__value small { font-size: .875rem; font-weight: 600; color: var(--text-muted); margin-left: 2px; }
+/* A date is long where a count is short - step it down so the date stays on one line,
+   with slack, inside the ~126px of text box the four-across row leaves at small
+   viewports. The floor binds before the ceiling does in that range. */
+.kpi__value--date { font-size: clamp(.875rem, 2.2vw, 1.25rem); letter-spacing: -.01em; }
+.kpi__note {
+  font-size: .75rem; color: var(--text-muted); margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.kpi__note code { font-family: var(--font-mono); font-size: .6875rem; }
+.delta { font-weight: 600; font-size: .75rem; }
+.delta--up { color: #146c2e; }
+.delta--down { color: #a4161a; }
+.delta--flat { color: var(--text-muted); }
+
+/* ============================================================
+   Chart card
+   ============================================================ */
+.chart-card { margin-bottom: var(--space-4); }
+.chart-card .panel__head { align-items: center; }
+
+.chart-wrap { position: relative; }
+.chart-wrap svg { display: block; width: 100%; }
+
+/* Guide + tooltip */
+.guide { stroke: var(--neutral-300); stroke-width: 1; stroke-dasharray: 3 3; }
+.guide--on { stroke: var(--primary-color); stroke-opacity: .35; }
+.hit   { fill: transparent; cursor: pointer; }
+.hit:focus-visible { outline: 3px solid var(--tertiary-color); outline-offset: -3px; }
+svg text.month--on { font-weight: 700; fill: var(--primary-color); }
+.tip {
+  position: absolute; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -100%);
+  transition: opacity .12s linear, left .08s linear;
+  background: var(--neutral-900); color: #fff;
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-size: .75rem; line-height: 1.45;
+  box-shadow: var(--shadow-md);
+  min-width: 150px; z-index: 200;
+}
+.tip.is-on { opacity: 1; }
+.tip__month { font-weight: 700; margin-bottom: 5px; font-size: .75rem; }
+.tip__hint {
+  margin-top: 5px; padding-top: 4px;
+  border-top: 1px solid rgba(255,255,255,.2);
+  color: rgba(255,255,255,.65); font-size: .6875rem;
+}
+.tip__row { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+.tip__row span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+.tip__key { width: 8px; height: 8px; border-radius: var(--radius-sm); flex: none; }
+.tip__val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.tip__total {
+  margin-top: 6px; padding-top: 5px;
+  border-top: 1px solid rgba(255,255,255,.2);
+  display: flex; justify-content: space-between; gap: 10px;
+  font-weight: 700;
+}
+
+/* ============================================================
+   Two-column lower row
+   ============================================================ */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/* ============================================================
+   Code-combination drill-through
+   ============================================================ */
+.codes-panel { margin-bottom: var(--space-4); }
+.codes {
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+  min-height: 34px; align-content: flex-start;
+}
+.code {
+  font-family: var(--font-mono); font-size: .75rem; line-height: 1.4; font-weight: 400;
+  color: var(--neutral-800);
+  background: var(--neutral-50);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: var(--transition);
+  cursor: pointer;
+  appearance: none;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.code:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(22, 87, 136, .05);
+}
+/* The whole chip is tinted by what has been posted to it:
+     pale yellow - purchase-order lines carry this combination
+     pale blue   - the ledger knows the account, Oracle has nothing against it yet
+   Blue is not a warning. An account legitimately exists before anything is spent
+   against it, so neither state borrows the orange. Declared ahead of .code--on
+   so the selected chip's navy still wins on equal specificity. */
+.code--posted {
+  color: #6f5c00;
+  background: rgba(254, 209, 0, .18);      /* --cc-fourth-color (#fed100) at 18% on white */
+  border-color: rgba(196, 161, 0, .45);
+}
+.code--posted:hover {
+  color: #5d4d00;
+  background: rgba(254, 209, 0, .32);
+  border-color: #8a7100;
+}
+.code--unposted {
+  color: var(--primary-color);
+  background: rgba(22, 87, 136, .08);
+  border-color: rgba(22, 87, 136, .22);
+}
+.code--unposted:hover {
+  color: #0f3f63;
+  background: rgba(22, 87, 136, .15);
+  border-color: var(--primary-color);
+}
+.code--on, .code--on:hover {
+  color: var(--neutral-0);
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
+/* The count rides inside the tint, so it is a shade of the chip's own colour
+   rather than a grey pill sitting on top of it. Neutral is only a fallback for
+   a chip with no state, which cannot occur while the extract is loaded. */
+.code__n {
+  font-family: var(--font-body); font-size: .625rem; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--neutral-200);
+  color: var(--neutral-700);
+  transition: var(--transition);
+}
+.code--posted .code__n {
+  background: rgba(111, 92, 0, .12);
+  border-color: rgba(111, 92, 0, .28);
+  color: #6f5c00;
+}
+.code--unposted .code__n {
+  background: rgba(22, 87, 136, .12);
+  border-color: rgba(22, 87, 136, .26);
+  color: var(--primary-color);
+}
+/* On the selected chip the surface is navy, so the badge inverts rather than
+   swapping one pale tint for another it would disappear into. */
+.code--on .code__n {
+  background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .34);
+  color: var(--neutral-0);
+}
+.codes__empty {
+  color: var(--text-muted); font-size: .8125rem; font-style: italic;
+  align-self: center;
+}
+.codes__month { color: var(--text-heading); font-weight: 600; }
+
+/* ============================================================
+   Detail drawer - the extract row behind one code combination
+   ============================================================ */
+.drawer-scrim {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(38, 38, 38, .45);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .4s, visibility 0s linear .4s;
+}
+.drawer-scrim.is-open {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: opacity .4s, visibility 0s;
+}
+
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 901;
+  width: min(440px, 92vw);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(38, 38, 38, .18);
+  /* visibility is delayed on the way out so the slide is seen, and switched
+     instantly on the way in so the panel is never visible mid-transform */
+  transform: translateX(100%); visibility: hidden;
+  transition: transform .4s, visibility 0s linear .4s;
+}
+.drawer.is-open {
+  transform: translateX(0); visibility: visible;
+  transition: transform .4s, visibility 0s;
+}
+
+.drawer__head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.drawer__eyebrow {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.drawer__title {
+  font-family: var(--font-mono); font-size: .8125rem; font-weight: 700;
+  margin-top: var(--space-1); overflow-wrap: anywhere;
+}
+.drawer__close {
+  flex: none; width: 30px; height: 30px;
+  display: grid; place-items: center;
+  font: inherit; font-size: 1.05rem; line-height: 1;
+  color: var(--text-muted); background: transparent;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; appearance: none; transition: var(--transition);
+}
+.drawer__close:hover {
+  color: var(--primary-color); border-color: var(--primary-color);
+  background: rgba(22, 87, 136, .05);
+}
+
+.drawer__body { flex: 1; overflow-y: auto; padding: var(--space-5); }
+.drawer__lead {
+  font-size: .8125rem; color: var(--text-body);
+  padding-bottom: var(--space-4); margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.drawer__h3 {
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+/* The purchase-order lines a combination carries. One block per line, not a
+   two-column definition list: a PO line carries a description of its own, and a
+   right-aligned value column has nowhere to put it. */
+.matches { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
+.match { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.match:first-child { padding-top: 0; }
+.match:last-child { padding-bottom: 0; border-bottom: 0; }
+.match__top {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  font-size: .75rem; color: var(--text-muted);
+}
+.match__order { font-family: var(--font-mono); font-weight: 700; color: var(--text-heading); }
+.match__amount {
+  margin-left: auto; font-family: var(--font-mono); font-weight: 700;
+  color: var(--text-heading); font-variant-numeric: tabular-nums;
+}
+.match__vendor { margin-top: 3px; font-size: .8125rem; color: var(--text-heading); }
+.match__desc {
+  margin-top: 3px; font-size: .75rem; color: var(--text-body);
+  /* The extract's descriptions carry their own line breaks - "CMAR GMP NO. 1"
+     then "BOE: 3/16/2021" - and collapsing them runs the two together. */
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+.match__meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 5px; font-size: .6875rem; color: var(--text-muted);
+}
+/* A line Oracle has cancelled. Struck through rather than dropped, because the
+   extract counts it and the line total would not reconcile without it. */
+.match--cancelled .match__order { text-decoration: line-through; }
+.match--cancelled .match__amount { font-weight: 400; color: var(--text-muted); }
+.drawer__note {
+  font-size: .75rem; color: var(--text-muted); line-height: 1.55;
+  padding-top: var(--space-3); border-top: 1px solid var(--border);
+}
+
+/* Stop the page scrolling behind the drawer */
+body.drawer-open { overflow: hidden; }
+
+/* Horizontal bars.
+   NOTE: the fill is a block-level element on purpose - a percentage width on an
+   inline box collapses to 0. (site-style.md / debugging note) */
+.hbar {
+  display: grid;
+  grid-template-columns: 46px 1fr 34px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 5px 0;
+}
+.hbar__label {
+  font-family: var(--font-mono); font-size: .75rem; color: var(--neutral-700);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.hbar__track {
+  display: block; height: 8px; width: 100%;
+  background: var(--neutral-100);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.hbar__fill {
+  display: block; height: 100%;
+  border-radius: var(--radius);
+  background: var(--primary-color);
+  transition: width var(--transition);
+}
+.hbar--rest .hbar__fill { background: var(--neutral-300); }
+.hbar__value {
+  font-size: .75rem; color: var(--neutral-700); text-align: right;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+
+/* ============================================================
+   Findings list
+   ============================================================ */
+.findings { list-style: none; margin: 0; padding: 0; }
+.findings li {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .8125rem;
+}
+.findings li:last-child { border-bottom: 0; padding-bottom: 0; }
+.findings li:first-child { padding-top: 0; }
+.findings strong { color: var(--text-heading); font-weight: 600; }
+.findings p { color: var(--text-muted); font-size: .75rem; margin-top: 2px; }
+
+/* ============================================================
+   Table
+   ============================================================ */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+caption { text-align: left; padding: 0 0 var(--space-3); color: var(--text-muted); font-size: .75rem; }
+th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th {
+  background: var(--neutral-50);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--neutral-50); }
+tfoot td {
+  font-weight: 700; color: var(--text-heading);
+  background: var(--neutral-50); border-top: 1px solid var(--border-strong);
+}
+.num { font-variant-numeric: tabular-nums; }
+.swatch {
+  display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-sm);
+  margin-right: 7px; vertical-align: baseline;
+}
+
+/* ============================================================
+   Callout
+   ============================================================ */
+.callout {
+  display: flex; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(223, 109, 28, .3);
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius);
+  background: rgba(223, 109, 28, .05);
+  font-size: .8125rem;
+  margin-bottom: var(--space-4);
+}
+.callout strong { color: #9a4607; }
+.callout p { color: var(--neutral-700); }
+
+/* ============================================================
+   Footer / provenance
+   ============================================================ */
+.foot {
+  padding: var(--space-6) 0 var(--space-10);
+  color: var(--text-muted); font-size: .75rem;
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-8);
+}
+.foot code { font-family: var(--font-mono); font-size: .6875rem; color: var(--neutral-700); }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1023px) {
+  :root { --gutter: 24px; }
+}
+/* The KPI row holds four across until the cards genuinely run out of room. */
+@media (max-width: 560px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 599px) {
+  .topbar__inner { flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) 0; }
+  .nav { margin-left: 0; width: 100%; overflow-x: auto; }
+  .page-head { align-items: flex-start; }
+}
+@media (max-width: 360px) {
+  .kpis { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container topbar__inner">
+    <div class="brand">
+      <div class="brand__mark" aria-hidden="true">O</div>
+      <div>
+        <div class="brand__name">Oracle Data</div>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Main">
+      <a href="#" aria-current="page">Overview</a>
+      <a href="#">Trends</a>
+      <a href="#">Accounts</a>
+      <a href="#">Sync log</a>
+    </nav>
+    <span class="chip chip--ok"><span class="dot"></span>Synced 10:17</span>
+  </div>
+</header>
+
+<main class="container">
+
+  <div class="page-head">
+    <div>
+      <div class="accent-rule" aria-hidden="true"></div>
+      <h1>Chart of Accounts &mdash; Activity</h1>
+      <p>General ledger code combinations &middot; extract <code>Table1</code> from
+        <code id="head-source">data/oracle/json-output.json</code> &middot;
+        <span id="head-rows">320</span> rows &middot;
+        <span id="head-range">Oct 2024 &ndash; Jul 2026</span></p>
+    </div>
+    <div class="page-head__meta">
+      <span class="chip chip--info">Read-only</span>
+      <button class="btn btn--system" type="button">Export CSV</button>
+      <button class="btn btn--primary" type="button">Run sync</button>
+    </div>
+  </div>
+
+  <!-- ===================== KPI row ===================== -->
+  <section class="kpis" aria-label="Summary">
+    <div class="card kpi kpi--brand">
+      <div class="kpi__label">Code combinations</div>
+      <div class="kpi__value" id="kpi-total">320</div>
+      <div class="kpi__note">Distinct <code>CODE_COMBINATION_ID</code></div>
+    </div>
+    <div class="card kpi kpi--brand">
+      <div class="kpi__label">Last updated</div>
+      <div class="kpi__value kpi__value--date" id="kpi-updated">&mdash;</div>
+      <div class="kpi__note">Newest <code>LAST_UPDATE_DATE</code> in the extract</div>
+    </div>
+    <div class="card kpi kpi--accent">
+      <div class="kpi__label" id="kpi-latest-label">Jul 2026 activity</div>
+      <div class="kpi__value" id="kpi-latest">13</div>
+      <div class="kpi__note" id="kpi-latest-note"><span class="delta delta--up">&#9650; +30.0%</span> vs 10 in Jun</div>
+    </div>
+    <div class="card kpi kpi--accent">
+      <div class="kpi__label">Top-3 concentration</div>
+      <div class="kpi__value" id="kpi-top3">73.2<small>%</small></div>
+      <div class="kpi__note" id="kpi-top3-note">234 of 320 rows in 3 cost centres</div>
+    </div>
+  </section>
+
+  <!-- ===================== Trend chart ===================== -->
+  <section class="card panel chart-card" aria-labelledby="trend-title">
+    <div class="panel__head">
+      <div>
+        <h2 id="trend-title">Monthly Trend</h2>
+        <p>Total code combinations updated per month &middot; last 24 complete months</p>
+      </div>
+      <div class="switch">
+        <div class="seg" role="group" aria-label="Which extract to chart">
+          <button type="button" class="seg__btn" data-version="v1" aria-pressed="true">v1</button>
+          <button type="button" class="seg__btn" data-version="v2" aria-pressed="false">v2</button>
+        </div>
+        <span class="chip chip--info" id="chart-window">Sep 24 &ndash; Aug 26</span>
+      </div>
+    </div>
+
+    <div class="chart-wrap" id="chart-wrap">
+      <div class="tip" id="tip" role="status" aria-live="polite"></div>
+    </div>
+
+    <div class="panel__foot">
+      Each point is the total row count for that month across all <span id="trend-cc">11</span>
+      <code>SEGMENT4</code> cost centres &mdash; <span id="trend-rows">320</span> rows in total,
+      peaking at <strong id="trend-peak">89 in Sep 2025</strong>. A month with
+      no rows keeps its place and plots at <strong>0</strong>.
+      <strong>Click a month</strong> to list the code combinations behind its total.
+    </div>
+  </section>
+
+  <!-- ===================== Click-through: code combinations ===================== -->
+  <section class="card panel codes-panel" id="codes-panel" aria-labelledby="codes-title">
+    <div class="panel__head">
+      <div>
+        <h2 id="codes-title">Code combinations</h2>
+        <p id="codes-sub">Click a month on the trend line to list its code combinations.</p>
+      </div>
+      <span class="chip chip--info" id="codes-chip">No month selected</span>
+    </div>
+    <div class="codes" id="codes" role="region" aria-live="polite" aria-labelledby="codes-title">
+      <p class="codes__empty">Select a month above.</p>
+    </div>
+    <div class="panel__foot">
+      Each string is <code>SEGMENT1-SEGMENT2-SEGMENT3-SEGMENT4-SEGMENT5-SEGMENT6-SEGMENT7</code>
+      from the extract &mdash; e.g. <code>04-6570-862-529-1488-0840-000</code>. Segment 4 is the
+      object code, segment 5 the project level, segment 6 the cost centre. Each code is tinted
+      by what has been posted to it: <strong>pale yellow</strong> when purchase-order lines carry
+      the combination, <strong>pale blue</strong> when it exists in the ledger with nothing posted
+      against it yet. The badge on the code is its <strong>purchase-order line count</strong>.
+      <strong>Click any code</strong> to read those lines. Click the selected month again to
+      clear it.
+    </div>
+  </section>
+
+  <div class="callout" role="note">
+    <div>
+      <strong>Empty months are shown, not skipped.</strong>
+      <p>A month with no rows keeps its place on the axis and plots as <strong>0</strong>, so the line
+      never implies missing data where there was simply no activity. <span id="callout-empty"></span>
+      <span id="callout-burst"></span></p>
+    </div>
+  </div>
+
+  <!-- ===================== Lower row ===================== -->
+  <div class="grid-2">
+
+    <section class="card panel" aria-labelledby="breakdown-title">
+      <div class="panel__head">
+        <div>
+          <h2 id="breakdown-title">Volume by cost centre</h2>
+          <p>All <span id="bd-n">11</span> <code>SEGMENT4</code> values, ranked</p>
+        </div>
+      </div>
+      <div id="breakdown"></div>
+      <div class="panel__foot">
+        Bars are scaled to the largest value (<span id="bd-max">541, 101 rows</span>). Values are raw
+        row counts for the whole extract, not a per-month rate.
+      </div>
+    </section>
+
+    <section class="card panel" aria-labelledby="quality-title">
+      <div class="panel__head">
+        <div>
+          <h2 id="quality-title">Data quality &amp; coverage</h2>
+          <p>What this extract does and does not carry</p>
+        </div>
+      </div>
+      <ul class="findings">
+        <li>
+          <span class="chip chip--warn" id="dq-cols">8 / 14</span>
+          <div>
+            <strong>Columns carry no information</strong>
+            <p><span id="dq-const">7</span> are constant across every row (<code>ACCOUNT_TYPE</code>
+              is always <code>E</code>, <code>SEGMENT1</code> always <code>04</code>);
+              <code>DESCRIPTION</code> is null in all <span id="dq-null">320</span> rows.</p>
+          </div>
+        </li>
+        <li>
+          <span class="chip chip--warn" id="dq-months">22 / 24</span>
+          <div>
+            <strong>Months actually present</strong>
+            <p><span id="dq-months-note"></span></p>
+          </div>
+        </li>
+        <li>
+          <span class="chip chip--warn" id="dq-peak">89</span>
+          <div>
+            <strong>One month is a batch artifact</strong>
+            <p><span id="dq-peak-note"></span></p>
+          </div>
+        </li>
+        <li>
+          <span class="chip chip--info" id="dq-s5">146</span>
+          <div>
+            <strong><code>SEGMENT5</code> is nearly row-unique</strong>
+            <p><span id="dq-s5-note"></span> &mdash; it reads as the natural-account segment, not a
+              grouping dimension. Do not chart by it.</p>
+          </div>
+        </li>
+        <li>
+          <span class="chip chip--info">1:1</span>
+          <div>
+            <strong>No name lookup available</strong>
+            <p><code>SEGMENT2</code> (<span id="dq-s2">4</span> values) and <code>SEGMENT4</code>
+              (<span id="dq-s4">11</span>) are opaque codes. Cost centres are labelled by code until
+              a <code>FND_FLEX_VALUES_VL</code> join is added.</p>
+          </div>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- ===================== Data table ===================== -->
+  <section class="card panel" aria-labelledby="table-title">
+    <div class="panel__head">
+      <div>
+        <h2 id="table-title">Monthly detail</h2>
+        <p>The numbers behind the chart, including the aggregate remainder</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <caption>Counts of code combinations by <code>SEGMENT4</code> and month of <code>LAST_UPDATE_DATE</code>.</caption>
+        <thead>
+          <tr id="thead-row">
+            <th scope="col">Month</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+        <tfoot>
+          <tr id="tfoot"></tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="container">
+    <p>
+      Mockup &middot; not connected to live data. The trend line, the table and the monthly
+      figures are computed from <code id="foot-source">data/oracle/json-output.json</code>
+      (<span id="foot-rows">320</span> ledger rows);
+      the two extracts are the same query run at two dates, switched at the top of the
+      Monthly Trend panel.
+      The detail drawer reads <code>data/oracle/full-output.json</code>
+      (2,782 purchase-order lines, indexed by code combination into
+      <code>docs/screenshots/oracle-po-lines.js</code>).
+      Visual language extracted from <code>docs/css/site-style.md</code> &mdash; 3px radius applied per
+      the project override in &sect;4.1. Chart series colours all clear the 3:1 non-text contrast
+      requirement (WCAG&nbsp;1.4.11) against white; the site&rsquo;s raw <code>--tertiary-color</code>
+      <code>#00add0</code> measures 2.66:1 and was not used for a data line.
+    </p>
+  </div>
+</footer>
+
+<!-- ===================== Detail drawer ===================== -->
+<div class="drawer-scrim" id="drawer-scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+  <div class="drawer__head">
+    <div>
+      <p class="drawer__eyebrow" id="drawer-eyebrow">Code combination</p>
+      <h2 class="drawer__title" id="drawer-title">&nbsp;</h2>
+    </div>
+    <button class="drawer__close" id="drawer-close" type="button" aria-label="Close details">&times;</button>
+  </div>
+  <div class="drawer__body" id="drawer-body"></div>
+</aside>
+
+<!-- The purchase-order extract the drawer matches a code combination against,
+     generated from data/oracle/full-output.json by scripts/build-mockup-data.mjs.
+     A script rather than a fetch: this page is opened straight from disk, where a
+     browser blocks fetch() of a local file. If it is ever opened over HTTP, the
+     tag works unchanged. -->
+<script src="oracle-po-lines.js"></script>
+
+<script>
+/* ============================================================
+   Data - derived from data/oracle/json-output.json
+
+   ROWS_V1 and ROWS_V2 are the only hard-coded data in this file - the
+   same query run at two dates - as one triple per extract row, grouped
+   by the month of its LAST_UPDATE_DATE. One of the two is copied into
+   ROWS, and everything else on the page - the trend line, the four
+   table series, the cost-centre ranking, the KPI cards - is computed
+   from that, so nothing can drift out of step with the extract.
+
+   The window is WINDOW months wide and ends at WINDOW_END, the
+   last complete calendar month. A month with no rows STAYS in the
+   window and plots as 0: an empty month is shown, never skipped,
+   so the line has no invisible gap that would read as missing
+   data rather than as no activity.
+   ============================================================ */
+const ROWS_V1 = {
+  '2024-10': [
+    ['04-6570-862-523-2530-0840-000',9527371,'2024-10-04T09:26:46'],
+    ['04-6570-862-524-2391-0840-000',9527954,'2024-10-16T12:39:00'],
+    ['04-6570-862-526-1428-0840-000',9528699,'2024-10-31T16:02:02'],
+    ['04-6570-862-526-2593-0840-000',9527372,'2024-10-04T09:29:08'],
+    ['04-6570-862-526-2595-0840-000',9528243,'2024-10-28T09:14:14']
+  ],
+  '2024-11': [
+    ['04-6570-862-522-2437-0840-000',9531601,'2024-11-19T15:44:59'],
+    ['04-6570-862-522-2444-0840-000',9531611,'2024-11-20T11:24:10'],
+    ['04-6570-862-522-2561-0840-000',9531633,'2024-11-20T16:38:11'],
+    ['04-6570-862-523-2443-0840-000',9531634,'2024-11-20T16:43:52'],
+    ['04-6570-862-524-2466-0840-000',9531631,'2024-11-20T16:31:46'],
+    ['04-6570-862-524-2552-0840-000',9531632,'2024-11-20T16:34:46'],
+    ['04-6570-862-529-1384-0840-000',9531610,'2024-11-20T11:00:53'],
+    ['04-6570-862-529-1441-0840-000',9530570,'2024-11-13T15:05:15'],
+    ['04-6570-862-529-2443-0840-000',9530571,'2024-11-13T15:27:03']
+  ],
+  '2024-12': [
+    ['04-6570-862-524-2368-0840-000',9535617,'2024-12-17T12:00:14'],
+    ['04-6570-862-524-2546-0840-000',9534542,'2024-12-11T07:46:51'],
+    ['04-6570-862-526-2448-0840-000',9533506,'2024-12-02T15:38:09'],
+    ['04-6570-862-529-1614-0840-000',9535615,'2024-12-17T11:41:39'],
+    ['04-6570-862-529-2304-0840-000',9534514,'2024-12-09T09:13:29'],
+    ['04-6570-862-529-2356-0840-000',9534526,'2024-12-09T12:36:31']
+  ],
+  '2025-01': [
+    ['04-6570-862-522-1428-0840-000',9544765,'2025-01-15T13:13:20'],
+    ['04-6570-862-524-2304-0840-000',9549628,'2025-01-30T11:46:28'],
+    ['04-6570-862-526-2442-0840-000',9549695,'2025-01-31T11:50:49'],
+    ['04-6570-862-529-1428-0840-000',9542669,'2025-01-08T09:12:57'],
+    ['04-6570-862-529-2593-0840-000',9542668,'2025-01-08T09:06:06'],
+    ['04-6570-862-529-6930-0840-000',9544764,'2025-01-15T12:38:22']
+  ],
+  '2025-02': [
+    ['04-6560-862-529-0453-0840-000',9556673,'2025-02-26T16:26:21'],
+    ['04-6570-862-523-2593-0840-000',9551618,'2025-02-10T08:17:14'],
+    ['04-6570-862-529-2438-0840-000',9551640,'2025-02-11T08:32:44'],
+    ['04-6570-862-529-2560-0840-000',9551639,'2025-02-11T08:32:22'],
+    ['04-6570-862-541-1428-0840-000',9551617,'2025-02-10T08:08:21']
+  ],
+  '2025-03': [
+    ['04-6560-862-529-0451-0840-000',9560679,'2025-03-13T15:23:46'],
+    ['04-6570-862-522-2438-0840-000',9562638,'2025-03-17T11:46:49'],
+    ['04-6570-862-522-2542-0840-000',9559617,'2025-03-06T09:56:24'],
+    ['04-6570-862-522-2560-0840-000',9559618,'2025-03-06T09:58:20'],
+    ['04-6570-862-523-2595-0840-000',9562639,'2025-03-17T12:06:06'],
+    ['04-6570-862-526-2436-0840-000',9558667,'2025-03-05T14:36:19'],
+    ['04-6570-862-526-2484-0840-000',9558637,'2025-03-03T16:31:31'],
+    ['04-6570-862-526-2546-0840-000',9558635,'2025-03-03T16:31:31'],
+    ['04-6570-862-526-2570-0840-000',9558668,'2025-03-05T14:36:19'],
+    ['04-6570-862-526-2592-0840-000',9558636,'2025-03-03T16:31:31'],
+    ['04-6570-862-526-2624-0840-000',9558666,'2025-03-05T14:36:19'],
+    ['04-6570-862-529-2436-0840-000',9558672,'2025-03-05T14:41:24'],
+    ['04-6570-862-529-2484-0840-000',9558670,'2025-03-05T14:41:24'],
+    ['04-6570-862-529-2546-0840-000',9558671,'2025-03-05T14:41:24'],
+    ['04-6570-862-529-2592-0840-000',9558669,'2025-03-05T14:41:24'],
+    ['04-6570-862-529-2595-0840-000',9212684,'2025-03-06T09:46:04'],
+    ['04-6570-862-541-0526-0840-000',9562640,'2025-03-17T12:18:33'],
+    ['04-6570-862-541-2616-0840-000',9564663,'2025-03-26T09:38:43']
+  ],
+  '2025-04': [
+    ['04-6560-862-393-0522-0840-000',9568821,'2025-04-15T14:25:35'],
+    ['04-6570-862-526-1588-0840-000',9211637,'2025-04-10T12:24:46'],
+    ['04-6570-862-526-2400-0840-000',9569618,'2025-04-16T10:17:37'],
+    ['04-6570-862-529-1500-0840-000',9570897,'2025-04-28T11:09:07']
+  ],
+  '2025-05': [
+    ['04-6570-861-511-0746-0840-000',6193987,'2025-05-22T12:18:59'],
+    ['04-6570-861-529-0746-0840-000',6194629,'2025-05-22T12:19:38'],
+    ['04-6570-862-393-0516-0840-000',8880061,'2025-05-15T14:34:58'],
+    ['04-6570-862-511-0746-0840-000',8915136,'2025-05-22T12:20:04'],
+    ['04-6570-862-522-0766-0840-000',9575006,'2025-05-08T22:54:43'],
+    ['04-6570-862-522-1470-0840-000',9576156,'2025-05-16T17:19:16'],
+    ['04-6570-862-523-2325-0840-000',9575903,'2025-05-12T11:12:15'],
+    ['04-6570-862-523-2502-0840-000',9575906,'2025-05-12T14:30:48'],
+    ['04-6570-862-526-6386-0840-000',9579902,'2025-05-27T13:01:23'],
+    ['04-6570-862-529-0746-0840-000',8915127,'2025-05-22T12:21:19'],
+    ['04-6570-862-529-1437-0840-000',9575936,'2025-05-13T10:38:54'],
+    ['04-6570-862-529-2325-0840-000',9574929,'2025-05-07T07:45:36'],
+    ['04-6570-862-529-2400-0840-000',9579901,'2025-05-27T12:53:07'],
+    ['04-6570-862-529-2501-0840-000',9212673,'2025-05-07T07:46:08'],
+    ['04-6570-862-529-6399-0840-000',9575902,'2025-05-12T09:42:07'],
+    ['04-6570-862-529-6998-0840-000',9574994,'2025-05-08T10:30:45'],
+    ['04-6570-862-541-6995-0840-000',9575907,'2025-05-12T14:33:36']
+  ],
+  '2025-06': [
+    ['04-6570-862-522-1441-0840-000',9211621,'2025-06-10T17:47:48'],
+    ['04-6570-862-522-1625-0840-000',9586011,'2025-06-10T07:56:59'],
+    ['04-6570-862-522-2484-0840-000',9586091,'2025-06-10T17:50:14'],
+    ['04-6570-862-522-2592-0840-000',9586090,'2025-06-10T17:42:43'],
+    ['04-6570-862-529-1495-0840-000',9585807,'2025-06-05T11:38:02'],
+    ['04-6570-862-529-2408-0840-000',9584946,'2025-06-04T16:17:31'],
+    ['04-6570-862-541-1552-0840-000',9586968,'2025-06-17T16:50:04']
+  ],
+  '2025-07': [
+    ['04-6570-862-522-2408-0840-000',9594055,'2025-07-02T11:44:15'],
+    ['04-6570-862-522-2436-0840-000',9594054,'2025-07-02T11:41:41'],
+    ['04-6570-862-522-2546-0840-000',9594056,'2025-07-02T11:46:29']
+  ],
+  '2025-08': [
+    ['04-6570-862-522-0451-0840-000',9607086,'2025-08-19T09:56:52'],
+    ['04-6570-862-523-2400-0840-000',9605195,'2025-08-14T10:24:17'],
+    ['04-6570-862-526-2352-0840-000',9606062,'2025-08-18T12:11:32'],
+    ['04-6570-862-529-2514-0840-000',9212676,'2025-08-27T11:26:21'],
+    ['04-6570-862-529-2624-0840-000',9603083,'2025-08-07T08:47:41'],
+    ['04-6570-862-541-1420-0840-000',9603087,'2025-08-07T14:16:08'],
+    ['04-6570-862-541-6998-0840-000',9601264,'2025-08-01T14:47:58']
+  ],
+  '2025-09': [
+    ['04-6400-862-541-0507-0840-000',8961329,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0516-0840-000',8915111,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0518-0840-000',9154773,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0519-0840-000',9200605,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0522-0840-000',9315699,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0552-0840-000',8915133,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0716-0840-000',9154786,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0725-0840-000',9055875,'2025-09-04T15:46:32'],
+    ['04-6400-862-541-0766-0840-000',9315730,'2025-09-04T15:46:32'],
+    ['04-6560-862-529-0454-0840-000',9619287,'2025-09-30T15:18:38'],
+    ['04-6570-861-526-0513-0840-000',7138621,'2025-09-04T15:09:12'],
+    ['04-6570-861-526-0720-0840-000',8879839,'2025-09-04T15:09:12'],
+    ['04-6570-861-541-0724-0840-000',8554623,'2025-09-04T15:37:49'],
+    ['04-6570-861-541-0832-0840-000',6234641,'2025-09-04T15:37:49'],
+    ['04-6570-862-393-0626-0840-000',9619292,'2025-09-30T15:19:02'],
+    ['04-6570-862-522-1326-0840-000',9616069,'2025-09-18T08:59:14'],
+    ['04-6570-862-522-2624-0840-000',9611114,'2025-09-04T10:46:13'],
+    ['04-6570-862-524-2442-0840-000',9617146,'2025-09-23T10:15:27'],
+    ['04-6570-862-526-1552-0840-000',9615921,'2025-09-17T12:14:52'],
+    ['04-6570-862-526-2317-0840-000',9615918,'2025-09-17T12:11:40'],
+    ['04-6570-862-526-2327-0840-000',9615923,'2025-09-17T12:26:55'],
+    ['04-6570-862-526-2445-0840-000',9615919,'2025-09-17T12:13:06'],
+    ['04-6570-862-526-2466-0840-000',9615917,'2025-09-17T12:10:12'],
+    ['04-6570-862-526-2468-0840-000',9614055,'2025-09-11T10:16:06'],
+    ['04-6570-862-526-2496-0840-000',9615922,'2025-09-17T12:16:10'],
+    ['04-6570-862-526-2526-0840-000',9615920,'2025-09-17T12:13:06'],
+    ['04-6570-862-526-2601-0840-000',9616070,'2025-09-18T09:00:46'],
+    ['04-6570-862-526-2616-0840-000',9614056,'2025-09-11T10:16:06'],
+    ['04-6570-862-529-2317-0840-000',9613360,'2025-09-10T11:54:57'],
+    ['04-6570-862-529-2442-0840-000',9611095,'2025-09-04T07:44:10'],
+    ['04-6570-862-529-2445-0840-000',9212663,'2025-09-10T11:49:33'],
+    ['04-6570-862-529-2526-0840-000',9613359,'2025-09-10T11:49:17'],
+    ['04-6570-862-541-0454-0840-000',9619288,'2025-09-30T15:18:38'],
+    ['04-6570-862-541-0507-0840-000',8961232,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0514-0840-000',8911488,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0516-0840-000',8915110,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0518-0840-000',9154772,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0519-0840-000',9055858,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0520-0840-000',9200583,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0521-0840-000',9315719,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0522-0840-000',9200594,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0523-0840-000',9315739,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0524-0840-000',9315710,'2025-09-04T14:53:05'],
+    ['04-6570-862-541-0527-0840-000',9487530,'2025-09-10T10:56:09'],
+    ['04-6570-862-541-0572-0840-000',8961206,'2025-09-10T10:56:09'],
+    ['04-6570-862-541-0575-0840-000',9420222,'2025-09-10T10:56:09'],
+    ['04-6570-862-541-0576-0840-000',9420210,'2025-09-10T10:56:09'],
+    ['04-6570-862-541-0716-0840-000',9154785,'2025-09-04T14:56:45'],
+    ['04-6570-862-541-0720-0840-000',9055885,'2025-09-04T14:56:45'],
+    ['04-6570-862-541-0731-0840-000',9055862,'2025-09-04T14:56:45'],
+    ['04-6570-862-541-0766-0840-000',9315729,'2025-09-04T14:56:45'],
+    ['04-6570-862-541-0832-0840-000',9055902,'2025-09-04T14:57:10'],
+    ['04-6570-862-541-1388-0840-000',9211615,'2025-09-04T14:57:37'],
+    ['04-6570-862-541-1522-0840-000',9211632,'2025-09-04T14:58:05'],
+    ['04-6570-862-541-1546-0840-000',9520535,'2025-09-04T14:58:33'],
+    ['04-6570-862-541-2439-0840-000',9524604,'2025-09-04T14:59:02'],
+    ['04-6570-862-541-2464-0840-000',9524608,'2025-09-04T14:59:02'],
+    ['04-6570-862-541-2593-0840-000',9524612,'2025-09-04T14:59:17'],
+    ['04-6570-862-541-2626-0840-000',9524613,'2025-09-04T14:59:17'],
+    ['04-6570-862-541-6582-0840-000',9212587,'2025-09-04T15:01:25'],
+    ['04-9000-861-541-0832-0840-000',6234642,'2025-09-04T14:02:23'],
+    ['04-9000-861-541-6997-0840-000',9212573,'2025-09-04T14:02:23'],
+    ['04-9000-862-541-0454-0840-000',9619291,'2025-09-30T15:19:02'],
+    ['04-9000-862-541-0511-0840-000',9080543,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0516-0840-000',8915102,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0517-0840-000',9107131,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0518-0840-000',9154779,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0519-0840-000',9200611,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0520-0840-000',9200590,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0521-0840-000',9315727,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0522-0840-000',9315707,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0523-0840-000',9315747,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0524-0840-000',9315718,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0526-0840-000',9521742,'2025-09-04T14:10:17'],
+    ['04-9000-862-541-0551-0840-000',9107151,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0572-0840-000',8961209,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0575-0840-000',9420229,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0576-0840-000',9420219,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0720-0840-000',9055892,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0725-0840-000',9055881,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0766-0840-000',9315737,'2025-09-04T14:14:32'],
+    ['04-9000-862-541-0832-0840-000',9065599,'2025-09-04T14:14:47'],
+    ['04-9000-862-541-2334-0840-000',9264961,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6582-0840-000',9212581,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6587-0840-000',9267705,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6910-0840-000',9420242,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6993-0840-000',9420240,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6997-0840-000',9212626,'2025-09-04T14:18:43'],
+    ['04-9000-862-541-6998-0840-000',9215602,'2025-09-04T14:18:43']
+  ],
+  '2025-10': [
+    ['04-6570-861-522-0710-0840-000',6234623,'2025-10-22T13:56:49'],
+    ['04-6570-861-523-0710-0840-000',6234624,'2025-10-22T13:56:49'],
+    ['04-6570-861-524-0710-0840-000',7711621,'2025-10-22T13:56:49'],
+    ['04-6570-861-526-0710-0840-000',6234625,'2025-10-22T13:56:49'],
+    ['04-6570-861-529-0710-0840-000',6234627,'2025-10-22T13:56:49'],
+    ['04-6570-861-541-0710-0840-000',6234628,'2025-10-22T13:56:49'],
+    ['04-6570-862-522-0515-0840-000',9063844,'2025-10-22T13:48:45'],
+    ['04-6570-862-522-0522-0840-000',9626403,'2025-10-28T15:36:15'],
+    ['04-6570-862-522-0710-0840-000',9019066,'2025-10-22T13:57:49'],
+    ['04-6570-862-523-0710-0840-000',9019065,'2025-10-22T13:57:49'],
+    ['04-6570-862-526-0515-0840-000',9055904,'2025-10-22T13:48:45'],
+    ['04-6570-862-526-0710-0840-000',9019063,'2025-10-22T13:57:49'],
+    ['04-6570-862-526-1449-0840-000',9625473,'2025-10-23T11:03:56'],
+    ['04-6570-862-526-2326-0840-000',9626426,'2025-10-29T15:02:40'],
+    ['04-6570-862-526-2362-0840-000',9622429,'2025-10-16T13:30:21'],
+    ['04-6570-862-526-2439-0840-000',9625361,'2025-10-21T14:57:30'],
+    ['04-6570-862-526-2443-0840-000',9620353,'2025-10-10T11:13:00'],
+    ['04-6570-862-526-2447-0840-000',9619373,'2025-10-07T15:37:46'],
+    ['04-6570-862-526-2452-0840-000',9622428,'2025-10-16T13:28:24'],
+    ['04-6570-862-526-2594-0840-000',9622430,'2025-10-16T13:34:09'],
+    ['04-6570-862-527-0710-0840-000',9065597,'2025-10-22T13:57:49'],
+    ['04-6570-862-529-0515-0840-000',9055906,'2025-10-22T13:48:45'],
+    ['04-6570-862-529-0710-0840-000',9019062,'2025-10-22T13:57:49'],
+    ['04-6570-862-529-0747-0840-000',9055907,'2025-10-07T14:38:37'],
+    ['04-6570-862-529-1473-0840-000',9626363,'2025-10-27T09:57:41'],
+    ['04-6570-862-541-0515-0840-000',9073419,'2025-10-22T13:48:45'],
+    ['04-6570-862-541-0710-0840-000',9019061,'2025-10-22T13:58:01'],
+    ['04-6570-862-541-2352-0840-000',9626362,'2025-10-27T09:37:48'],
+    ['04-6570-862-541-2408-0840-000',9440270,'2025-10-16T13:00:49'],
+    ['04-6570-862-541-2412-0840-000',9619503,'2025-10-09T12:01:08'],
+    ['04-6570-862-541-2508-0840-000',9619502,'2025-10-09T12:01:08'],
+    ['04-6570-862-541-2588-0840-000',9619501,'2025-10-09T12:01:08'],
+    ['04-9000-862-541-1420-0840-000',9625484,'2025-10-24T09:47:30']
+  ],
+  '2025-11': [
+    ['04-6570-862-393-0519-0840-000',9200614,'2025-11-17T09:39:12'],
+    ['04-6570-862-523-2352-0840-000',9629463,'2025-11-12T13:31:43'],
+    ['04-6570-862-523-2588-0840-000',9630903,'2025-11-21T09:46:27'],
+    ['04-6570-862-523-2626-0840-000',9629529,'2025-11-14T09:43:21'],
+    ['04-6570-862-526-2455-0840-000',9630902,'2025-11-21T08:39:56'],
+    ['04-6570-862-526-2456-0840-000',9630904,'2025-11-21T09:58:33'],
+    ['04-6570-862-529-1304-0840-000',9631353,'2025-11-24T11:50:18'],
+    ['04-6570-862-529-1356-0840-000',9630872,'2025-11-19T15:32:42'],
+    ['04-6570-862-529-1394-0840-000',9628386,'2025-11-04T14:52:28'],
+    ['04-6570-862-529-2352-0840-000',9629453,'2025-11-12T11:49:33'],
+    ['04-6570-862-529-2496-0840-000',9630873,'2025-11-19T15:37:25'],
+    ['04-6570-862-529-2618-0840-000',9629462,'2025-11-12T12:38:37'],
+    ['04-6570-862-529-2626-0840-000',9629452,'2025-11-12T11:48:41'],
+    ['04-6570-862-532-0832-0840-000',9631351,'2025-11-24T11:44:55'],
+    ['04-6570-862-532-2618-0840-000',9629461,'2025-11-12T12:38:25'],
+    ['04-6570-862-541-2329-0840-000',9630913,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2362-0840-000',9630907,'2025-11-21T11:14:06'],
+    ['04-6570-862-541-2376-0840-000',9630909,'2025-11-21T11:14:25'],
+    ['04-6570-862-541-2384-0840-000',9630911,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2447-0840-000',9628385,'2025-11-04T13:35:32'],
+    ['04-6570-862-541-2453-0840-000',9630906,'2025-11-21T11:14:06'],
+    ['04-6570-862-541-2542-0840-000',9630910,'2025-11-21T11:14:48'],
+    ['04-6570-862-541-2550-0840-000',9630912,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2554-0840-000',9631364,'2025-11-25T08:35:33'],
+    ['04-6570-862-541-2597-0840-000',9630908,'2025-11-21T11:14:25']
+  ],
+  '2025-12': [
+    ['04-6570-862-523-2618-0840-000',9633684,'2025-12-04T09:04:07'],
+    ['04-6570-862-529-1522-0840-000',9636769,'2025-12-19T14:24:07'],
+    ['04-6570-862-529-2601-0840-000',9212691,'2025-12-18T12:56:13'],
+    ['04-6570-862-541-2443-0840-000',9636740,'2025-12-18T12:29:10'],
+    ['04-6570-862-541-2455-0840-000',9636520,'2025-12-16T10:41:20'],
+    ['04-6570-862-541-2594-0840-000',9636739,'2025-12-18T12:25:48']
+  ],
+  '2026-01': [
+    ['04-6570-862-522-1449-0840-000',9211624,'2026-01-21T12:27:53'],
+    ['04-6570-862-522-1588-0840-000',9211636,'2026-01-08T11:34:54'],
+    ['04-6570-862-522-2453-0840-000',9641801,'2026-01-16T10:44:36'],
+    ['04-6570-862-524-2452-0840-000',9646816,'2026-01-26T10:46:23'],
+    ['04-6570-862-526-1412-0840-000',9647819,'2026-01-29T10:45:02'],
+    ['04-6570-862-526-2384-0840-000',9638782,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2453-0840-000',9638783,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2550-0840-000',9638784,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2597-0840-000',9638785,'2026-01-05T14:01:52'],
+    ['04-6570-862-529-1584-0840-000',9640857,'2026-01-14T08:48:04'],
+    ['04-6570-862-529-2452-0840-000',9640796,'2026-01-12T12:00:38'],
+    ['04-6570-862-529-2453-0840-000',9212665,'2026-01-28T09:44:55'],
+    ['04-6570-862-529-2594-0840-000',9640797,'2026-01-12T12:00:38'],
+    ['04-6570-862-541-2595-0840-000',9527277,'2026-01-22T10:50:09']
+  ],
+  '2026-02': [
+    ['04-6570-862-523-2594-0840-000',9650840,'2026-02-03T11:43:46'],
+    ['04-6570-862-524-1500-0840-000',9654876,'2026-02-17T13:27:35'],
+    ['04-6570-862-524-2362-0840-000',9654883,'2026-02-18T14:44:29'],
+    ['04-6570-862-526-2402-0840-000',9652814,'2026-02-12T15:08:24'],
+    ['04-6570-862-526-2411-0840-000',9652815,'2026-02-12T15:17:00'],
+    ['04-6570-862-526-2522-0840-000',9654924,'2026-02-19T10:32:40'],
+    ['04-6570-862-529-2362-0840-000',9650844,'2026-02-03T13:04:25'],
+    ['04-6570-862-529-2439-0840-000',9650856,'2026-02-05T08:45:29'],
+    ['04-6570-862-529-2455-0840-000',9650857,'2026-02-05T08:46:00'],
+    ['04-6570-862-541-2624-0840-000',9650896,'2026-02-06T09:57:15']
+  ],
+  '2026-03': [
+    ['04-6570-862-522-2447-0840-000',9662160,'2026-03-19T15:52:14'],
+    ['04-6570-862-523-2456-0840-000',9662159,'2026-03-19T15:50:56'],
+    ['04-6570-862-523-2468-0840-000',9662161,'2026-03-19T15:53:20'],
+    ['04-6570-862-523-2616-0840-000',9662163,'2026-03-19T15:56:36'],
+    ['04-6570-862-524-2326-0840-000',9662162,'2026-03-19T15:54:34'],
+    ['04-6570-862-524-2439-0840-000',9659824,'2026-03-05T12:14:08'],
+    ['04-6570-862-526-1356-0840-000',9660898,'2026-03-09T13:30:53'],
+    ['04-6570-862-526-2632-0840-000',9660934,'2026-03-12T10:48:03'],
+    ['04-6570-862-529-1448-0840-000',9662923,'2026-03-23T11:32:02'],
+    ['04-6570-862-529-2326-0840-000',9660899,'2026-03-09T15:20:48'],
+    ['04-6570-862-529-2327-0840-000',9660903,'2026-03-09T15:23:03'],
+    ['04-6570-862-529-2447-0840-000',9660900,'2026-03-09T15:21:38'],
+    ['04-6570-862-529-2456-0840-000',9660904,'2026-03-09T15:23:03'],
+    ['04-6570-862-529-2468-0840-000',9660901,'2026-03-09T15:21:38'],
+    ['04-6570-862-529-2528-0840-000',9660905,'2026-03-09T15:32:14'],
+    ['04-6570-862-529-2616-0840-000',9660902,'2026-03-09T15:21:38'],
+    ['04-6570-862-541-2456-0840-000',9658814,'2026-03-02T12:18:01']
+  ],
+  '2026-04': [
+    ['04-6570-862-393-0452-0840-000',9666946,'2026-04-23T22:46:48'],
+    ['04-6570-862-522-1500-0840-000',9664903,'2026-04-06T13:34:16'],
+    ['04-6570-862-522-2317-0840-000',9666023,'2026-04-17T12:44:09'],
+    ['04-6570-862-522-2327-0840-000',9663937,'2026-04-02T08:40:47'],
+    ['04-6570-862-522-2445-0840-000',9666956,'2026-04-27T12:52:49'],
+    ['04-6570-862-522-2526-0840-000',9664999,'2026-04-10T09:12:19'],
+    ['04-6570-862-522-2601-0840-000',9666957,'2026-04-27T12:55:27'],
+    ['04-6570-862-529-1506-0840-000',9664904,'2026-04-06T13:37:32']
+  ],
+  '2026-05': [
+    ['04-6560-862-529-0450-0840-000',9680025,'2026-05-13T12:09:01'],
+    ['04-6570-862-522-6999-0840-000',9684965,'2026-05-18T14:04:07'],
+    ['04-6570-862-523-2624-0840-000',9672964,'2026-05-04T11:00:27'],
+    ['04-6570-862-526-1625-0840-000',9685054,'2026-05-20T15:47:27'],
+    ['04-6570-862-529-1453-0840-000',9677983,'2026-05-08T09:19:53'],
+    ['04-6570-862-529-1551-0840-000',9680954,'2026-05-13T14:52:33'],
+    ['04-6570-862-529-2632-0840-000',9681997,'2026-05-14T11:39:21'],
+    ['04-6570-862-529-6999-0840-000',9685012,'2026-05-19T11:38:20']
+  ],
+  '2026-06': [
+    ['04-6570-862-522-2496-0840-000',9691907,'2026-06-11T10:23:28'],
+    ['04-6570-862-524-2594-0840-000',9688988,'2026-06-02T10:27:41'],
+    ['04-6570-862-524-2632-0840-000',9689980,'2026-06-05T11:07:48'],
+    ['04-6570-862-526-1448-0840-000',9689979,'2026-06-05T10:50:48'],
+    ['04-6570-862-526-2500-0840-000',9689981,'2026-06-05T11:15:55'],
+    ['04-6570-862-529-2384-0840-000',9689301,'2026-06-04T08:35:58'],
+    ['04-6570-862-529-2550-0840-000',9689303,'2026-06-04T09:21:28'],
+    ['04-6570-862-529-2597-0840-000',9212689,'2026-06-04T09:22:04'],
+    ['04-6570-862-531-0747-0840-000',9691912,'2026-06-11T15:01:29'],
+    ['04-6570-862-541-0713-0840-000',9528238,'2026-06-04T15:40:04']
+  ],
+  '2026-07': [
+    ['04-6560-862-529-1398-0840-000',9708023,'2026-07-21T11:11:06'],
+    ['04-6570-862-522-1384-0840-000',9708018,'2026-07-21T10:35:37'],
+    ['04-6570-862-522-1398-0840-000',9708026,'2026-07-21T12:47:44'],
+    ['04-6570-862-522-2391-0840-000',9695025,'2026-07-01T12:20:51'],
+    ['04-6570-862-522-2411-0840-000',9705039,'2026-07-14T15:08:37'],
+    ['04-6570-862-522-2570-0840-000',9695026,'2026-07-01T12:23:21'],
+    ['04-6570-862-526-2460-0840-000',9702024,'2026-07-10T08:49:58'],
+    ['04-6570-862-527-1384-0840-000',9706432,'2026-07-17T11:31:21'],
+    ['04-6570-862-527-1398-0840-000',9706433,'2026-07-17T11:32:40'],
+    ['04-6570-862-529-1398-0840-000',9704001,'2026-07-13T14:36:15'],
+    ['04-6570-862-529-1488-0840-000',9709011,'2026-07-27T10:17:14'],
+    ['04-6570-862-529-2460-0840-000',9695052,'2026-07-01T12:40:04'],
+    ['04-6570-862-529-2522-0840-000',9704000,'2026-07-13T14:04:05']
+  ],
+};
+
+/* The second extract, data/oracle/json-output-v2.json, in the same shape as
+   ROWS_V1 above: one month key per month that actually has rows, each entry
+   [combination, CODE_COMBINATION_ID, LAST_UPDATE_DATE]. It is not a superset of
+   ROWS_V1 - it is the same query run later, so it drops combinations the earlier
+   run carried (168 of them) and adds ones it never saw (40).
+
+   Both literals were produced from their JSON with a throwaway script rather than
+   by hand, but scripts/build-mockup-data.mjs does NOT yet emit them: it builds
+   docs/screenshots/oracle-po-lines.js from data/oracle/full-output.json only. So a
+   refreshed extract still means re-deriving these two by hand - the one place on
+   this page where the data is pasted in rather than read. */
+const ROWS_V2 = {
+  '2025-09': [
+    ['04-5810-862-541-0454-0825-000',9619282,'2025-09-30T15:18:37'],
+    ['04-5810-862-561-0454-0825-000',9619283,'2025-09-30T15:18:37'],
+    ['04-6400-862-542-0454-0810-000',9619284,'2025-09-30T15:18:37'],
+    ['04-6410-862-542-0454-0810-000',9619285,'2025-09-30T15:18:38'],
+    ['04-6540-862-541-0454-0830-000',9619286,'2025-09-30T15:18:38'],
+    ['04-6560-862-529-0454-0840-000',9619287,'2025-09-30T15:18:38'],
+    ['04-6570-862-393-0626-0840-000',9619292,'2025-09-30T15:19:02'],
+    ['04-6570-862-522-1326-0840-000',9616069,'2025-09-18T08:59:14'],
+    ['04-6570-862-524-2442-0840-000',9617146,'2025-09-23T10:15:27'],
+    ['04-6570-862-526-1552-0840-000',9615921,'2025-09-17T12:14:52'],
+    ['04-6570-862-526-2317-0840-000',9615918,'2025-09-17T12:11:40'],
+    ['04-6570-862-526-2327-0840-000',9615923,'2025-09-17T12:26:55'],
+    ['04-6570-862-526-2445-0840-000',9615919,'2025-09-17T12:13:06'],
+    ['04-6570-862-526-2466-0840-000',9615917,'2025-09-17T12:10:12'],
+    ['04-6570-862-526-2496-0840-000',9615922,'2025-09-17T12:16:10'],
+    ['04-6570-862-526-2526-0840-000',9615920,'2025-09-17T12:13:06'],
+    ['04-6570-862-526-2601-0840-000',9616070,'2025-09-18T09:00:46'],
+    ['04-6570-862-529-2400-0830-000',9352864,'2025-09-24T10:26:04'],
+    ['04-6570-862-541-0454-0840-000',9619288,'2025-09-30T15:18:38'],
+    ['04-7200-862-541-0454-0880-000',9619289,'2025-09-30T15:18:38'],
+    ['04-9000-862-541-0454-0512-000',9619290,'2025-09-30T15:18:38'],
+    ['04-9000-862-541-0454-0840-000',9619291,'2025-09-30T15:19:02']
+  ],
+  '2025-10': [
+    ['04-5810-862-541-1420-0825-000',9625491,'2025-10-24T09:47:31'],
+    ['04-5810-862-561-1420-0825-000',9625490,'2025-10-24T09:47:31'],
+    ['04-6400-862-542-1420-0810-000',9625485,'2025-10-24T09:47:30'],
+    ['04-6410-862-542-1420-0810-000',9625486,'2025-10-24T09:47:30'],
+    ['04-6540-862-541-1420-0830-000',9625487,'2025-10-24T09:47:30'],
+    ['04-6560-862-529-0545-0840-000',8982098,'2025-10-22T13:52:48'],
+    ['04-6560-862-529-0545-0940-000',9062587,'2025-10-22T13:52:48'],
+    ['04-6570-862-522-0515-0840-000',9063844,'2025-10-22T13:48:45'],
+    ['04-6570-862-522-0522-0840-000',9626403,'2025-10-28T15:36:15'],
+    ['04-6570-862-522-0545-0840-000',8915125,'2025-10-22T13:52:48'],
+    ['04-6570-862-522-0545-0940-000',9053737,'2025-10-22T13:52:48'],
+    ['04-6570-862-522-0710-0830-000',9065624,'2025-10-22T13:57:17'],
+    ['04-6570-862-522-0710-0840-000',9019066,'2025-10-22T13:57:49'],
+    ['04-6570-862-523-0710-0830-000',9065623,'2025-10-22T13:57:17'],
+    ['04-6570-862-523-0710-0840-000',9019065,'2025-10-22T13:57:49'],
+    ['04-6570-862-524-0710-0830-000',9080555,'2025-10-22T13:57:17'],
+    ['04-6570-862-526-0515-0840-000',9055904,'2025-10-22T13:48:45'],
+    ['04-6570-862-526-0545-0840-000',9055917,'2025-10-22T13:52:48'],
+    ['04-6570-862-526-0545-0940-000',8915126,'2025-10-22T13:52:49'],
+    ['04-6570-862-526-0710-0830-000',9065622,'2025-10-22T13:57:17'],
+    ['04-6570-862-526-0710-0840-000',9019063,'2025-10-22T13:57:49'],
+    ['04-6570-862-526-1449-0840-000',9625473,'2025-10-23T11:03:56'],
+    ['04-6570-862-526-2326-0840-000',9626426,'2025-10-29T15:02:40'],
+    ['04-6570-862-526-2362-0840-000',9622429,'2025-10-16T13:30:21'],
+    ['04-6570-862-526-2439-0840-000',9625361,'2025-10-21T14:57:30'],
+    ['04-6570-862-526-2443-0840-000',9620353,'2025-10-10T11:13:00'],
+    ['04-6570-862-526-2447-0840-000',9619373,'2025-10-07T15:37:46'],
+    ['04-6570-862-526-2452-0840-000',9622428,'2025-10-16T13:28:24'],
+    ['04-6570-862-526-2594-0840-000',9622430,'2025-10-16T13:34:09'],
+    ['04-6570-862-527-0545-0840-000',9055903,'2025-10-22T13:52:49'],
+    ['04-6570-862-527-0710-0840-000',9065597,'2025-10-22T13:57:49'],
+    ['04-6570-862-529-0515-0840-000',9055906,'2025-10-22T13:48:45'],
+    ['04-6570-862-529-0545-0840-000',9084786,'2025-10-22T08:41:11'],
+    ['04-6570-862-529-0545-0940-000',8971921,'2025-10-22T13:52:49'],
+    ['04-6570-862-529-0710-0830-000',9065621,'2025-10-22T13:57:17'],
+    ['04-6570-862-529-0710-0840-000',9019062,'2025-10-22T13:57:49'],
+    ['04-6570-862-529-0747-0840-000',9055907,'2025-10-07T14:38:37'],
+    ['04-6570-862-529-1473-0840-000',9626363,'2025-10-27T09:57:41'],
+    ['04-6570-862-541-0515-0840-000',9073419,'2025-10-22T13:48:45'],
+    ['04-6570-862-541-0545-0840-000',9059621,'2025-10-22T13:53:48'],
+    ['04-6570-862-541-0710-0830-000',9065620,'2025-10-22T13:57:28'],
+    ['04-6570-862-541-0710-0840-000',9019061,'2025-10-22T13:58:01'],
+    ['04-6570-862-541-2352-0840-000',9626362,'2025-10-27T09:37:48'],
+    ['04-6570-862-541-2408-0840-000',9440270,'2025-10-16T13:00:49'],
+    ['04-6570-862-541-2412-0840-000',9619503,'2025-10-09T12:01:08'],
+    ['04-6570-862-541-2508-0840-000',9619502,'2025-10-09T12:01:08'],
+    ['04-6570-862-541-2588-0840-000',9619501,'2025-10-09T12:01:08'],
+    ['04-7200-862-541-1420-0880-000',9625488,'2025-10-24T09:47:30'],
+    ['04-9000-862-541-0545-0815-000',8985919,'2025-10-22T13:54:10'],
+    ['04-9000-862-541-0545-0840-000',8982097,'2025-10-22T13:54:10'],
+    ['04-9000-862-541-0545-0940-000',9062586,'2025-10-22T13:54:10'],
+    ['04-9000-862-541-1420-0420-000',9625489,'2025-10-24T09:47:31'],
+    ['04-9000-862-541-1420-0840-000',9625484,'2025-10-24T09:47:30']
+  ],
+  '2025-11': [
+    ['04-6570-862-393-0519-0840-000',9200614,'2025-11-17T09:39:12'],
+    ['04-6570-862-523-2352-0840-000',9629463,'2025-11-12T13:31:43'],
+    ['04-6570-862-523-2588-0840-000',9630903,'2025-11-21T09:46:27'],
+    ['04-6570-862-523-2626-0840-000',9629529,'2025-11-14T09:43:21'],
+    ['04-6570-862-526-2455-0840-000',9630902,'2025-11-21T08:39:56'],
+    ['04-6570-862-526-2456-0840-000',9630904,'2025-11-21T09:58:33'],
+    ['04-6570-862-529-1304-0840-000',9631353,'2025-11-24T11:50:18'],
+    ['04-6570-862-529-1356-0840-000',9630872,'2025-11-19T15:32:42'],
+    ['04-6570-862-529-1394-0840-000',9628386,'2025-11-04T14:52:28'],
+    ['04-6570-862-529-2352-0840-000',9629453,'2025-11-12T11:49:33'],
+    ['04-6570-862-529-2496-0840-000',9630873,'2025-11-19T15:37:25'],
+    ['04-6570-862-529-2618-0840-000',9629462,'2025-11-12T12:38:37'],
+    ['04-6570-862-529-2626-0840-000',9629452,'2025-11-12T11:48:41'],
+    ['04-6570-862-532-0832-0840-000',9631351,'2025-11-24T11:44:55'],
+    ['04-6570-862-532-2618-0840-000',9629461,'2025-11-12T12:38:25'],
+    ['04-6570-862-541-2329-0840-000',9630913,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2362-0840-000',9630907,'2025-11-21T11:14:06'],
+    ['04-6570-862-541-2376-0840-000',9630909,'2025-11-21T11:14:25'],
+    ['04-6570-862-541-2384-0840-000',9630911,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2447-0840-000',9628385,'2025-11-04T13:35:32'],
+    ['04-6570-862-541-2453-0840-000',9630906,'2025-11-21T11:14:06'],
+    ['04-6570-862-541-2542-0840-000',9630910,'2025-11-21T11:14:48'],
+    ['04-6570-862-541-2550-0840-000',9630912,'2025-11-21T11:32:38'],
+    ['04-6570-862-541-2554-0840-000',9631364,'2025-11-25T08:35:33'],
+    ['04-6570-862-541-2597-0840-000',9630908,'2025-11-21T11:14:25']
+  ],
+  '2025-12': [
+    ['04-6570-862-523-2618-0840-000',9633684,'2025-12-04T09:04:07'],
+    ['04-6570-862-529-1522-0840-000',9636769,'2025-12-19T14:24:07'],
+    ['04-6570-862-529-2601-0840-000',9212691,'2025-12-18T12:56:13'],
+    ['04-6570-862-541-2443-0840-000',9636740,'2025-12-18T12:29:10'],
+    ['04-6570-862-541-2455-0840-000',9636520,'2025-12-16T10:41:20'],
+    ['04-6570-862-541-2594-0840-000',9636739,'2025-12-18T12:25:48']
+  ],
+  '2026-01': [
+    ['04-6570-862-522-1449-0840-000',9211624,'2026-01-21T12:27:53'],
+    ['04-6570-862-522-1588-0840-000',9211636,'2026-01-08T11:34:54'],
+    ['04-6570-862-522-2453-0840-000',9641801,'2026-01-16T10:44:36'],
+    ['04-6570-862-522-2999-0840-000',9646815,'2026-01-26T10:44:35'],
+    ['04-6570-862-524-2452-0840-000',9646816,'2026-01-26T10:46:23'],
+    ['04-6570-862-526-1412-0840-000',9647819,'2026-01-29T10:45:02'],
+    ['04-6570-862-526-2384-0840-000',9638782,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2453-0840-000',9638783,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2550-0840-000',9638784,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-2597-0840-000',9638785,'2026-01-05T14:01:52'],
+    ['04-6570-862-526-6998-0940-000',9212629,'2026-01-13T15:08:36'],
+    ['04-6570-862-529-1584-0840-000',9640857,'2026-01-14T08:48:04'],
+    ['04-6570-862-529-2452-0840-000',9640796,'2026-01-12T12:00:38'],
+    ['04-6570-862-529-2453-0840-000',9212665,'2026-01-28T09:44:55'],
+    ['04-6570-862-529-2594-0840-000',9640797,'2026-01-12T12:00:38'],
+    ['04-6570-862-541-2595-0840-000',9527277,'2026-01-22T10:50:09'],
+    ['04-9000-862-541-0520-0434-000',9642780,'2026-01-20T14:12:39']
+  ],
+  '2026-02': [
+    ['04-6570-862-523-2594-0840-000',9650840,'2026-02-03T11:43:46'],
+    ['04-6570-862-524-1500-0840-000',9654876,'2026-02-17T13:27:35'],
+    ['04-6570-862-524-2362-0840-000',9654883,'2026-02-18T14:44:29'],
+    ['04-6570-862-526-2402-0840-000',9652814,'2026-02-12T15:08:24'],
+    ['04-6570-862-526-2411-0840-000',9652815,'2026-02-12T15:17:00'],
+    ['04-6570-862-526-2522-0840-000',9654924,'2026-02-19T10:32:40'],
+    ['04-6570-862-529-2362-0840-000',9650844,'2026-02-03T13:04:25'],
+    ['04-6570-862-529-2439-0840-000',9650856,'2026-02-05T08:45:29'],
+    ['04-6570-862-529-2455-0840-000',9650857,'2026-02-05T08:46:00'],
+    ['04-6570-862-541-2624-0840-000',9650896,'2026-02-06T09:57:15']
+  ],
+  '2026-03': [
+    ['04-6570-862-522-2447-0840-000',9662160,'2026-03-19T15:52:14'],
+    ['04-6570-862-523-2456-0840-000',9662159,'2026-03-19T15:50:56'],
+    ['04-6570-862-523-2468-0840-000',9662161,'2026-03-19T15:53:20'],
+    ['04-6570-862-523-2616-0840-000',9662163,'2026-03-19T15:56:36'],
+    ['04-6570-862-524-2326-0840-000',9662162,'2026-03-19T15:54:34'],
+    ['04-6570-862-524-2439-0840-000',9659824,'2026-03-05T12:14:08'],
+    ['04-6570-862-524-6995-0940-000',9662975,'2026-03-27T10:45:11'],
+    ['04-6570-862-526-1356-0840-000',9660898,'2026-03-09T13:30:53'],
+    ['04-6570-862-526-2632-0840-000',9660934,'2026-03-12T10:48:03'],
+    ['04-6570-862-529-1448-0840-000',9662923,'2026-03-23T11:32:02'],
+    ['04-6570-862-529-2326-0840-000',9660899,'2026-03-09T15:20:48'],
+    ['04-6570-862-529-2327-0840-000',9660903,'2026-03-09T15:23:03'],
+    ['04-6570-862-529-2447-0840-000',9660900,'2026-03-09T15:21:38'],
+    ['04-6570-862-529-2456-0840-000',9660904,'2026-03-09T15:23:03'],
+    ['04-6570-862-529-2468-0840-000',9660901,'2026-03-09T15:21:38'],
+    ['04-6570-862-529-2528-0840-000',9660905,'2026-03-09T15:32:14'],
+    ['04-6570-862-529-2616-0840-000',9660902,'2026-03-09T15:21:38'],
+    ['04-6570-862-541-2456-0840-000',9658814,'2026-03-02T12:18:01']
+  ],
+  '2026-04': [
+    ['04-6570-862-393-0452-0840-000',9666946,'2026-04-23T22:46:48'],
+    ['04-6570-862-522-1500-0840-000',9664903,'2026-04-06T13:34:16'],
+    ['04-6570-862-522-2317-0840-000',9666023,'2026-04-17T12:44:09'],
+    ['04-6570-862-522-2327-0840-000',9663937,'2026-04-02T08:40:47'],
+    ['04-6570-862-522-2445-0840-000',9666956,'2026-04-27T12:52:49'],
+    ['04-6570-862-522-2526-0840-000',9664999,'2026-04-10T09:12:19'],
+    ['04-6570-862-522-2601-0840-000',9666957,'2026-04-27T12:55:27'],
+    ['04-6570-862-529-1506-0840-000',9664904,'2026-04-06T13:37:32']
+  ],
+  '2026-05': [
+    ['04-6560-862-529-0450-0840-000',9680025,'2026-05-13T12:09:01'],
+    ['04-6570-862-522-6999-0840-000',9684965,'2026-05-18T14:04:07'],
+    ['04-6570-862-523-2624-0840-000',9672964,'2026-05-04T11:00:27'],
+    ['04-6570-862-526-1625-0840-000',9685054,'2026-05-20T15:47:27'],
+    ['04-6570-862-529-1453-0840-000',9677983,'2026-05-08T09:19:53'],
+    ['04-6570-862-529-1551-0840-000',9680954,'2026-05-13T14:52:33'],
+    ['04-6570-862-529-2632-0840-000',9681997,'2026-05-14T11:39:21'],
+    ['04-6570-862-529-6999-0840-000',9685012,'2026-05-19T11:38:20']
+  ],
+  '2026-06': [
+    ['04-6550-862-552-0625-0880-000',9527675,'2026-06-17T11:08:00'],
+    ['04-6570-862-522-2496-0840-000',9691907,'2026-06-11T10:23:28'],
+    ['04-6570-862-524-2594-0840-000',9688988,'2026-06-02T10:27:41'],
+    ['04-6570-862-524-2632-0840-000',9689980,'2026-06-05T11:07:48'],
+    ['04-6570-862-526-1448-0840-000',9689979,'2026-06-05T10:50:48'],
+    ['04-6570-862-526-2500-0840-000',9689981,'2026-06-05T11:15:55'],
+    ['04-6570-862-529-2384-0840-000',9689301,'2026-06-04T08:35:58'],
+    ['04-6570-862-529-2550-0840-000',9689303,'2026-06-04T09:21:28'],
+    ['04-6570-862-529-2597-0840-000',9212689,'2026-06-04T09:22:04'],
+    ['04-6570-862-531-0747-0840-000',9691912,'2026-06-11T15:01:29'],
+    ['04-6570-862-541-0713-0840-000',9528238,'2026-06-04T15:40:04']
+  ],
+  '2026-07': [
+    ['04-6560-862-529-1398-0840-000',9708023,'2026-07-21T11:11:06'],
+    ['04-6570-862-522-1384-0840-000',9708018,'2026-07-21T10:35:37'],
+    ['04-6570-862-522-1398-0840-000',9708026,'2026-07-21T12:47:44'],
+    ['04-6570-862-522-2391-0840-000',9695025,'2026-07-01T12:20:51'],
+    ['04-6570-862-522-2411-0840-000',9705039,'2026-07-14T15:08:37'],
+    ['04-6570-862-522-2570-0840-000',9695026,'2026-07-01T12:23:21'],
+    ['04-6570-862-526-2460-0840-000',9702024,'2026-07-10T08:49:58'],
+    ['04-6570-862-527-1384-0840-000',9706432,'2026-07-17T11:31:21'],
+    ['04-6570-862-527-1390-0840-000',9706431,'2026-07-17T11:30:07'],
+    ['04-6570-862-527-1398-0840-000',9706433,'2026-07-17T11:32:40'],
+    ['04-6570-862-529-1398-0840-000',9704001,'2026-07-13T14:36:15'],
+    ['04-6570-862-529-1488-0840-000',9709011,'2026-07-27T10:17:14'],
+    ['04-6570-862-529-2460-0840-000',9695052,'2026-07-01T12:40:04'],
+    ['04-6570-862-529-2522-0840-000',9704000,'2026-07-13T14:04:05']
+  ]
+};
+
+/* ============================================================
+   Which extract the page is reading
+
+   Both files are the same query - GL_CODE_COMBINATIONS, 14
+   columns, one row per account combination - run at different
+   moments. Everything below the switch is derived from whichever
+   one is active, including the axis, the top-three cost centres,
+   the table's columns and the prose in the footers: leaving any
+   of those pointing at the other file is exactly the drift the
+   switch exists to expose.
+   ============================================================ */
+const DATASETS = {
+  v1: {
+    file: 'data/oracle/json-output.json',
+    rows: ROWS_V1,
+    /* What the compact [code, id, stamp] triples cannot carry: how many columns
+       are dead, and how many distinct values a segment holds. Counted from the
+       raw file rather than typed in, so the panel cannot contradict the data. */
+    facts: { columns: 14, constant: 7, nullDescription: 320, segment2: 4, segment5: 146 }
+  },
+  v2: {
+    file: 'data/oracle/json-output-v2.json',
+    rows: ROWS_V2,
+    facts: { columns: 14, constant: 7, nullDescription: 192, segment2: 9, segment5: 86 }
+  }
+};
+
+const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MON_NAME = ['January','February','March','April','May','June','July','August',
+                  'September','October','November','December'];
+
+const WINDOW = 24;
+
+/* The window stops at the last COMPLETE calendar month. The current month is still
+   in progress, so including it would look like a collapse rather than an incomplete
+   period. Set WINDOW_END to a literal 'YYYY-MM' to freeze the axis for a review. */
+const WINDOW_END = (function () {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+})();
+
+/* Every month in the window, present in the extract or not. */
+const MONTHS = (function () {
+  const out  = [];
+  const endY = +WINDOW_END.slice(0, 4);
+  const endM = +WINDOW_END.slice(5, 7) - 1;
+  for (let k = WINDOW - 1; k >= 0; k--) {
+    const d = new Date(endY, endM - k, 1);
+    out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2));
+  }
+  return out;
+})();
+
+/* The window spans two calendar years, so the axis label carries the year:
+   'Sep 24' rather than 'Sep'. */
+const MONTH_LABEL = MONTHS.map(function (mo) {
+  return MON_ABBR[+mo.slice(5, 7) - 1] + ' ' + mo.slice(2, 4);
+});
+const MONTH_FULL = MONTHS.map(function (mo) {
+  return MON_NAME[+mo.slice(5, 7) - 1] + ' ' + mo.slice(0, 4);
+});
+
+/* SEGMENT4 - the 4th dash-separated segment - is the cost centre. The three
+   largest values get their own series; the rest are pooled so the detail table
+   stays four data columns wide however many cost centres the extract carries. */
+function seg4(code) { return code.split('-')[3]; }
+
+/* ============================================================
+   Derived from the ACTIVE extract
+
+   These were `const` while the page read one file. The switch
+   re-points them, and a `const` cannot be re-pointed, so they
+   are declared here and written by loadDataset. A second,
+   parallel set of names for v2 would have been the cheaper edit
+   and the worse page: every figure below would then exist twice
+   and drift apart the first time one of them was touched.
+   ============================================================ */
+let ROWS, BY_COST_CENTRE, RANKING, SERIES_KEY, OTHER_CODES, SEG4_COUNT,
+    SERIES, TOTALS, ROW_COUNT, CODES, LAST_DATA_I, PREV_DATA_I, PEAK_I, TOP3_N,
+    LAST_STAMP, FIRST_MONTH, LAST_MONTH, FIRST_STAMP, EMPTY_MONTHS, BURST,
+    PO_MISSING, Y_MAX, Y_STEP;
+let version = 'v1';
+
+/* An axis maximum no point can sit on: the next 1, 2 or 5 x 10^n above the tallest
+   month, picked so the plot carries at most nine gridlines. v1 peaks at 89 - an
+   Oracle batch artifact rather than a change in activity - and v2 at 53, so a fixed
+   Y_MAX would either clip one or squash the other into the bottom third of the box. */
+function axisFor(peak) {
+  const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+  const step = STEPS.find(function (s) { return peak / s <= 9; }) || 1000;
+  return { max: Math.ceil(peak / step) * step, step: step };
+}
+
+/* Sep 24' rather than 'Sep 24' - the detailed labels below and in the footers read
+   better with the year spelled out, where the axis has no room for it. */
+function monthShort(mo) { return MON_ABBR[+mo.slice(5, 7) - 1] + ' ' + mo.slice(0, 4); }
+
+/* A list of months, consecutive ones collapsed to 'Sep 2024 to Aug 2025'. v2 opens
+   with twelve empty months in a row, and naming each of them would bury the point. */
+function monthList(list) {
+  if (!list.length) return '';
+  const idx = list.map(function (mo) { return MONTHS.indexOf(mo); })
+                  .sort(function (a, b) { return a - b; });
+  const parts = [];
+  let start = idx[0], prev = idx[0];
+  for (let i = 1; i <= idx.length; i++) {
+    if (idx[i] === prev + 1) { prev = idx[i]; continue; }
+    parts.push(start === prev ? monthShort(MONTHS[start])
+                              : monthShort(MONTHS[start]) + ' to ' + monthShort(MONTHS[prev]));
+    start = prev = idx[i];
+  }
+  return parts.length === 1 ? parts[0]
+    : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+}
+
+/* Point every derived name at one extract. Called on load and again by the switch. */
+function loadDataset(key) {
+  ROWS = DATASETS[key].rows;
+
+  BY_COST_CENTRE = {};
+  MONTHS.forEach(function (mo) {
+    (ROWS[mo] || []).forEach(function (r) {
+      const g = seg4(r[0]);
+      BY_COST_CENTRE[g] = (BY_COST_CENTRE[g] || 0) + 1;
+    });
+  });
+
+  RANKING = Object.keys(BY_COST_CENTRE)
+    .map(function (code) { return { code: code, n: BY_COST_CENTRE[code] }; })
+    .sort(function (a, b) { return b.n - a.n || (a.code < b.code ? -1 : 1); });
+
+  SERIES_KEY  = RANKING.slice(0, 3).map(function (b) { return b.code; });
+  OTHER_CODES = RANKING.length - SERIES_KEY.length;
+  SEG4_COUNT  = RANKING.length;
+
+  const SERIES_DEF = [
+    { key: SERIES_KEY[0], color: 'var(--series-1)', raw: '#165788', dashed: false },
+    { key: SERIES_KEY[1], color: 'var(--series-2)', raw: '#df6d1c', dashed: false },
+    { key: SERIES_KEY[2], color: 'var(--series-3)', raw: '#c90062', dashed: false },
+    { key: 'Other',       color: 'var(--series-4)', raw: '#455560', dashed: true }
+  ];
+
+  /* One value per month IN THE WINDOW - a month with no rows contributes 0, which is
+     what keeps an empty month present in the table and in the stacked totals. */
+  SERIES = SERIES_DEF.map(function (s) {
+    const values = MONTHS.map(function (mo) {
+      return (ROWS[mo] || []).filter(function (r) {
+        const g = seg4(r[0]);
+        return s.key === 'Other' ? SERIES_KEY.indexOf(g) < 0 : g === s.key;
+      }).length;
+    });
+    return {
+      key: s.key,
+      label: s.key === 'Other' ? 'Other (' + OTHER_CODES + ' codes)' : 'Cost centre ' + s.key,
+      color: s.color,
+      raw: s.raw,
+      dashed: s.dashed,
+      values: values,
+      total: values.reduce(function (a, b) { return a + b; }, 0)
+    };
+  });
+
+  /* The trend line plots the monthly total. It equals the sum of the four series AND
+     the number of rows for that month, because all three read the same source. */
+  TOTALS    = MONTHS.map(function (mo) { return (ROWS[mo] || []).length; });
+  ROW_COUNT = TOTALS.reduce(function (a, b) { return a + b; }, 0);
+
+  /* Code strings per month, for the drill-through chip list. Months with no rows are
+     deliberately absent - buildCodes falls back to an empty list. */
+  CODES = {};
+  Object.keys(ROWS).forEach(function (mo) {
+    CODES[mo] = ROWS[mo].map(function (r) { return r[0]; });
+  });
+
+  /* The most recent month that ACTUALLY has rows. The trailing months of the window
+     can legitimately be empty, so the KPI cards must never assume the last month of
+     the window holds data - that would report a -100% collapse on a month that has
+     simply not happened yet. */
+  LAST_DATA_I = (function () {
+    for (let i = TOTALS.length - 1; i >= 0; i--) { if (TOTALS[i]) return i; }
+    return TOTALS.length - 1;
+  })();
+  PREV_DATA_I = (function () {
+    for (let i = LAST_DATA_I - 1; i >= 0; i--) { if (TOTALS[i]) return i; }
+    return null;
+  })();
+
+  PEAK_I = TOTALS.indexOf(Math.max.apply(null, TOTALS));
+  TOP3_N = RANKING.slice(0, 3).reduce(function (a, b) { return a + b.n; }, 0);
+
+  /* The window is the calendar's, not the file's, so its empty months are worked out
+     from the data: the ones before the first row are older than the extract, the ones
+     after the last row have simply not happened yet, and anything in between is a
+     month of genuine silence - a different claim, and not one to merge with the
+     other two. */
+  const stamps = [];
+  Object.keys(ROWS).forEach(function (mo) {
+    ROWS[mo].forEach(function (r) { stamps.push(r[2]); });
+  });
+  stamps.sort();
+  FIRST_STAMP = stamps.length ? stamps[0] : '';
+  FIRST_MONTH = FIRST_STAMP.slice(0, 7);
+  LAST_MONTH  = stamps.length ? stamps[stamps.length - 1].slice(0, 7) : '';
+  EMPTY_MONTHS = MONTHS.filter(function (mo, i) { return !TOTALS[i]; });
+
+  /* The peak month's own busiest day. v1's Sep 2025 has 66 of its 89 rows stamped
+     2025-09-04 to the second - one batch pushing rows through, not a month of
+     activity - and the page has to be able to say that about whichever month is
+     tallest, so it is measured rather than asserted. */
+  const peakMonth = MONTHS[PEAK_I];
+  const byDay = {};
+  (ROWS[peakMonth] || []).forEach(function (r) {
+    const d = r[2].slice(0, 10);
+    byDay[d] = (byDay[d] || 0) + 1;
+  });
+  const mode = Object.keys(byDay).sort(function (a, b) { return byDay[b] - byDay[a]; })[0];
+  BURST = { month: peakMonth, total: TOTALS[PEAK_I], day: mode || '', n: mode ? byDay[mode] : 0 };
+
+  const axis = axisFor(TOTALS[PEAK_I]);
+  Y_MAX  = axis.max;
+  Y_STEP = axis.step;
+
+  /* How many of the combinations listed on this page no purchase-order line carries.
+     Counted from the data rather than typed in, so the note cannot go stale against
+     what the drawer reports one click later. */
+  PO_MISSING = (function () {
+    if (!PO) return 0;
+    let n = 0;
+    MONTHS.forEach(function (mo) {
+      (CODES[mo] || []).forEach(function (code) { if (!(PO.byKey[code] || []).length) n++; });
+    });
+    return n;
+  })();
+}
+
+/* Newest timestamp anywhere in the extract - drives the "Last updated" card, so it
+   tracks the data instead of a hand-typed date that silently goes stale. MON_ABBR
+   itself is declared with the other month tables at the top of this block. */
+function fmtDate(stamp) {
+  if (!stamp || stamp.length < 10) return '\u2014';
+  return MON_ABBR[+stamp.slice(5, 7) - 1] + ' ' + (+stamp.slice(8, 10)) + ', ' + stamp.slice(0, 4);
+}
+
+const SERIES_COLOR = '#165788';
+
+/* ============================================================
+   Monotone cubic (Fritsch-Carlson) - smooth, and it never
+   overshoots below zero, which matters for a count axis.
+   ============================================================ */
+function monotonePath(pts) {
+  const n = pts.length;
+  if (n < 2) return '';
+  const dx = [], dy = [], m = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1].x - pts[i].x;
+    dy[i] = pts[i + 1].y - pts[i].y;
+    m[i]  = dy[i] / dx[i];
+  }
+  const t = new Array(n);
+  t[0] = m[0];
+  t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    if (m[i - 1] * m[i] <= 0) {
+      t[i] = 0;
+    } else {
+      const w1 = 2 * dx[i] + dx[i - 1];
+      const w2 = dx[i] + 2 * dx[i - 1];
+      t[i] = (w1 + w2) / (w1 / m[i - 1] + w2 / m[i]);
+    }
+  }
+  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const c1x = pts[i].x + dx[i] / 3;
+    const c1y = pts[i].y + t[i] * dx[i] / 3;
+    const c2x = pts[i + 1].x - dx[i] / 3;
+    const c2y = pts[i + 1].y - t[i + 1] * dx[i] / 3;
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ` +
+         `${pts[i + 1].x.toFixed(2)} ${pts[i + 1].y.toFixed(2)}`;
+  }
+  return d;
+}
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(name, attrs) {
+  const n = document.createElementNS(NS, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+let geometry = null;
+let selected = null;          /* index into MONTHS, or null for "nothing clicked" */
+
+/* ============================================================
+   Click-through: the code combinations behind a month's total
+   ============================================================ */
+function selectMonth(i) {
+  selected = (selected === i) ? null : i;   /* clicking the active month clears it */
+  closeDetail(false);                       /* the chips are about to be replaced */
+  render();
+  buildCodes();
+}
+
+function buildCodes() {
+  const box  = document.getElementById('codes');
+  const sub  = document.getElementById('codes-sub');
+  const chip = document.getElementById('codes-chip');
+
+  if (selected === null) {
+    sub.textContent  = 'Click a month on the trend line to list its code combinations.';
+    chip.textContent = 'No month selected';
+    box.innerHTML    = '<p class="codes__empty">Select a month above.</p>';
+    return;
+  }
+
+  const list = CODES[MONTHS[selected]] || [];
+  const noun = list.length === 1 ? 'code combination' : 'code combinations';
+
+  sub.innerHTML    = `<span class="codes__month">${MONTH_FULL[selected]}</span> \u00b7 ${list.length} ${noun}`;
+  chip.textContent = `${list.length} ${list.length === 1 ? 'code' : 'codes'}`;
+  chip.className   = list.length ? 'chip chip--info' : 'chip chip--warn';
+
+  box.innerHTML = list.length
+    ? list.map((c, k) => {
+        /* The chip's tint and its badge answer, without the click, the question
+           the click answers: how much has been posted to this combination.
+           Pale yellow when purchase-order lines carry it, pale blue when the
+           ledger knows the account and Oracle has nothing against it yet - a
+           real state, not a gap, which is why it is not a warning colour. */
+        const n = PO ? (PO.byKey[c] || []).length : null;
+        const tint  = n === null ? '' : (n ? ' code--posted' : ' code--unposted');
+        const badge = n === null ? '' : '<span class="code__n">' + n + '</span>';
+        const what = n === null ? 'Purchase-order lines for code combination ' + c
+          : 'Code combination ' + c + ', ' + (n
+              ? many(n, 'purchase-order line', 'purchase-order lines') + ' posted'
+              : 'nothing posted to it yet');
+        const tip = n === null ? 'Show the purchase-order lines posted to this combination'
+          : n ? 'Show the ' + many(n, 'purchase-order line', 'purchase-order lines') +
+                ' posted to this combination'
+              : 'Nothing is posted to this combination yet';
+        return '<button type="button" class="code' + tint + '" data-i="' + k +
+          '" aria-expanded="false" aria-controls="drawer" aria-label="' + what +
+          '" title="' + tip + '">' + c + badge + '</button>';
+      }).join('')
+    : '<p class="codes__empty">No code combinations were updated in ' + MONTH_FULL[selected] +
+      '. The month is still on the trend line, plotted at <strong>0</strong> \u2014 an empty month, ' +
+      'not missing data.</p>';
+
+  Array.prototype.forEach.call(box.querySelectorAll('.code'), btn => {
+    btn.addEventListener('click', () => openDetail(selected, +btn.dataset.i, btn));
+  });
+}
+
+/* ============================================================
+   Detail drawer - the purchase-order lines a combination carries
+
+   The drawer used to take the ledger row it was opened from and
+   list that row's own columns: the seven segment values, the
+   Oracle row flags, the null description. That answers "what is
+   this code", which the chip already said, and not "what has been
+   bought against it", which is what the click asks. It now looks
+   the combination up in the purchase-order extract instead.
+   ============================================================ */
+const PO = window.ORACLE_PO_LINES || null;
+
+/* PO_MISSING is written by loadDataset, with the rest of the per-extract state: how
+   many combinations carry no purchase-order line depends on which extract is on
+   screen, so it cannot be a one-off const computed at parse time. */
+
+function esc(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+/* Cents only when there are cents. The extract's amounts are mostly whole
+   dollars, and "$1,024,384.00" on every line is noise that hides the one line
+   that does carry cents. */
+function money(v) {
+  const dp = Math.round(v * 100) % 100 ? 2 : 0;
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+function many(n, one, plural) { return n + ' ' + (n === 1 ? one : plural); }
+
+/* The match rule, worded once and used in both branches. */
+const MATCH_NOTE =
+  'A match is the whole seven-segment key &mdash; <code>FUND</code>, <code>PURPOSE</code>, ' +
+  '<code>PROGRAM</code>, <code>OBJECT_</code>, <code>LEVEL_</code>, <code>COST_CENTER</code>, ' +
+  '<code>FUTURE_USE</code> &mdash; compared as one string against ' +
+  '<code>data/oracle/full-output.json</code>, the same extract the application reads. A line ' +
+  'differing in a single segment is not a match, so nothing here is inferred from the object ' +
+  'code or the level on its own.';
+
+function matchHtml(code) {
+  if (!PO) {
+    return `<p class="drawer__lead">The purchase-order extract did not load.</p>
+      <p class="drawer__note"><code>oracle-po-lines.js</code> is not sitting next to this page.
+      Regenerate it with <code>node scripts/build-mockup-data.mjs</code>.</p>`;
+  }
+
+  const lines = PO.byKey[code] || [];
+
+  /* A combination the ledger knows and the purchase-order extract does not is a
+     real answer, not a failed lookup: the account exists, nothing has been
+     posted to it. So it is stated plainly rather than dressed up. */
+  if (!lines.length) {
+    return `<p class="drawer__lead">No purchase-order line carries this combination.</p>
+      <p class="drawer__note">
+        The code is in the ledger extract &mdash; it is one of the ${ROW_COUNT} rows the trend
+        line counts &mdash; but none of the ${PO.rows.toLocaleString('en-US')} purchase-order
+        lines matches it. A ledger combination can exist before anything is posted to it, and
+        ${PO_MISSING} of the ${ROW_COUNT} combinations on this page are in that position.
+        ${MATCH_NOTE}
+      </p>`;
+  }
+
+  let total = 0, cancelled = 0, first = '', last = '';
+  const vendors = {}, orders = {};
+  lines.forEach(r => {
+    total += r[6];
+    if (r[8]) cancelled++;
+    if (!first || r[0] < first) first = r[0];
+    if (r[0] > last)  last  = r[0];
+    vendors[r[3]] = 1;
+    orders[r[1]]  = 1;
+  });
+  const vendorN = Object.keys(vendors).length, orderN = Object.keys(orders).length;
+
+  /* Rows are [date, order, line, vendorIx, buyerIx, description, amount, status, cancelled]. */
+  const items = lines.map(r => {
+    const vendor = PO.vendors[r[3]] || '';
+    const buyer  = PO.buyers[r[4]]  || '';
+    const meta   = ['Line ' + r[2], 'Buyer ' + (buyer || '&mdash;'), esc(r[7])];
+    return `<li class="match${r[8] ? ' match--cancelled' : ''}">
+        <div class="match__top">
+          <span class="match__order">#${r[1]}</span>
+          <span>${fmtDate(r[0])}</span>
+          <span class="match__amount">${money(r[6])}</span>
+        </div>
+        <p class="match__vendor">${vendor ? esc(vendor) : '&mdash;'}</p>
+        ${r[5] ? `<p class="match__desc">${esc(r[5])}</p>` : ''}
+        <p class="match__meta">
+          ${r[8] ? '<span class="chip chip--warn">Cancelled</span>' : ''}
+          <span>${meta.join(' &middot; ')}</span>
+        </p>
+      </li>`;
+  }).join('');
+
+  return `<p class="drawer__lead">
+      <strong>${many(lines.length, 'purchase-order line', 'purchase-order lines')}</strong>
+      ${lines.length === 1 ? 'carries' : 'carry'} this combination, worth
+      <strong>${money(total)}</strong> &mdash; ${many(orderN, 'order', 'orders')} from
+      ${many(vendorN, 'vendor', 'vendors')}, ${fmtDate(first)} to ${fmtDate(last)}.
+    </p>
+    <h3 class="drawer__h3">Purchase-order lines</h3>
+    <ul class="matches">${items}</ul>
+    <p class="drawer__note">
+      ${MATCH_NOTE}${cancelled ? ' One of these lines is cancelled in Oracle' +
+        ' (<code>CANCEL_FLAG</code> <code>Y</code>); it is struck through rather than hidden,' +
+        ' because the extract counts it.' : ''}
+    </p>`;
+}
+
+const drawerEl = document.getElementById('drawer');
+const scrimEl  = document.getElementById('drawer-scrim');
+const dEyebrow = document.getElementById('drawer-eyebrow');
+const dTitle   = document.getElementById('drawer-title');
+const dBody    = document.getElementById('drawer-body');
+const dClose   = document.getElementById('drawer-close');
+let   openChip = null;
+
+function openDetail(mi, ci, chip) {
+  if (mi === null || mi === undefined) return;
+  const rows = ROWS[MONTHS[mi]] || [];
+  const row  = rows[ci];
+  if (!row) return;
+
+  const code = row[0];
+
+  dEyebrow.textContent = MONTH_FULL[mi];
+  dTitle.textContent   = code;
+
+  dBody.innerHTML = matchHtml(code);
+
+  dBody.scrollTop = 0;
+  drawerEl.classList.add('is-open');
+  scrimEl.classList.add('is-open');
+  document.body.classList.add('drawer-open');
+
+  if (openChip && openChip !== chip) {
+    openChip.classList.remove('code--on');
+    openChip.setAttribute('aria-expanded', 'false');
+  }
+  openChip = chip || null;
+  if (openChip) {
+    openChip.classList.add('code--on');
+    openChip.setAttribute('aria-expanded', 'true');
+  }
+  /* Force the class change to be laid out before focusing: an element that is
+     still visibility:hidden cannot take focus, and style may not have been
+     recalculated yet in this same task. */
+  void drawerEl.offsetWidth;
+  dClose.focus();
+}
+
+/* restoreFocus=false is used when the chips are about to be thrown away, so we do
+   not try to focus an element that is no longer in the document. */
+function closeDetail(restoreFocus) {
+  if (!drawerEl.classList.contains('is-open')) { openChip = null; return; }
+  drawerEl.classList.remove('is-open');
+  scrimEl.classList.remove('is-open');
+  document.body.classList.remove('drawer-open');
+
+  const back = openChip;
+  if (back) {
+    back.classList.remove('code--on');
+    back.setAttribute('aria-expanded', 'false');
+  }
+  openChip = null;
+  if (restoreFocus !== false && back && back.isConnected) back.focus();
+}
+
+dClose.addEventListener('click', () => closeDetail(true));
+scrimEl.addEventListener('click', () => closeDetail(true));
+
+document.addEventListener('keydown', e => {
+  if (!drawerEl.classList.contains('is-open')) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeDetail(true); return; }
+  if (e.key !== 'Tab') return;
+  /* Focus trap - the panel is aria-modal, so Tab must not escape it */
+  const f = drawerEl.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+function render() {
+  const wrap = document.getElementById('chart-wrap');
+  const tip  = document.getElementById('tip');
+  const W = Math.max(320, wrap.clientWidth);
+  const H = W < 560 ? 260 : 300;
+  const pad = { top: 20, right: 16, bottom: 34, left: 42 };
+
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+  const n = MONTHS.length;
+
+  const x = i => pad.left + (innerW * i) / (n - 1);
+  const y = v => pad.top + innerH * (1 - v / Y_MAX);
+
+  wrap.querySelectorAll('svg').forEach(s => s.remove());
+
+  const svg = el('svg', {
+    width: W, height: H, viewBox: `0 0 ${W} ${H}`,
+    role: 'img',
+    'aria-label': 'Monthly trend: total code combinations per month, ' + MONTH_FULL[0] + ' to ' +
+                  MONTH_FULL[n - 1] + '. Peak is ' + TOTALS[PEAK_I] + ' in ' + MONTH_FULL[PEAK_I] +
+                  '. Months with no rows are plotted as zero.'
+  });
+
+  /* ---- gridlines + y labels ---- */
+  for (let v = 0; v <= Y_MAX; v += Y_STEP) {
+    const gy = y(v);
+    svg.appendChild(el('line', {
+      x1: pad.left, x2: W - pad.right, y1: gy, y2: gy,
+      stroke: 'var(--grid)', 'stroke-width': 1, 'stroke-dasharray': '2 4'
+    }));
+    const lab = el('text', {
+      x: pad.left - 10, y: gy + 4, 'text-anchor': 'end',
+      'font-size': 11, fill: '#a3a3a3'
+    });
+    lab.textContent = v;
+    svg.appendChild(lab);
+  }
+
+  /* ---- x labels ---- */
+  /* A 24-month axis cannot label every month, and each label now carries a year
+     ('Sep 24') so it needs ~48px instead of ~34px. Step the interval up until
+     neighbours clear that, and anchor from the right so the newest months are the
+     ones that keep their label. */
+  const gap  = innerW / (n - 1);
+  const step = Math.max(1, Math.ceil(48 / gap));
+
+  /* Which months get a tick: every step-th month counted back from the newest, plus
+     the selected month. A grid tick only stands down if its label would actually
+     collide with the selected one, measured in PIXELS - suppressing by step count
+     would also kill a neighbour that still has room. */
+  const LAB_W = 46;
+  const ticked = new Set();
+  for (let i = n - 1; i >= 0; i -= step) ticked.add(i);
+  if (selected !== null) {
+    ticked.add(selected);
+    Array.from(ticked).forEach(j => {
+      if (j !== selected && Math.abs(j - selected) * gap < LAB_W) ticked.delete(j);
+    });
+  }
+
+  MONTHS.forEach((mo, i) => {
+    if (!ticked.has(i)) return;
+    const lab = el('text', {
+      x: x(i), y: H - 12, 'text-anchor': 'middle',
+      'font-size': 11, fill: '#a3a3a3'
+    });
+    if (selected === i) lab.setAttribute('class', 'month--on');
+    lab.textContent = MONTH_LABEL[i];
+    svg.appendChild(lab);
+  });
+
+  /* ---- persistent guide on the selected month ---- */
+  if (selected !== null) {
+    svg.appendChild(el('line', {
+      class: 'guide guide--on',
+      x1: x(selected), x2: x(selected),
+      y1: pad.top, y2: pad.top + innerH
+    }));
+  }
+
+  /* ---- soft fill under the line ---- */
+  const defs = el('defs');
+  const grad = el('linearGradient', { id: 'trendFill', x1: 0, y1: 0, x2: 0, y2: 1 });
+  grad.appendChild(el('stop', { offset: '0%',   'stop-color': SERIES_COLOR, 'stop-opacity': .16 }));
+  grad.appendChild(el('stop', { offset: '100%', 'stop-color': SERIES_COLOR, 'stop-opacity': 0 }));
+  defs.appendChild(grad);
+  svg.appendChild(defs);
+
+  /* ---- the trend line: monthly totals ---- */
+  const pts  = TOTALS.map((v, i) => ({ x: x(i), y: y(v) }));
+  const line = monotonePath(pts);
+  const base = pad.top + innerH;
+
+  svg.appendChild(el('path', {
+    d: `${line} L ${pts[n - 1].x.toFixed(2)} ${base.toFixed(2)} ` +
+       `L ${pts[0].x.toFixed(2)} ${base.toFixed(2)} Z`,
+    fill: 'url(#trendFill)', stroke: 'none'
+  }));
+
+  svg.appendChild(el('path', {
+    d: line, fill: 'none', stroke: SERIES_COLOR,
+    'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+  }));
+
+  /* ---- point markers + the value printed above each one ---- */
+  pts.forEach((p, i) => {
+    const on = (selected === i);
+    svg.appendChild(el('circle', {
+      cx: p.x, cy: p.y, r: on ? 6 : 4,
+      fill: on ? SERIES_COLOR : '#fff',
+      stroke: SERIES_COLOR, 'stroke-width': 2
+    }));
+    const lab = el('text', {
+      x: p.x, y: p.y - (on ? 15 : 11), 'text-anchor': 'middle',
+      'font-size': on ? 13 : 12, 'font-weight': 700, fill: SERIES_COLOR
+    });
+    lab.textContent = TOTALS[i];
+    svg.appendChild(lab);
+  });
+
+  /* ---- hover layer ---- */
+  const guide = el('line', {
+    class: 'guide', y1: pad.top, y2: pad.top + innerH, x1: 0, x2: 0, opacity: 0
+  });
+  svg.appendChild(guide);
+  const hoverDot = el('circle', {
+    r: 5.5, fill: 'none', stroke: SERIES_COLOR, 'stroke-width': 2, opacity: 0
+  });
+  svg.appendChild(hoverDot);
+
+  const half = innerW / (n - 1) / 2;
+  MONTHS.forEach((mo, i) => {
+    const cx = x(i);
+    const left  = Math.max(pad.left, cx - half);
+    const right = Math.min(W - pad.right, cx + half);
+    const hit = el('rect', {
+      class: 'hit', x: left, y: pad.top,
+      width: Math.max(1, right - left), height: innerH
+    });
+
+    const show = () => {
+      guide.setAttribute('x1', cx);
+      guide.setAttribute('x2', cx);
+      guide.setAttribute('opacity', 1);
+      hoverDot.setAttribute('cx', cx);
+      hoverDot.setAttribute('cy', y(TOTALS[i]));
+      hoverDot.setAttribute('opacity', 1);
+
+      tip.innerHTML =
+        `<div class="tip__month">${MONTH_FULL[i]}</div>` +
+        `<div class="tip__row"><span>Code combinations</span>` +
+        `<span class="tip__val">${TOTALS[i]}</span></div>` +
+        `<div class="tip__hint">Click to list them</div>`;
+
+      tip.classList.add('is-on');
+      const tw = tip.offsetWidth || 180;
+      const clamped = Math.min(Math.max(cx, tw / 2 + 4), W - tw / 2 - 4);
+      tip.style.left = clamped + 'px';
+      /* Anchor the tip above the point, but flip it below when the point sits near
+         the top of the plot - the tall months are exactly the ones worth hovering,
+         and the tip would otherwise sit on top of the value it is reporting. */
+      const py = y(TOTALS[i]);
+      tip.style.top = (py < 52 ? py + 18 : py - 14) + 'px';
+    };
+
+    const hide = () => {
+      guide.setAttribute('opacity', 0);
+      hoverDot.setAttribute('opacity', 0);
+      tip.classList.remove('is-on');
+    };
+
+    hit.addEventListener('mouseenter', show);
+    hit.addEventListener('mousemove', show);
+    hit.addEventListener('mouseleave', hide);
+
+    /* click / Enter / Space selects the month for the drill-through panel */
+    hit.setAttribute('tabindex', '0');
+    hit.setAttribute('role', 'button');
+    hit.setAttribute('aria-pressed', selected === i ? 'true' : 'false');
+    hit.setAttribute('aria-label',
+      `${MONTH_FULL[i]}: ${TOTALS[i]} code combinations. Show them below.`);
+    hit.addEventListener('click', () => selectMonth(i));
+    hit.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        selectMonth(i);
+      }
+    });
+
+    svg.appendChild(hit);
+  });
+
+  wrap.appendChild(svg);
+  geometry = true;
+}
+
+/* ============================================================
+   Horizontal bars - ranked from ROWS, so the bars cannot
+   disagree with the chart or the detail table.
+   ============================================================ */
+function buildBreakdown() {
+  const max = RANKING[0].n;
+  document.getElementById('breakdown').innerHTML = RANKING.map(b => `
+    <div class="hbar${SERIES_KEY.indexOf(b.code) < 0 ? ' hbar--rest' : ''}">
+      <span class="hbar__label">${b.code}</span>
+      <span class="hbar__track"><span class="hbar__fill" style="width:${(b.n / max * 100).toFixed(1)}%"></span></span>
+      <span class="hbar__value">${b.n}</span>
+    </div>`).join('');
+}
+
+/* ============================================================
+   Data table
+   ============================================================ */
+function buildTable() {
+  const tbody = document.getElementById('tbody');
+  const totals = SERIES.map(() => 0);
+
+  /* The header names the three cost centres that actually lead the ACTIVE extract,
+     so it cannot go on claiming the columns of the file this page was built
+     against - v1 is led by 541 and v2 by 529. */
+  document.getElementById('thead-row').innerHTML =
+    '<th scope="col">Month</th>' +
+    SERIES.map((s, k) =>
+      `<th scope="col"><span class="swatch" style="background:var(--series-${k + 1})"></span>${s.key}</th>`
+    ).join('') +
+    '<th scope="col">Total</th>';
+
+  tbody.innerHTML = MONTHS.map((mo, i) => {
+    const cells = SERIES.map((s, k) => { totals[k] += s.values[i]; return s.values[i]; });
+    const total = cells.reduce((a, b) => a + b, 0);
+    /* Grey the months that have no rows - in a 24-month window those are real
+       periods with a real zero, not padding to be skimmed past. */
+    const dim = (TOTALS[i] === 0) ? ' style="color:#a3a3a3"' : '';
+    return `<tr>
+      <td${dim}>${MONTH_FULL[i]}</td>
+      ${cells.map(c => `<td class="num"${dim}>${c}</td>`).join('')}
+      <td class="num"${dim}>${total}</td>
+    </tr>`;
+  }).join('');
+
+  const grand = totals.reduce((a, b) => a + b, 0);
+  document.getElementById('tfoot').innerHTML =
+    `<td>Total</td>` +
+    totals.map(t => `<td class="num">${t}</td>`).join('') +
+    `<td class="num">${grand}</td>`;
+}
+
+/* ============================================================
+   Boot
+   ============================================================ */
+/* 'two' rather than '2' for the counts that appear inside a sentence. */
+function countWord(n) {
+  const w = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+             'nine', 'ten', 'eleven', 'twelve'];
+  return n < w.length ? w[n] : String(n);
+}
+function countWordCap(n) { return countWord(n).charAt(0).toUpperCase() + countWord(n).slice(1); }
+
+/* ------------------------------------------------------------
+   The sentence under the chart. Every clause is a claim about
+   the ACTIVE extract, so all three of them - how many months are
+   empty, why, and whether the tallest month is one batch - are
+   measured rather than written down. v1 has two empty months and
+   a 66-row burst; v2 has thirteen empty months and a 29-row one,
+   and neither set of numbers would survive being hard-coded.
+   ------------------------------------------------------------ */
+function buildCallout() {
+  const n      = EMPTY_MONTHS.length;
+  const before = EMPTY_MONTHS.filter(mo => mo < FIRST_MONTH);
+  const after  = EMPTY_MONTHS.filter(mo => mo > LAST_MONTH);
+  const gaps   = EMPTY_MONTHS.filter(mo => mo > FIRST_MONTH && mo < LAST_MONTH);
+
+  const clauses = [];
+  if (before.length) {
+    clauses.push(monthList(before) + ', which ' + (before.length === 1 ? 'predates' : 'predate') +
+      ' the extract\u2019s earliest <code>LAST_UPDATE_DATE</code> (' + FIRST_STAMP.slice(0, 10) + ')');
+  }
+  if (gaps.length) {
+    clauses.push(monthList(gaps) + ', with no rows and nothing in the extract to explain it');
+  }
+  if (after.length) {
+    clauses.push(monthList(after) + ', which ' + (after.length === 1 ? 'has' : 'have') +
+      ' had no changes yet');
+  }
+  const joined = clauses.length === 1 ? clauses[0]
+    : clauses.slice(0, -1).join('; ') + '; and ' + clauses[clauses.length - 1];
+
+  document.getElementById('callout-empty').innerHTML = n
+    ? '<strong>' + countWordCap(n) + '</strong> of the ' + WINDOW + ' months in the window ' +
+      (n === 1 ? 'carries' : 'carry') + ' no rows: ' + joined + '.'
+    : 'Every month in the window carries at least one row.';
+
+  const b = BURST;
+  document.getElementById('callout-burst').innerHTML = (b.total && b.n / b.total >= 0.33)
+    ? ' <strong>' + MONTH_FULL[MONTHS.indexOf(b.month)] + '</strong> is the opposite case &mdash; ' +
+      b.n + ' of its ' + b.total + ' rows stamped <code>' + b.day + '</code> to the second, one ' +
+      'batch rather than a month of activity &mdash; so read that month as rows touched, not as ' +
+      'business volume.'
+    : '';
+}
+
+/* ------------------------------------------------------------
+   Data quality & coverage. Three of its five rows are counts
+   that move with the extract, so its chip, its figure and its
+   sentence are all written here; the two that describe the
+   schema (1:1, no name lookup) are true of both files and stay
+   in the markup.
+   ------------------------------------------------------------ */
+function buildQuality() {
+  const f = DATASETS[version].facts;
+  const n = EMPTY_MONTHS.length;
+
+  document.getElementById('dq-cols').textContent  = (f.constant + (f.nullDescription ? 1 : 0)) +
+    ' / ' + f.columns;
+  document.getElementById('dq-const').textContent = f.constant;
+  document.getElementById('dq-null').textContent  = f.nullDescription;
+  document.getElementById('dq-s2').textContent    = f.segment2;
+  document.getElementById('dq-s4').textContent    = SEG4_COUNT;
+
+  document.getElementById('dq-months').textContent = (WINDOW - n) + ' / ' + WINDOW;
+  document.getElementById('dq-months-note').innerHTML = n
+    ? countWordCap(n) + (n === 1 ? ' month of the window carries' : ' months of the window carry') +
+      ' no rows &mdash; ' + monthList(EMPTY_MONTHS) + ' &mdash; and ' +
+      (n === 1 ? 'it is' : 'they are') + ' plotted at 0 so the axis stays continuous.'
+    : 'Every month of the window carries rows, so the axis has no empty periods in it.';
+
+  document.getElementById('dq-peak').textContent = TOTALS[PEAK_I];
+  document.getElementById('dq-peak-note').innerHTML =
+    '<strong>' + MONTH_FULL[PEAK_I] + '</strong> holds ' + TOTALS[PEAK_I] + ' of the ' + ROW_COUNT +
+    ' rows, ' + BURST.n + ' of them stamped <code>' + BURST.day + '</code> to the second. The ' +
+    'line counts <em>rows touched</em>, not business volume.';
+
+  document.getElementById('dq-s5').textContent = f.segment5;
+  document.getElementById('dq-s5-note').innerHTML = f.segment5 + ' distinct values over ' +
+    ROW_COUNT + ' rows';
+}
+
+/* ------------------------------------------------------------
+   KPI cards - all written from the data, so switching extract
+   needs no edit here. The activity card keys off the last month
+   that HAS rows in that extract, never the last month of the
+   window: an empty trailing month would otherwise report -100%.
+   ------------------------------------------------------------ */
+function buildKpis() {
+  document.getElementById('kpi-updated').textContent = fmtDate(LAST_STAMP);
+  document.getElementById('kpi-total').textContent   = ROW_COUNT;
+
+  document.getElementById('kpi-latest-label').textContent = MONTH_FULL[LAST_DATA_I] + ' activity';
+  document.getElementById('kpi-latest').textContent       = TOTALS[LAST_DATA_I];
+
+  const prevN = PREV_DATA_I === null ? 0 : TOTALS[PREV_DATA_I];
+  const pct   = prevN ? (TOTALS[LAST_DATA_I] - prevN) / prevN * 100 : 0;
+  const sign  = pct > 0 ? ['delta--up', '\u25b2 +']
+              : pct < 0 ? ['delta--down', '\u25bc ']
+              :           ['delta--flat', ''];
+  document.getElementById('kpi-latest-note').innerHTML =
+    '<span class="delta ' + sign[0] + '">' + sign[1] + pct.toFixed(1) + '%</span> vs ' + prevN +
+    ' in ' + (PREV_DATA_I === null ? '\u2014' : MON_ABBR[+MONTHS[PREV_DATA_I].slice(5, 7) - 1]);
+
+  document.getElementById('kpi-top3').innerHTML =
+    (TOP3_N / ROW_COUNT * 100).toFixed(1) + '<small>%</small>';
+  document.getElementById('kpi-top3-note').textContent =
+    TOP3_N + ' of ' + ROW_COUNT + ' rows in 3 cost centres';
+
+  /* The page head, the two panel footers and the stacked-bar caption all quote a
+     figure that belongs to the file on screen, so they are re-written with it. The
+     chip states the window, which moves with the calendar - it is the same 24 months
+     for both extracts, because the window belongs to the calendar, not the file. */
+  document.getElementById('head-rows').textContent   = ROW_COUNT;
+  document.getElementById('head-range').textContent  =
+    monthShort(FIRST_MONTH) + ' \u2013 ' + monthShort(LAST_MONTH);
+  document.getElementById('head-source').textContent = DATASETS[version].file;
+  document.getElementById('foot-source').textContent = DATASETS[version].file;
+  document.getElementById('foot-rows').textContent   = ROW_COUNT;
+
+  document.getElementById('trend-cc').textContent   = SEG4_COUNT;
+  document.getElementById('trend-rows').textContent = ROW_COUNT;
+  document.getElementById('trend-peak').textContent = TOTALS[PEAK_I] + ' in ' + MONTH_FULL[PEAK_I];
+
+  document.getElementById('chart-window').textContent =
+    MONTH_LABEL[0] + ' \u2013 ' + MONTH_LABEL[MONTHS.length - 1];
+
+  document.getElementById('bd-n').textContent   = SEG4_COUNT;
+  document.getElementById('bd-max').textContent = RANKING.length
+    ? RANKING[0].code + ', ' + RANKING[0].n + ' rows' : '\u2014';
+}
+
+/* The switch's own state. aria-pressed is the state a screen reader reads out and
+   the attribute the CSS paints from, so there is exactly one place to set it. */
+function syncVersion() {
+  Array.prototype.forEach.call(document.querySelectorAll('.seg__btn'), function (btn) {
+    btn.setAttribute('aria-pressed', btn.dataset.version === version ? 'true' : 'false');
+  });
+}
+
+function applyVersion(key) {
+  if (!DATASETS[key]) return;
+  version = key;
+  loadDataset(key);
+  syncVersion();
+
+  /* The drawer holds a row out of the extract being left, so close it rather than
+     leave a panel describing a combination the chart no longer knows about. */
+  closeDetail(false);
+
+  /* Open on the most recent month that has rows IN THIS EXTRACT. Carrying the old
+     selection across would point at a month the reader never picked in this data:
+     v1 opens on Jul 2026, and v2 does too, but a month chosen in one file can be
+     empty in the other. */
+  selected = LAST_DATA_I;
+  buildKpis();
+  buildCallout();
+  buildQuality();
+  buildBreakdown();
+  buildTable();
+  buildCodes();
+  render();
+}
+
+Array.prototype.forEach.call(document.querySelectorAll('.seg__btn'), function (btn) {
+  btn.addEventListener('click', function () { applyVersion(btn.dataset.version); });
+});
+
+applyVersion('v1');
+
+let raf = null;
+const ro = new ResizeObserver(() => {
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(render);
+});
+ro.observe(document.getElementById('chart-wrap'));
+</script>
+</body>
+</html>

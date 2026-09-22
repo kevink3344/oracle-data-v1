@@ -1,0 +1,543 @@
+/* ============================================================================
+   Object-code detail page.
+
+   The page is a full-width frame, so it reuses the dashboard's .hbar bars and
+   the shared .panel / .kpis / table.data primitives and adds only two things the
+   app did not have: a wrapping PO-line table and a pager.
+
+   Nowhere is a literal colour used — every value is a token, so the page themes
+   with the rest of the app for free.
+   ============================================================================ */
+
+/* The pager scrolls the panel head back into view on every page change. The
+   topbar is sticky with a 56px min-height, so the scroll target needs the
+   clearance or the heading lands underneath it. */
+.objdetail__lines {
+  scroll-margin-top: 72px;
+}
+
+/* --- PO-line table ---------------------------------------------------- */
+
+/* table-layout:fixed makes the column widths below authoritative instead of
+   hints, so at any container width the description column receives exactly the
+   space left over and never collapses — which is what a width-agnostic auto
+   layout did here: at a 772px container the six sized columns and their padding
+   consumed the whole table and the description rendered 18px wide and 3,339px
+   tall. min-width below that point hands the overflow to .table-wrap, which
+   already scrolls horizontally, rather than squeezing the text to nothing. */
+table.data.objtable {
+  table-layout: fixed;
+  min-width: 920px;
+}
+
+table.data.objtable thead th,
+table.data.objtable tbody td {
+  padding: 10px;
+}
+
+table.data.objtable tbody td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The one column that must not wrap: a dollar figure broken across lines is
+   unreadable, and tabular figures keep the column edge straight. */
+table.data.objtable td.n {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* Widths are border-box, so each carries its own 2 x 10px padding. The date is
+   authored as a bare ISO string and is only ~72px at this size, so 92 is the
+   narrowest it can be without breaking "2026-08-04" across two lines. The six
+   sized columns total 614px; every pixel beyond that in the table's final width
+   goes to the description. */
+table.data.objtable col.c-order {
+  width: 78px;
+}
+table.data.objtable col.c-date {
+  width: 92px;
+}
+table.data.objtable col.c-line {
+  width: 52px;
+}
+table.data.objtable col.c-level {
+  width: 134px;
+}
+table.data.objtable col.c-vendor {
+  width: 154px;
+}
+table.data.objtable col.c-amount {
+  width: 104px;
+}
+/* No width on the description col — under table-layout:fixed it takes whatever
+   is left, which is the widest content on the page and the reason the page
+   exists. */
+
+/* Three classes, not two: the wrapping rule above is `table.data.objtable tbody td`
+   at (0,2,3), so this needs to outrank it rather than merely follow it. */
+table.data.objtable td.po-num {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  /* Order, date and line are fixed-shape codes. Wrapping them is not a
+     narrower rendering of the same value — "2026-" over "08-04" is a
+     different-looking string that reads as a truncation. */
+  white-space: nowrap;
+}
+
+/* Two lines in one cell: the code the extract carries, and the name the app
+   resolves for it. The name is what a reader recognises, so it carries weight. */
+.objtable__level {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.objtable__proj {
+  margin-top: 2px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* --- filter bar ------------------------------------------------------- */
+
+/* .filterbar supplies the sunken band, the padding and the wrap; this only has
+   to make the search box grow and keep the chips at their natural width. The
+   chip and the export sit to its right, where /projects puts its own filters. */
+.objfilter__box {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 200px;
+  max-width: 440px;
+}
+
+.objfilter__box svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.objfilter__box input {
+  width: 100%;
+  padding: 6px 10px 6px 29px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* --surface on the sunken band, the same pairing .fchip uses beside it. */
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color var(--transition);
+}
+
+.objfilter__box input::placeholder {
+  color: var(--text-faint);
+}
+
+.objfilter__box input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.objfilter__box input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* The no-match state replaces the table rather than adding an empty row to it:
+   a full-width cell inside a 920px fixed-layout table would centre its message
+   inside 920px, and the first 772px of that is all a narrow panel ever shows. */
+.objtable__none {
+  padding: 32px 16px 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.objtable__none p {
+  margin: 0 0 10px;
+}
+
+.objtable__nonehint {
+  max-width: 52ch;
+  margin: 0 auto 16px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* --- pager ------------------------------------------------------------ */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.pager__pages {
+  display: flex;
+  gap: 2px;
+}
+
+.pager__n {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.pager__n:hover {
+  background: var(--surface-hover);
+}
+
+/* The current page is a state, not a control — it is not a link anywhere, so it
+   is drawn flat and loses its pointer. */
+.pager__n[aria-current='page'] {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: var(--on-brand);
+  cursor: default;
+}
+
+.pager__n[aria-current='page']:hover {
+  background: var(--primary-color);
+}
+
+.pager__n:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+/* --- clickable vendor rows -------------------------------------------- */
+
+/* The "Largest vendors" rows open the vendor panel, so each row has to be a
+   real control rather than a div. A button carries the row's own grid — the
+   button *is* the grid container, exactly as the dashboard's object-code rows
+   are anchors — and everything below is the browser's button default being
+   undone: a centred, shrink-to-fit box with its own font, border and fill.
+
+   The gap moves from the container to the row's own padding, because a hover
+   background needs room around the text while padding on a grid child would
+   misalign the bar tracks. Zeroing the container gap keeps these rows the same
+   distance apart as every other .hbar. */
+.hbar--btns {
+  gap: 0;
+}
+
+button.hbar__row--btn {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+button.hbar__row--btn:hover {
+  background: var(--surface-hover);
+}
+
+/* base.css underlines an anchor on hover; doing the same to the whole row would
+   stripe the dollar figure and the note, so only the name reads as the target. */
+button.hbar__row--btn:hover .hbar__name {
+  text-decoration: underline;
+}
+
+/* inset because the row's own padding is the visual boundary, not the outline */
+button.hbar__row--btn:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: -2px;
+}
+
+/* --- vendor panel ----------------------------------------------------- */
+
+/* A second slide-out, owned by this page. It borrows the project drawer's
+   language — fixed right, same border and shadow, same transition, same body
+   lock and focus trap, same resize grip — but not its class, and it reads no
+   selection from the store. It names one vendor of the page's own object code,
+   which is state only this route holds. */
+.vdpanel {
+  /* The stylesheet owns the width until the reader resizes; the inline style
+     then overrides only this variable, so the 94vw cap still applies to a
+     stored 1200px on a laptop. */
+  --vdpanel-w: 400px;
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--vdpanel-w), 94vw);
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-drawer);
+  transform: translateX(102%);
+  visibility: hidden;
+  transition: transform var(--transition), visibility var(--transition);
+}
+
+.vdpanel.is-open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+/* The grip's own block styling is shared with the project drawer. Only this
+   panel wants the second half of `is-resizing`, so it is scoped here: the
+   drawer's equivalent rule is keyed on `.drawer.is-resizing`. */
+.vdpanel.is-resizing .drawer__grip::after {
+  opacity: 1;
+}
+
+.vdpanel__head {
+  position: relative;
+  flex: none;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vdpanel__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.vdpanel__name {
+  margin-top: 4px;
+  padding-right: 34px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-heading);
+}
+
+.vdpanel__meta {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.vdpanel__meta b {
+  color: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.vdpanel__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.vdpanel__foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+/* --- inside the vendor panel ------------------------------------------ */
+
+.vdfigure {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.vdnote {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.vdnote b {
+  color: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.vdbar {
+  margin-top: 12px;
+}
+
+/* The projects this vendor is booked to under this object code. Every row is
+   the link back out to the project, so the whole row is the anchor. */
+.vdproj {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vdproj__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* base.css colours every anchor with --link; these rows inherit instead. */
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.vdproj__row:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  text-decoration: none;
+}
+
+.vdproj__row:hover .vdproj__name {
+  text-decoration: underline;
+}
+
+.vdproj__row:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+}
+
+.vdproj__name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vdproj__val {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vdproj__meta {
+  grid-column: 1 / -1;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vdproj__go,
+.vdlines__go {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.vdlines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.vdlines > li {
+  padding: 8px 10px;
+}
+
+.vdlines > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.vdlines__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.vdlines__order {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.vdlines__date {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vdlines__amt {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vdlines__desc {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.vdlines__meta {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* --- compact ---------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .pager {
+    gap: var(--space-3);
+  }
+
+  /* At this width the head's close button and the vendor name want the room a
+     fixed ceiling would take back, so the panel takes the viewport cap whatever
+     the reader previously chose. That also makes the grip inert — min() would
+     clamp every dragged width to the same 94vw — and a handle that moves
+     nothing is worse than no handle. */
+  .vdpanel {
+    --vdpanel-w: 94vw;
+  }
+
+  .vdpanel .drawer__grip {
+    display: none;
+  }
+}

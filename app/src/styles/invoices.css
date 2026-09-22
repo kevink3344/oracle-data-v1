@@ -1,0 +1,945 @@
+/* ============================================================================
+   Invoices — the invoice register and its check panel.
+
+   The mirror of `checks.css`, and it extends the same set: `.panel`, `.table-wrap`,
+   `table.data`, `.filterbar`, `.fchip`, `.pager`, `.dsec`, `.btn`, `.notice` and
+   the `.drawer` primitive, none of which it redeclares.
+
+   Two dependencies on `checks.css` are deliberate and are the only coupling
+   between the two sheets:
+
+     · `.invfilter__box` is `.chkfilter__box` under another name, which is itself
+       `.objfilter__box` under another name. Same control, third page, and the
+       reason it is copied rather than shared has not changed: a shared class would
+       have to live in components.css, and neither page owns the other's CSS.
+
+     · `.pager__gap` is NOT redeclared. It is already global, it is three lines of
+       decoration on a class whose name says exactly what it is, and a second
+       identical block would be a copy with no reader.
+   ============================================================================ */
+
+/* --- the figures above the table -------------------------------------- */
+
+.invstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 16px;
+}
+
+.invstat {
+  position: relative;
+  padding: 16px clamp(10px, 1.6vw, 20px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.invstat::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--primary-color);
+}
+
+.invstat__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.invstat__v {
+  margin-top: 6px;
+  font-size: clamp(1.25rem, 3vw, 1.625rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.invstat__n {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- filter bar ------------------------------------------------------- */
+
+.invfilter__box {
+  position: relative;
+  flex: 1 1 300px;
+  min-width: 200px;
+  max-width: 480px;
+}
+
+.invfilter__box svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.invfilter__box input {
+  width: 100%;
+  padding: 6px 10px 6px 29px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color var(--transition);
+}
+
+.invfilter__box input::placeholder {
+  color: var(--text-faint);
+}
+
+.invfilter__box input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.invfilter__box input:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* The account filter. A native `<select>` beside the search box, and it is
+   deliberately NOT a copy of `.invfilter__box`: that is a box with an icon in it,
+   this is a control with a caret the browser draws. What it shares is the only
+   thing that matters — the height, the font size and the surface — so the two sit
+   on one line without one of them looking like a different generation of the app.
+
+   `flex: 0 1 300px` rather than `1 1`: the free-text box should absorb the slack,
+   because it is the control a reader uses constantly and this one is used to
+   answer a single question and then be reset. */
+.invfilter__pick {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.fselect {
+  width: 100%;
+  max-width: 340px;
+  padding: 6px 26px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.fselect:hover {
+  border-color: var(--primary-color);
+}
+
+.fselect:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+/* A chosen combination is 29 characters of mono and would set the width of the
+   whole control, so the list is mono while the collapsed value is not: the reader
+   is choosing between codes, not reading one. */
+.fselect option {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* --- the table -------------------------------------------------------- */
+
+/* ★ AUTO layout, not `table-layout: fixed` like the checks table.
+
+   That table has five narrow columns of uniform content, so fixing them makes
+   the widths authoritative. This one has a column whose content is free text of
+   wildly varying length — an invoice number runs from 3 characters to 31, and a
+   real one reads `USE TAX/01JUN2618:06/F08/7.25`. Fixing that column would mean
+   either clipping the identifier the reader came for, or reserving 31 characters
+   of width for every row to serve the handful that need it. So the browser sizes
+   the columns, and `min-width` hands any overflow to `.table-wrap`, which already
+   scrolls horizontally. */
+table.data.invtable {
+  min-width: 880px;
+}
+
+table.data.invtable thead th,
+table.data.invtable tbody td {
+  padding: 10px 12px;
+}
+
+table.data.invtable col.c-date {
+  width: 96px;
+}
+table.data.invtable col.c-amount {
+  width: 128px;
+}
+table.data.invtable col.c-checks {
+  width: 88px;
+}
+/* 264px, and the extra over the code itself is not slack: 24px of cell padding
+   plus the 5px gap plus the `+N` chip, which every one of the 53 multi-account
+   rows carries. The code is 29 characters and needs 200px at 0.75rem mono, so a
+   200px column — the figure this was first set from — left the code 168px and
+   ellipsised it on 100% of rows, which is measured, not estimated. */
+table.data.invtable col.c-account {
+  width: 264px;
+}
+/* No width on the invoice or vendor cols: under auto layout those are the two
+   whose length is genuinely unbounded. The account column IS fixed, because its
+   content is bounded by construction — the assembled code runs 21 to 29
+   characters, so 200px holds all of them at 0.75rem mono and no more, and the
+   longest is ellipsised rather than pushing a 29-character code into a column that
+   would then wrap mid-segment.
+
+   ★ "Unbounded" is the whole problem for the vendor column, though, and it needed
+   more than leaving the width off — see the wrapping rule immediately below. */
+
+/* ★ The one column allowed to wrap, and it is not a style preference.
+
+   `table.data td` sets `white-space: nowrap` globally and only `td:first-child`
+   undoes it, so every cell but the invoice number is forbidden to break. That is
+   right for a date, an amount, a check count and a code. It is wrong for the
+   vendor, which is the only column here whose content is unbounded prose with no
+   length cap at all — and one real vendor name in this extract,
+   `BROADWAY TYPEWRITER COMPANY INC DBA AREY JONES…`, renders 513px wide on one
+   line.
+
+   Measured, at the 1140px panel the `--content-max` token produces:
+   invoice 204 · date 70 · amount 99 · checks 73 · vendor 513 · account 200 (+144
+   of padding) — a 1,270px table in a 1,136px window. The table under `width: 100%`
+   and `table-layout: auto` cannot go below the sum of its columns' min-content
+   widths, so it overflowed by 134px and `.table-wrap` clipped exactly the column
+   this page exists to show: the Account cell sat at x 1281–1500 with the wrap
+   ending at 1366, so two-thirds of the code was off-screen until the reader
+   scrolled sideways.
+
+   Letting this cell wrap drops the column's min-content to its longest single word
+   (~100px) and the table's to ~895px, inside `min-width: 880px`, so nothing
+   overflows and nothing is hidden: the long name takes a second line, and the
+   29-character code keeps the 200px it needs. Ellipsising the vendor instead would
+   have hidden the payee, which is the figure next to the amount on every row.
+
+   Three classes' worth of specificity, to beat `table.data td`'s nowrap at (0,1,1)
+   exactly as `td.inv-no` does in the other direction above. */
+table.data.invtable td.inv-vendor {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Four classes' worth of specificity, because `table.data td:first-child` sets
+   `white-space: normal` at (0,2,2) and an invoice number must never wrap — a
+   number broken across two lines reads as two numbers. This rule is (0,3,2). */
+table.data.invtable td.inv-no {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+table.data.invtable td.n.inv-no {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* A credit note, signed and coloured. 179 of the 3,736 invoices carry a negative
+   amount, and this view has no other way to say "credit" — `TAX_AMOUNT` is 0 on
+   every row and there is no invoice-type column at all. A credit rendered as an
+   ordinary amount is the figure a reader would add twice. */
+table.data.invtable td.invtable__credit {
+  color: var(--warn-fg);
+}
+
+/* The row opens the panel, so the whole row has to look like it does — pointer
+   cursor, hover, and a left rule while its panel is open. */
+table.data.invtable tbody tr.invtable__row {
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+table.data.invtable tbody tr.invtable__row:hover {
+  background: var(--surface-hover);
+}
+
+table.data.invtable tbody tr.is-open {
+  background: var(--surface-active);
+}
+
+table.data.invtable tbody tr.is-open td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* The invoice number is the row's own button: the row click is for the mouse, and
+   this is what a keyboard reaches. It is styled as a link because that is what it
+   behaves like, but it is a real button so it is focusable, announced as a
+   control and driven by Enter and Space without any help. */
+.inv-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.inv-link:hover {
+  text-decoration: underline;
+}
+
+.inv-link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The check count. Three states, not two, because the difference between them is
+   what the page is for:
+
+     `—`  no check settled this invoice. Drawn as a dash and left faint, because
+          "no check" is a different statement from "a check for nothing", and a
+          printed `0` in a column of counts reads as the latter.
+     `1`  the ordinary case, plain.
+     `2+` weighted, because an invoice settled in parts is a different animal from
+          one settled in a single payment and that is invisible in a row of
+          identical right-aligned digits.
+
+   ★ This column is driven by the LINKS and never by `PAYMENT_STATUS_FLAG`. The
+   flag says `N` about 14 invoices that a check settled; the link is the evidence.
+*/
+.invchk {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.invchk--many {
+  background: var(--surface-active);
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+.invchk--none {
+  color: var(--text-faint);
+}
+
+/* The GL account. Three states again, and for the same reason the check count has
+   three — the difference between them is the point:
+
+     a code      the invoice's largest account, mono and truncated if it has to be
+     code `+N`   904 invoices in the window span more than one account
+     `—`         no distribution at all, so no account can be named
+
+   ★ This is the invoice's LARGEST account, not its only one and not a summary. The
+   cell carries every code as a tooltip and the panel lists them with amounts, so
+   nothing is lost — but a reader who takes the cell for the whole truth on an
+   invoice that spans 251 accounts would be wrong, which is why `+N` is not
+   optional decoration.
+
+   ★ Truncation is the LAST resort, not a house style. An earlier version of this
+   rule capped the code at 168px, which measurement then showed ellipsised all 50
+   rendered rows: every code in this extract is the canonical 29-character shape
+   (`04-9000-862-541-0520-0434-000`), 29 characters is 200px at 0.75rem mono, and
+   168px holds 24. So the two right-hand segments — the cost centre and the last
+   two digits of the object — were hidden on every row, which is exactly the part
+   a reader is scanning for. The cap below is now 30ch, one character over the
+   canonical 29 so sub-pixel rounding can never ellipsise a full code, and the
+   column above was widened to match. The tooltip and the panel still show the code
+   in full, because a truncated code that is nowhere recoverable would be a worse
+   answer than no code — but nothing should need to go there to read a normal one.
+
+   Four classes' worth of specificity, to beat `table.data td:first-child`'s
+   `white-space: normal` at (0,2,2) exactly as `td.inv-no` does above. */
+table.data.invtable td.inv-acct {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+table.data.invtable td.inv-acct .invacct__code {
+  display: inline-block;
+  /* `ch` rather than a pixel figure, so the cap tracks the font: one `ch` here is
+     the mono advance width (6.9px at 0.75rem), and the canonical code is 29 of
+     them. A pixel cap would silently start truncating again the day the font or
+     the size changed; this one only bites on a code longer than the shape the
+     segments can produce. */
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  /* A dotted underline, because the code carries a decoded tooltip and there is no
+     other sign of it — but a solid link underline would promise a click that the
+     row already owns. */
+  border-bottom: 1px dotted var(--border);
+}
+
+/* The `+N` chip. Sans, like `.invprioryear`, because the cell it sits in is mono
+   and this is a count, not part of the code. */
+.invacct__more {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-active);
+  color: var(--primary-color);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 700;
+  vertical-align: bottom;
+}
+
+/* `≠` — the accounts and the invoice do not agree. Two invoices in the window.
+   Shown at the row as a mark rather than a colour, because a row already carries
+   the credit-note colour and `--surface-active` when its panel is open, and a
+   third full-row treatment would make the table unreadable to flag two rows. */
+.invacct__off {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  vertical-align: bottom;
+}
+
+/* "No account recorded". The same rule as `.invchk--none` and `.invrow__none`:
+   faint and italic, because an absent code must not look like a code. A dash
+   alone would read as a value. */
+.invacct__none {
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* --- no matches ------------------------------------------------------- */
+
+/* Replaces the table rather than adding an empty row to it: a full-width cell
+   inside an 880px table centres its message inside 880px, and the first ~600px of
+   that is all a narrow viewport ever shows. */
+.invempty {
+  padding: 32px 16px 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.invempty p {
+  margin: 0 0 10px;
+}
+
+.invempty__hint {
+  max-width: 56ch;
+  margin: 0 auto 16px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* --- the panel -------------------------------------------------------- */
+
+.invpanel {
+  --drawer-w: 560px;
+}
+
+/* Smaller than the check panel's heading and allowed to break. A check number is
+   eight digits; an invoice number is free text that runs to 31 characters and
+   contains spaces and slashes, so at the same size it overflows the head. */
+.invpanel .drawer__name {
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+/* --- the checks inside the panel -------------------------------------- */
+
+/* A scroll container of its own. There are never more than four rows here — the
+   busiest invoice in the window was settled by four checks — so unlike the check
+   panel this box is a safety net for long vendor-side data, not a working list. */
+.invchecks {
+  max-height: 34vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.invcheckstable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.invcheckstable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.invcheckstable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.invcheckstable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.invcheckstable .n {
+  text-align: right;
+}
+
+/* ★ A check dated before the fiscal year began, sitting in an invoice table of
+   that year. It is not an error — an invoice posted on 2026-07-01 was settled by
+   payments that ran in June 2026 — but it is surprising enough to be labelled,
+   because an unlabelled out-of-range date in a bounded list reads as a bug.
+   Monospace has to be reset here: the cell it sits in is mono and the chip is a
+   word, not a number. */
+.invprioryear {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-family: var(--font-sans);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The check number is a link back into the payments register — the reverse of
+   the link the checks page sends here, and the reason the relation can be walked
+   from either end.
+
+   Scoped through the table because `.invcheckstable td` sets `color` at (0,1,1)
+   and a bare `a.inv-no__chk` ties with it. `--link` and not `--primary-color`:
+   the brand token never gets a dark-surface value, and this is 12px mono — the
+   smallest text in the panel. Underline on hover only, matching the account
+   codes two sections down. */
+.invcheckstable td a.inv-no__chk {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.invcheckstable td a.inv-no__chk:hover {
+  text-decoration: underline;
+}
+
+.invcheckstable td a.inv-no__chk:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The same link in the summary strip at the top of the panel, where the row is
+   "Checks that settled it" and the value is the list itself. Sits inside
+   `.invrow__v`, which is right-aligned and bold — a link inside a value must
+   still read as the value, not as a caption, so only the colour changes. */
+.invrow__chk {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.invrow__chk:hover {
+  text-decoration: underline;
+}
+
+.invrow__chk:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.invrow__sep {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* --- the accounts inside the panel ------------------------------------ */
+
+/* Reuses `.invchecks`'s scroll box and `.invcheckstable`'s table — same geometry,
+   and `.invaccttable` adds only what is different: a code column wide enough for
+   29 mono characters and the `≠`/sum rows. The account list is longer than the
+   check list (the worst invoice in scope spans 7 accounts against a maximum of 1
+   check), so the box does real work here rather than being a safety net. */
+.invaccounts {
+  max-height: 30vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.invaccttable td:first-child {
+  /* The code, and only the code. 29 characters of mono at 0.75rem is about 210px,
+     which leaves the amount, the type and the line count their own room inside a
+     560px panel. */
+  width: 46%;
+  white-space: normal;
+}
+
+.invaccttable tbody tr.invaccttable__sum td {
+  background: var(--surface-sunken);
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* The code is an anchor to the account's own page, and the two things a reader can
+   do with it are named rather than implied. It was one unlabelled button that only
+   filtered this table, so the click's whole result — a chip appearing behind a
+   closed panel — was invisible, and the question the row actually raises had no
+   answer on the page.
+
+   `--link` and not `--primary-color`: the brand token is fixed at #165788 and is
+   never re-declared for `[data-theme='dark']`, so on the dark surface it sits near
+   1.6:1 — the code was already hard to read there before it was a link. `--link` is
+   the one accent token with a per-theme value (#165788 light, #6cb6e8 dark).
+
+   Underline on hover only — 251 underlined codes in a box is a wall, and the
+   `.invacct__go` cue already says this text is the way out. */
+.invacct__link {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.invacct__link:hover {
+  text-decoration: underline;
+}
+
+.invacct__link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The cue, in the cell rather than beside the code: 29 mono characters already
+   nearly fill a 46% column, and an inline cue would push the code into an ellipsis
+   on exactly the rows a reader most needs to read. Same treatment as
+   `.vdproj__go` on the vendor panel. */
+.invacct__go {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--link);
+}
+
+/* The second destination, stacked under the first. The anchor above is inline, so
+   its own `.invacct__go` span breaks the line for it and nobody had to think about
+   it; a second inline anchor after a block would not, so this one is block and the
+   span's own 3px margin supplies the gap. Two cues from one code, evenly spaced
+   against the third (`Only this account`), rather than a run-on line. */
+.invacct__link--orders {
+  display: block;
+}
+
+/* The in-register question, kept as its own control because it is a different one —
+   and because it is the only control on the row that can answer for all 71 codes, the
+   other 25 having no purchase order for the combination page to open. Deliberately
+   quieter than the link: text and a hover underline, no button chrome, so the row
+   still reads as one column of account codes rather than a toolbar. */
+.invacct__only {
+  display: block;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.invacct__only:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+.invacct__only:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The decoder ring. `.invrows` already does the frame; this only adds the spacing
+   that separates it from the table above and the two things it carries beyond a
+   plain key/value row — a segmented code and the role of each segment. */
+.invacct__key {
+  margin-top: 10px;
+}
+
+.invacct__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+/* The role of a segment ("Fund", "Budget bucket", …) sitting after its name. It is
+   a description, so it is read into the key rather than competing with it. */
+.invacct__role {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* --- an account the register's scope does not cover -------------------- */
+
+/* Two kept invoices draw an account outside Fund 04 / program 861-863. Those
+   rows stay, because removing them would stop the account list summing to its own
+   invoice and turn a reconciliation note into a false alarm. So the mark is
+   deliberately quieter than `.invrow--off`: this is a boundary, not a fault, and
+   dressing it in the warning colour would teach a reader to treat a normal
+   consequence of a scope as an error. Text and a hairline only. */
+tr.invacctrow--off td {
+  color: var(--text-muted);
+}
+
+/* The chip sits under the code rather than beside it, because the code is 29 mono
+   characters in a 46% column and an inline chip would push it into an ellipsis on
+   exactly the rows a reader most needs to read. */
+.invacct__offscope {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* --- the invoice's own figures ---------------------------------------- */
+
+.invrows {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.invrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.invrow:last-child {
+  border-bottom: 0;
+}
+
+.invrow__k {
+  color: var(--text-muted);
+}
+
+.invrow__v {
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.invrow__v--credit {
+  color: var(--warn-fg);
+}
+
+/* "not recorded" and "none on this view" — the two places where the honest answer
+   is a phrase rather than a figure. Deliberately NOT styled as a value: an absent
+   number must not look like a number that happens to be small. */
+.invrow__none {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* The purchase order, in the four states the data actually has. The grammar is
+   the one `.invrow__none` set just above and it is worth stating because the row
+   mixes the two: ITALIC IS A PHRASE, UPRIGHT IS A FIGURE. So `none — no order was
+   raised against it` is a phrase (`.invrow__none`), while `265008 — not in this
+   app's order register` is a figure with a footnote, and keeps its value styling
+   so that a listed number and a linked number sit at the same optical weight.
+   The only difference a reader has to notice between those two is the colour. */
+.invrow__po {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.invrow__po:hover {
+  text-decoration: underline;
+}
+
+.invrow__po:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* A real order number with no register row to open — so NOT `.invrow__none`'s
+   italics, which are reserved for "there is no such thing". */
+.invrow__ponum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reason a number is not a link, and the reason a count is not one number.
+   Smaller and muted on purpose: a footnote to the value, never a second value.
+   NO `white-space: nowrap` here — these clauses run to ~35 characters inside a
+   value cell of roughly 250px, so a nowrap tail overhangs its own row instead of
+   wrapping into it, and the row is a flex box that would happily let it. */
+.invrow__why {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.invrow--sum {
+  background: var(--surface-sunken);
+}
+
+.invrow--sum .invrow__k {
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.invrow--sum .invrow__v {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+/* The one row where the flag and the link disagree, which is the reason this
+   section exists — so it is the one row in the panel allowed to shout. */
+.invrow--off {
+  background: var(--warn-bg);
+}
+
+.invrow--off .invrow__k,
+.invrow--off .invrow__v {
+  color: var(--warn-fg);
+}
+
+/* --- statements about absent data ------------------------------------- */
+
+/* An unpaid invoice is a real answer, not a gap to be padded out. This block says
+   so plainly and then says which state the status flag is in, rather than leaving
+   an empty table body to be interpreted. */
+.invnone {
+  padding: 14px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.invnone p {
+  margin: 0;
+}
+
+/* This is the unreachable-on-the-current-extract state: the scope drops an invoice
+   with no distribution before the page sees it, because with no distribution there
+   is no fund and no program to test. It is styled anyway, because the
+   alternative to a stated absence is a blank cell, and a blank cell reads as a
+   value that failed to load rather than as a fact. The two real-money no-account
+   invoices that motivated the flag variant are now counted in the note above the
+   table instead of sitting in it. */
+.invnone--flag {
+  border-style: solid;
+  border-left: 3px solid var(--warn-fg);
+  background: var(--warn-bg);
+}
+
+.invnote {
+  margin-top: 10px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.invnote code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+/* A payment that ran before the invoice it settled. True of 30 rows and the kind
+   of fact that gets "corrected" by someone who has not read this note. */
+.invnote--flag {
+  padding-left: 10px;
+  border-left: 3px solid var(--warn-fg);
+  color: var(--text-body);
+}
+
+/* --- narrow screens --------------------------------------------------- */
+
+/* Below 720px the panel is nearly the whole viewport, so the figures drop to two
+   per row and the checks box can take more of it. */
+@media (max-width: 720px) {
+  .invstats {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .invstat {
+    padding: 12px;
+  }
+
+  .invstat__v {
+    font-size: 1.125rem;
+  }
+
+  .invchecks {
+    max-height: 40vh;
+  }
+
+  .invrow {
+    display: block;
+  }
+
+  .invrow__v {
+    margin-top: 2px;
+    text-align: left;
+  }
+}

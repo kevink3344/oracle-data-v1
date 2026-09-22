@@ -1,0 +1,337 @@
+/* === Custom field values ==============================================
+   Custom Table Fields: the one place a reader may show their own value for a
+   field this application does not own, and the controls that set it, change it
+   and give the ledger’s value back.
+
+   ★ THIS SHEET IS LAST OF THE FEATURE SHEETS, AND IT HAS TO BE. It decorates a
+   vendor’s name wherever a vendor is named — inside `table.data.vctable` and
+   `table.data.vstable` rows (`vendors.css`) and inside `.drawer__name` in the
+   panel head (`panel.css`, overridden per panel in `vendors.css:949`). It reuses
+   `.sr` from `base.css` and `.scopenote` from `shell.css`, and it adds one
+   `.scopenote` variant of its own. Loading it earlier would let `.vcpanel
+   .drawer__name`’s `overflow-wrap` win over the wrap this control needs.
+
+   ── ★ WHY THE REGISTER CELL HAS NO CONTROLS ──────────────────────────────
+
+   A `.table-wrap` is `overflow-x: auto` (`projects.css:99`), and CSS computes the
+   other axis from `visible` to `auto` when one is not visible — so the wrapper
+   clips VERTICALLY at its own padding box. An absolutely positioned tooltip
+   anchored to a cell is therefore cut off for the last row or two of the table,
+   and no CSS arrangement avoids it: anchoring to the cell keeps the containing
+   block inside the scroller, and anchoring outside it drops the tooltip at the
+   table’s corner instead of at the row.
+
+   `position: fixed` is not the way out either — `.drawer` is `transform`ed, and a
+   transformed ancestor becomes the containing block for a fixed descendant, so the
+   tooltip would be measured in viewport coordinates and painted in the drawer’s.
+
+   So the register cell shows the value and the changed-value mark, and the pencil,
+   the trash and the tooltip live in the panel head — which is not a scroller, and
+   which is where a reader goes to find out about the vendor anyway.
+   `variant="register"` on {@link EditableField} is that cell. */
+
+/* --- the value and its mark ------------------------------------------- */
+
+/* `inline-block` in every variant, because this sits inside an `h2` in the panel
+   and inside a `td` in the register, and both need it to shrink to what is
+   available. `position: relative` is the tooltip’s containing block. */
+.cf {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* In the register the cell’s own `overflow-wrap: anywhere` still governs, so a
+   company name wraps exactly as it does without this wrapper. The mark is the one
+   thing added, and it lands under the name — beside it would need `position:
+   absolute` and a `padding-right` reservation on the column that holds the names,
+   which is the widest and the only unwrappable-by-width one. A renamed row is
+   still one short line taller, but the line is now 12px of icon rather than a
+   19px-tall pill, and the mark no longer competes with the name for the eye. */
+.cf--register {
+  display: block;
+}
+
+.cf__value {
+  min-width: 0;
+}
+
+/* --- the mark: a small gear, not a word --------------------------------- */
+
+/* ★ THERE IS NO PILL HERE ANY MORE, AND THAT IS THE POINT. For one revision the
+   mark was the word "custom" set bold and uppercase in an info pill, which is
+   wider than most of the names it sits under — so on the rows a reader had
+   renamed, the annotation was the loudest thing in the cell and the value it
+   annotated came second. A mark whose job is "this is not the ledger’s name"
+   should be the quietest thing that can still be found.
+
+   ★ NOTHING WAS LOST WITH THE WORD. Every disclosure the old pill implied is still
+   carried, and by something that does not shout: the `title` on this element in a
+   register (a register cell cannot have the CSS tooltip — the `.table-wrap` clip
+   above), the `.cf--tip` bubble in a panel, the always-present visually hidden
+   note in every variant, and `CustomNamesNote` when the read itself failed. The
+   word was for the reader who needed none of those — the one who only has to
+   recognise the mark, and for whom a shape is enough.
+
+   ★ `--text-muted` RATHER THAN A STATUS COLOUR. `--info-fg` is the pairing the
+   pill used, and it is not wrong — but a status colour says "something needs your
+   attention", and a renamed vendor needs none. Muted is the honest register for a
+   footnote that has no state of its own beyond existing.
+
+   ★ MEASURED AS A GRAPHIC, WHICH IS WHY THE BAR IS 3:1 AND NOT 4.5:1. Same rule
+   `tokens.css` records for the "New" dot: this paints a shape, so WCAG 1.4.11
+   applies — but an 8px-ish shape carries far less ink than a word and needs
+   contrast more, not less, so `--text-muted` is measured against the row’s own
+   backdrop and not against white in one theme only. */
+.cf__mark {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  /* An inline icon beside body text hangs below the baseline without this; the word
+     did not need it because text already sits on one. */
+  vertical-align: middle;
+  color: var(--text-muted);
+}
+
+/* ★ ON ITS OWN LINE, THE SIDE MARGIN IS AN INDENT THAT MEANS NOTHING. In a
+   register the caller’s opener is block-level, so the mark starts a fresh line at
+   the cell’s left edge — where the 5px that separates it from a name would read as
+   a mistake rather than as spacing. */
+.cf--register .cf__mark {
+  margin-left: 0;
+}
+
+.cf__mark svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+/* --- the controls ------------------------------------------------------ */
+
+.cf__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: 2px;
+  /* ★ REVEALED BY OPACITY, NEVER BY `visibility`. A `visibility: hidden` control is
+     removed from the tab order, so the pencil would be unreachable by keyboard —
+     which is the one interaction the whole control exists to offer. Opacity keeps
+     it focusable, and `:focus-within` below reveals it for a reader who arrives by
+     Tab without ever hovering. */
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.cf:hover .cf__actions,
+.cf:focus-within .cf__actions {
+  opacity: 1;
+}
+
+.cf__btn {
+  display: inline-grid;
+  place-items: center;
+  /* 24px, which is the smallest a control may be under WCAG 2.2 target size. The
+     drawer’s close button is 30px, but this one sits beside a name inside a table
+     row and cannot be that. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition),
+    border-color var(--transition), opacity var(--transition);
+}
+
+.cf__btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cf__btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+.cf__btn:disabled {
+  cursor: progress;
+  opacity: 0.5;
+}
+
+/* The trash’s hover is a colour, not a red button. Clearing an override deletes
+   nothing anywhere — it removes a row from this application’s own table and the
+   ledger’s value is what is left — and `CostCentreEditor.tsx` records the same
+   reasoning for the same reason: styling a reversible act as destructive makes the
+   styling tell a bigger lie than the copy. `--err-fg` is enough to say “this one is
+   not the pencil”, and it is the token that adapts per theme. */
+.cf__btn--clear:hover:not(:disabled) {
+  color: var(--err-fg);
+}
+
+.cf__btn--save,
+.cf__btn--cancel {
+  width: auto;
+  min-height: 24px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* --- the editor -------------------------------------------------------- */
+
+.cf__input {
+  box-sizing: border-box;
+  width: 260px;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-heading);
+  /* `font: inherit` so the editor is the same size as the value it replaces — in
+     the panel that is 1.125rem bold, in a meta line 0.75rem. A form control does
+     not inherit type by default, and the jump is the kind of thing that reads as a
+     bug in the page rather than in the control. */
+  font: inherit;
+  vertical-align: 2px;
+}
+
+.cf.is-editing .cf__input {
+  margin-right: 6px;
+}
+
+.cf.is-editing .cf__btn {
+  margin-right: 4px;
+  vertical-align: 2px;
+}
+
+.cf__hint {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+/* The refusal, in the server’s own words. `flex: 1 0 100%` is not needed because
+   `.cf` is not a flex container — `display: block` puts it on its own line, which
+   is what a sentence needs. */
+.cf__problem {
+  display: block;
+  margin-top: 4px;
+  color: var(--err-fg);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* --- the disclosure --------------------------------------------------- */
+
+/* ★ A `::after` ON `:hover` AND ON `:focus-within`, NOT A `title` ATTRIBUTE. A
+   `title` appears on mouse hover only: never on keyboard focus, never on a touch
+   screen. The sentence it would carry — that the ledger’s name is still what finds
+   this vendor — is the one thing that makes a custom name safe to read, and it must
+   not be reachable only by readers holding a mouse.
+
+   `attr(data-tip)` rather than a second copy of the text, and `pre-line` because the
+   attribute is a newline-joined list; the same array builds the visually hidden
+   description, so the two cannot say different things. */
+.cf--tip:hover::after,
+.cf--tip:focus-within::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 95; /* over the drawer, which is 90 */
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  max-width: min(340px, 78vw);
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--text-heading);
+  color: var(--surface);
+  font-size: 0.75rem;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: pre-line;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+/* --- the note when the read failed ------------------------------------ */
+
+/* ★ THE ONE FAILURE THIS FEATURE MUST NOT HAVE is a read that failed rendering
+   exactly like a register nobody has renamed anything on. `.scopenote` (shell.css)
+   defaults to a warn left border because most notes are caveats; this one is a
+   failure — a value somebody chose is provably not on screen — so it takes the error
+   tokens. Both are per theme. */
+.scopenote--unread {
+  border-left-color: var(--err-border);
+}
+
+.scopenote--unread .scopenote__flag {
+  background: var(--err-bg);
+  color: var(--err-fg);
+}
+
+/* --- a control inside a panel's fact card ----------------------------- */
+
+/* The site panel's Address card is a `.chkrows` list (checks.css): two-item flex rows
+   with `justify-content: space-between`, a muted key and a bold value. The email row is
+   the first one whose value is a CONTROL, and it is the first whose value is not the
+   ledger's. */
+
+/* ★ THE CARD CLIPS, SO A ROW THAT OVERFLOWS LOSES ITS CONTROLS RATHER THAN SCROLLING.
+   `.chkrows` is `overflow: hidden` (for the rounded corners) and `.chkrow` is a flex row
+   with no wrapping, so before these rules the Save and Cancel buttons of a narrow input
+   sat past the card's edge and were simply not drawn. Wrapping is the honest fallback:
+   the buttons drop to a second line in the same row instead of disappearing. */
+.chkrow--cf {
+  flex-wrap: wrap;
+}
+
+/* ★ THE VALUE CELL IS A WRAPPING CELL HERE, WHICH NO OTHER ONE IS. `.chkrow__v` is
+   `white-space: nowrap`, written for phone numbers and state codes. An email address is
+   the longest value this card holds — 320px of 13px text is an ordinary one — and a
+   nowrap cell in a 470px panel would be clipped by the rule above. */
+.chkrow--cf .chkrow__v {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+/* ★ THE INPUT IS NARROWER IN HERE, AND THE NUMBER IS ARITHMETIC RATHER THAN TASTE. The
+   panel's content box is ~414px; the key is ~38px and the row's `gap` is 12px, so the
+   value cell has ~364px to spend. The editing state is input + Save + Cancel, which at
+   the register's 260px input came to ~376px — 12px too many, which is exactly the sort
+   of miss that shows up as a wrapped button rather than as a number that looks wrong. 200
+   leaves ~44px of slack for a longer label or a wider theme. */
+.chkrow--cf .cf__input {
+  width: 200px;
+}
+
+/* ★ THE TOOLTIP HANGS FROM THE PANEL'S RIGHT EDGE, NOT ITS LEFT, BECAUSE THE CONTROL
+   SITS THERE. `.cf--tip` anchors its bubble at `left: 0` of the control — right for a
+   register cell, which is at the left edge of its column, and wrong for this one, which
+   is at the right edge of a 470px panel: a 340px bubble starting at the control's left
+   would run ~200px past the drawer and be clipped by `.drawer__body`, which is a
+   scroller. Anchoring right keeps all of it inside the panel. */
+.chkrow--cf .cf--tip:hover::after,
+.chkrow--cf .cf--tip:focus-within::after {
+  left: auto;
+  right: 0;
+}
+
+/* The mark is set at the value's weight and colour like the value itself, so a custom
+   email reads as a value somebody entered rather than as a status on the row. */
+.chkrow--cf .cf__btn {
+  vertical-align: middle;
+}
+

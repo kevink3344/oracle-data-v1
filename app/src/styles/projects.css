@@ -1,0 +1,530 @@
+/* ============================================================================
+   Projects list.
+   ============================================================================ */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.panel__sub {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.panel__count {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- filters ---------------------------------------------------------- */
+
+.filterbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.fchip:hover {
+  background: var(--surface-hover);
+}
+
+.fchip[aria-pressed='true'] {
+  background: var(--surface-active);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.fchip .n {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* --primary-color is 2.0:1 on the dark surface-active, so the selected filter
+   borrows the dark-theme link colour. This is the only component-level dark
+   override in the whole sheet. */
+[data-theme='dark'] .fchip[aria-pressed='true'] {
+  color: var(--link);
+  border-color: var(--link);
+}
+
+/* --- table ------------------------------------------------------------ */
+
+/* position:relative is load-bearing. `.sr` inside a cell is absolutely
+   positioned; without a positioned ancestor it resolves against the initial
+   containing block and paints outside the scroller, which gives the whole
+   document a phantom horizontal scrollbar. */
+.table-wrap {
+  position: relative;
+  overflow-x: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.data thead th {
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* --- sortable headings ------------------------------------------------ */
+
+/* The cell sorts, and the button inside it is what makes that reachable by
+   keyboard and what a screen reader announces. Both are clickable — see the note
+   in `SortHeader.tsx` for why the handler is on the cell — so both say so. */
+table.data thead th.sortable {
+  cursor: pointer;
+}
+
+/* The heading is a button, so the heading is the control. It has to be
+   indistinguishable from the `th` it sits in — same size, weight, spacing, case
+   and colour — because it is now the same text. `font: inherit` does not carry
+   `letter-spacing` or `text-transform`; both are inherited properties and would
+   arrive on their own, but they are named here so that everything this control
+   looks like is decided in this one rule rather than half here and half in the
+   browser's default stylesheet for `button`. */
+.thsort {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+/* --link rather than --tertiary-color: the brand cyan sits near 2.4:1 on white
+   and the headings are 11px, which is the same reason the filter chips use the
+   link colour rather than the accent. Hover and "this is the sorted column" are
+   deliberately the same value — the arrow is what says which way. */
+.thsort:hover,
+.thsort.is-on {
+  color: var(--link);
+}
+
+/* ★ Out of the flow, and this is the important rule in the block.
+   An arrow in the flow adds its own width to its heading, and a heading's width
+   is a table column's width. Measured on the invoice table, which is auto-laid-
+   out: "VENDOR" plus the arrow and its gap is 82.19px against the vendor cells'
+   76.09px, so the heading — not the data — became the widest thing in the column.
+   That took the table's minimum from its 880px floor to 886px, and the browser
+   paid for the difference out of the four columns whose widths are declared
+   rather than out of the unbounded vendor column: the account column came back
+   261.34px instead of the 264px `invoices.css` measures and justifies, and its
+   own comment became false. Absolute positioning makes the heading contribute
+   exactly what it contributed when it was plain text, so every declared width
+   comes back and nothing about the two tables' columns changes.
+
+   `left: calc(100% + 2px)` puts it immediately after the label, which is where a
+   caret belongs and where the button's own end is — so a right-aligned numeric
+   heading keeps its label flush at the padding edge exactly as it always was,
+   with the arrow beyond it in the padding. It is inside the CELL in every case
+   (the cell sorts, and the arrow is well inside it), just outside the button —
+   which is why the click handler is on the cell rather than the button.
+
+   ★ `visibility` rather than `display`, and present on all of them rather than
+   only on the sorted one: it is already out of the flow, so it costs nothing to
+   keep, and a reader can see which way a column will go before committing. */
+.thsort__mark {
+  position: absolute;
+  left: calc(100% + 2px);
+  top: 50%;
+  transform: translateY(-50%);
+  visibility: hidden;
+  width: 0.7em;
+  font-size: 0.85em;
+  line-height: 1;
+  text-align: center;
+}
+
+.thsort:hover .thsort__mark,
+.thsort:focus-visible .thsort__mark,
+.thsort.is-on .thsort__mark {
+  visibility: visible;
+}
+
+table.data th.n,
+table.data td.n {
+  text-align: right;
+}
+
+table.data td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+/* Only the first cell may wrap. This pair is deliberate: the element+element
+   rule above sets nowrap on every cell, and this element+element+pseudo-class
+   rule has the higher specificity needed to undo it for one column. */
+table.data td:first-child {
+  white-space: normal;
+}
+
+table.data tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.prow {
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+.prow:hover td {
+  background: var(--surface-hover);
+}
+
+.prow.is-selected td,
+.prow:focus-within td {
+  background: var(--surface-active);
+}
+
+/* An inset shadow on the first cell, never a border — a border would change
+   the cell's box and shift every column by 3px on selection. */
+.prow.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.prow:focus-within td:first-child {
+  box-shadow: inset 3px 0 0 var(--tertiary-color);
+}
+
+/* --- first cell ------------------------------------------------------- */
+
+.pcell__code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.pcell__name {
+  margin-top: 2px;
+}
+
+/* ★ THE "NEW" MARK IS A DOT, NOT A WORD.
+
+   The mark has been three shapes for one fact. A `.chip--neu` pill (46x27),
+   faithful to the rule it carries but bigger than the project name it sits
+   beside. Then lettering (26x15), green and then gold — but a word immediately
+   after a name is read as part of that name, so "New" kept being taken for the
+   project's own label rather than a note about the row. An 8px circle says the
+   one thing that is meant (this one is different) and nothing else.
+
+   `-dot` and not the `-fg` it was: this paints a shape, so it takes a graphic
+   colour. `--newmark-dot` lives in tokens.css with the other semantics so it
+   flips with the theme. Measured: 3.99:1 light, 10.9:1 dark — over the 3:1
+   that WCAG 1.4.11 asks of a non-text mark.
+
+   `vertical-align: middle` puts the circle against the text's x-height rather
+   than its baseline; on the baseline a dot reads as a full stop and ends the
+   name. `flex: none` is for the unplaced list, where this is a flex item and a
+   shrink would silently collapse it to nothing.
+
+   No margin here — this rule is the circle and nothing else, because the two
+   containers space it differently and each already owns its own gap. Used in
+   both places, so the class sits above the table section and the unplaced list
+   rather than inside either. */
+.newmark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--newmark-dot);
+  vertical-align: middle;
+  flex: none;
+}
+
+/* ★ THE GAP AFTER A PROJECT NAME, IN THE TABLE ONLY.
+
+   The table used to separate the circle with a literal space in the JSX — 3px,
+   and whatever the font said it was. That is a word separator, and it was sized
+   for one: it was enough when the mark was the word "New", which carries a left
+   side bearing of its own. A bare circle has none, so it sat hard against the
+   last letter of the name and read as though it had been dropped there by
+   accident. The gap the reader asked for is 8px — deliberately the circle's own
+   diameter, which is the smallest gap that reads as separation rather than a
+   speck stuck to the name.
+
+   Scoped to `.pcell__name` on purpose. The unplaced list is not covered: that
+   row is `display: flex` and its `gap` already puts 10px on both sides of the
+   circle, so a margin here would stack on top of it and leave the circle 18px
+   from the name but 10px from the meta beside it. One class, but the two
+   containers genuinely need different spacing, so the extra belongs to the one
+   that needed it. */
+.pcell__name .newmark {
+  margin-left: 8px;
+}
+
+.pcell__meta {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.pcell__meta .sep {
+  color: var(--text-faint);
+  padding: 0 2px;
+}
+
+/* The level's accounts, on the level's row. A row here is a level and a level
+   is several accounts — 0450 is four — so the codes sit under the name the
+   level is known by. Chips rather than a sentence because the row is a
+   summary: the money for each account is in the `title`, and the drawer has
+   the breakdown with both figures. */
+.pcell__accts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 5px;
+  margin-top: 5px;
+}
+
+.pcell__acctsk {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.pacct {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-body);
+  cursor: help;
+}
+
+/* Why a row is here when the row does not say so. A vendor, buyer, description
+   or order number belongs to a line, not to the level, so a match on one of them
+   has to name the line rather than assert the hit. */
+.pcell__why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 6px;
+  margin-top: 5px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* --link rather than --tertiary-color: the brand cyan is fixed across themes and
+   at 11px sits near 2.4:1 on white, whereas --link is the one accent token that
+   is repointed per theme and clears AA on both. */
+.pcell__why-lead {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.pcell__why-line {
+  font-family: var(--font-mono);
+  color: var(--text-body);
+}
+
+/* Its own row, because a description is a sentence: clamped to one line so a
+   row does not grow to four lines of abatement scope on a 40-row page. It
+   inherits --text-muted from the block — --text-faint would drop below AA. */
+.pcell__why-desc {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
+/* A real control, so the row is reachable and operable from the keyboard.
+   The mockup's rows had tabindex="-1" and could only be selected by arrow keys.
+
+   ★ IT IS BOTH A BUTTON AND A LINK NOW, AND IT IS DRESSED AS ONE THING. On a
+   claimed row the project's name is an `<a>` to that project's edit page; on an
+   unclaimed row — where there is no app record to edit — it stays the `<button>`
+   that opens the details panel. `.linkish` therefore has to leave an anchor
+   looking exactly like it leaves a button, or the column would shift and the
+   claimed rows would stand out for no reason a reader could name. Only the
+   resting underline is suppressed (`a.linkish` below); the hover underline from
+   `.linkish:hover` still wins on specificity and is the whole affordance. */
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+a.linkish {
+  text-decoration: none;
+  display: inline;
+}
+
+.linkish:hover {
+  text-decoration: underline;
+}
+
+.linkish--muted {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-style: italic;
+}
+
+/* --- totals ----------------------------------------------------------- */
+
+.tfoot {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tfoot b {
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- recorded but not yet coded --------------------------------------- */
+
+/* A list under the level table, not rows inside it. These projects have no
+   account level, so they have no level code, no purchase-order lines and no
+   money — every column in the table above would be blank for them, and their
+   zeroes would dilute the totals that table prints at its foot. */
+.unplaced {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* Hairlines from the grid gap rather than a border per row, so shared edges
+     do not double up. */
+  gap: 1px;
+  background: var(--border);
+}
+
+.unplaced__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--surface);
+}
+
+.unplaced__name {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.unplaced__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* States the reason the row is here at all. An outline rather than a fill: this
+   is a status the project will lose, not an error it is in. */
+.unplaced__flag {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* The stable identifier, kept last and quiet. It is what the API is keyed on
+   and what a future association will be written against. */
+.unplaced__slug {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* --- empty state ------------------------------------------------------ */
+
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+/* The escape hatch sits inside the sentence that explains the problem, so it
+   reads as part of the explanation rather than as a second, unrelated action. */
+.empty .btn {
+  margin-left: 6px;
+  vertical-align: baseline;
+}

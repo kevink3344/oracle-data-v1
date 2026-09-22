@@ -1,0 +1,74 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Long-running Vite dev server on port 5180 (strictPort).
+      //
+      // This exists because the dev server dies with STATUS_CONTROL_C_EXIT
+      // (0xC000013A) whenever it is launched from an agent-terminal — the process
+      // tree is killed when that terminal is torn down, and no detachment trick
+      // escapes it. A VS Code background task owns its own terminal, so it survives.
+      "label": "app: dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/app" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "source": "vite",
+        "pattern": { "regexp": "^(?!)$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*VITE.*",
+          "endsPattern": ".*(Local:|ready in).*"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      // Long-running API on port 5181. Same reason as `app: dev`: an
+      // agent-terminal launch is killed with STATUS_CONTROL_C_EXIT
+      // (0xC000013A) when that terminal is torn down, and a VS Code background
+      // task owns its own terminal so it survives.
+      //
+      // `tsx watch` restarts on save, but NOT reliably when the file is written
+      // by an editor tool rather than a person — a stale server has been seen
+      // still holding 5181 and answering, so confirm the responder before
+      // trusting a probe:
+      //   (Get-NetTCPConnection -LocalPort 5181 -State Listen).OwningProcess
+      //   Get-CimInstance Win32_Process -Filter "ProcessId=<pid>" | select CreationDate
+      // and check `GET /api/health` reports the mode you expect.
+      "label": "api: dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/server" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "tsx",
+        "source": "tsx",
+        "pattern": { "regexp": "^(?!)$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*tsx.*",
+          "endsPattern": ".*\\[api\\] writes.*"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "app: typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "options": { "cwd": "${workspaceFolder}/app" },
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },    {
+      "label": "app: build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/app" },
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}

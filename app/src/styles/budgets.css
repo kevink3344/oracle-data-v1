@@ -1,0 +1,925 @@
+/* ============================================================================
+   Budgets — the budgeted accounts, their period history, and their versions.
+
+   Extends `.panel`, `.panel__head`, `.panel__title`, `.panel__sub`,
+   `.panel__count`, `.panel__body`, `.table-wrap`, `table.data`, `.notice`,
+   `.chart-note`, `.scopenote`, `.btn` and the `.stack` primitive, all of which it
+   inherits from projects.css, panel.css, components.css and shell.css. Nothing
+   here redeclares any of them.
+
+   ── THE ONE THING THIS SHEET HAS TO GET RIGHT ───────────────────────────────
+
+   `table.data td { white-space: nowrap }` is (0,1,2) and the first-cell exception
+   `table.data td:first-child { white-space: normal }` is (0,2,2) — but that
+   exception matches **td**, and the first column of every table below is a
+   `<th scope="row">`, because the account *is* the name of its row. So the
+   exception does not reach it, and neither does `table.data td`'s padding: a
+   `tbody th` in this app inherits nothing at all from the table rules and would
+   render flush against its neighbours with no border.
+
+   Every rule below is therefore written at `table.data.budtable` (0,2,2)+ so it
+   beats `table.data td`, and the wrap override is on a class rather than on
+   `:first-child` so it lands on the cell that actually holds a sentence.
+
+   ★ Do not "simplify" these selectors by dropping the `.budtable` class. A
+     shorter selector here is a rule that silently does nothing — the symptom is
+     an account code that measures correctly but still overflows its cell.
+   ============================================================================ */
+
+/* --- the figures above the tables ------------------------------------- */
+
+.budstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+
+.budstat {
+  position: relative;
+  padding: 16px clamp(10px, 1.6vw, 20px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.budstat::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--primary-color);
+}
+
+.budstat__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.budstat__v {
+  margin-top: 6px;
+  font-size: clamp(1.125rem, 2.6vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.budstat__n {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- the truncated-read warning --------------------------------------- */
+
+.budtrunc {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+}
+
+/* --- the row that opens ------------------------------------------------ */
+
+/* ★ EVERY RULE IN THIS BLOCK THAT TOUCHES THE TABLE IS SCOPED TO
+   `budtable--accounts`. The other three tables on this page share the `budtable`
+   class, and a bare `table.data.budtable tbody tr { cursor: pointer }` would
+   offer a hand over the version list and the derivation table, neither of which
+   opens anything. The accounts table is the one table here whose rows are
+   controls, so it is the one table that says so. */
+
+table.data.budtable--accounts tbody tr {
+  cursor: pointer;
+}
+
+/* The open row has to read as the subject of the panel beside it. It gets the
+   focused row's tint with a different bar, so that a deep link landing on the row
+   that is also open still shows two distinguishable facts. The bar is the only
+   marker left in the row *because* the panel carries the rest: the reader can see
+   which account is showing without the row having to repeat the panel's state. */
+table.data.budtable--accounts tbody tr.is-open td,
+table.data.budtable--accounts tbody tr.is-open th {
+  background: var(--surface-active);
+  border-bottom-color: transparent;
+}
+
+table.data.budtable--accounts tbody tr.is-open th:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* ★ THE ACCOUNT CELL IS A PLAIN CELL AGAIN, AND THAT IS A WIDTH WIN. It used to be
+   `position: relative` with a 24px `padding-left` so an absolutely positioned 18px
+   caret could sit in the 8px of padding the cell was not using. All three existed
+   for that glyph and for nothing else, and the glyph went with the inline detail:
+   a disclosure inside the table had to *look* like one from the row, and a dialog
+   does not. Dropping them hands the account 16px of its own column back — which
+   matters on a table already wider than its wrapper, where the account code is the
+   one cell that can legitimately wrap and was breaking across three lines. */
+table.data.budtable--accounts th.budacct {
+  padding-left: 8px;
+}
+
+/* ★ THE QUIET HALF OF THIS IS THE RESET, AND IT IS NOW OBSOLETE — the detail cell
+   it reset is gone. It sat at the intersection of `table.data td { white-space:
+   nowrap }` and `table.data.budtable tbody td { font-variant-numeric: tabular-nums }`,
+   both right for the money columns and wrong for a paragraph, so every text rule
+   inside the panel had to be undone on the `td` before anything was set.
+
+   It is recorded here rather than deleted silently because the drawer's body is a
+   `<div>` outside the table, which means none of those table rules reach the detail
+   at all — and that is the reason `AccountDetail` needed no changes to its own
+   typography. If the detail ever moves back inside a table, it has to come back. */
+
+/* The accounts list takes programmatic focus when the "no budget for this
+   account" panel dismisses itself (see `clearFocus`). `tabindex="-1"` is not
+   reachable by Tab, so this only ever fires on that hand-off — and only
+   `:focus-visible` when the key that dismissed the panel was a key, which is
+   exactly the reader who benefits from seeing where focus went. A ring around
+   the whole table is otherwise noise, hence the transparent outline reset.
+   Scoped to `budacctwrap` rather than `.table-wrap`, because that class is on
+   every table on this page and only this one is ever focused by hand. */
+.budacctwrap:focus {
+  outline: none;
+}
+
+.budacctwrap:focus-visible {
+  outline: 2px solid var(--tertiary-color);
+  outline-offset: -2px;
+}
+
+/* ★ NO PADDING AND NO BACKGROUND OF ITS OWN ANY MORE. Both belonged to this being
+   a cell inside a table: the padding cleared the cell's own, and `--surface-sunken`
+   marked the block as nested one level in from the table's `--surface`. Inside the
+   drawer those two are already provided — `.drawer__body` pads 20px and paints
+   `--surface` — and stacking a second sunken panel inside the drawer would print a
+   grey rectangle inset in a grey rectangle, with a 20px gutter of unaccounted
+   background on both sides. So the detail is now a plain block, and the *sections*
+   it opens with (`.dsec`-like heads, the tables, the wording) are what separate it. */
+.buddet {
+  min-width: 0;
+}
+
+/* The stub of the old head: the tab strip is its only child now, so all this has
+   to do is space it from the tables under it. Kept as an element rather than
+   inlined onto `.buddet__tabs` so that the strip's own margin stays the strip's. */
+.buddet__head {
+  margin-bottom: 14px;
+}
+
+/* The account's one cross-reference, now in the drawer's foot.
+   ★ IT IS READ AGAINST `--surface-sunken`, NOT AGAINST THE DETAIL'S OWN
+   BACKGROUND, because that is what `.drawer__foot` paints — the same pair the
+   project drawer's foot links use, which is why the rule reads unchanged. */
+.buddet__link {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--link);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.buddet__link:hover {
+  text-decoration: underline;
+}
+
+.buddet__link:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- the tab strip ----------------------------------------------------- */
+
+.buddet__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.buddet__tab {
+  margin: 0 0 -1px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.buddet__tab:hover {
+  color: var(--text-heading);
+}
+
+.buddet__tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 3px var(--tertiary-color);
+}
+
+.buddet__tab[aria-selected='true'] {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--link);
+}
+
+/* --- the tab panels ---------------------------------------------------- */
+
+.buddet__h {
+  margin: 0 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Every heading after the first opens a new block, and both tabs have several. */
+.buddet__h ~ .buddet__h {
+  margin-top: 20px;
+}
+
+.buddet__p {
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+.buddet__p strong {
+  color: var(--text-heading);
+}
+
+.buddet__panel .chart-note {
+  margin-top: 12px;
+}
+
+.buddet__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 22px;
+  align-items: start;
+}
+
+.buddet__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+/* Inside the panel the tiles are a reading rather than a headline: the same
+   component with the shadow off and a smaller number, so five of them sit beside
+   each other without competing with the figures at the top of the page. */
+.buddet__grid .budstat {
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+.buddet__grid .budstat__v {
+  font-size: 1rem;
+}
+
+/* ★ `.segs` IS DECLARED AT (0,1,1) IN newproject.css, WHICH IS CORRECT THERE AND
+   NOT ENOUGH HERE. The pattern sets `padding: 7px 0`, which is right on the
+   New-project preview where the segment table is the only thing in its column and
+   wrong inside a detail cell, where the money column would touch the sentence
+   beside it. Restated higher rather than tightened globally, so nothing outside
+   this panel moves. */
+.buddet .segs th,
+.buddet .segs td {
+  padding-right: 14px;
+}
+
+/* A pair of figures and a sentence do not become more readable by being spread
+   across the full width of the panel. */
+.buddet .budcheck {
+  max-width: 720px;
+}
+
+.budcheck__loose th,
+.budcheck__loose td {
+  color: var(--text-muted);
+}
+
+.budcheck__ok {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--ok-border);
+  border-radius: var(--radius-sm);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* The disagreement state exists and is styled, because a check that can only
+   render one way is not a check. */
+.budcheck__ok[data-ok='false'] {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.buddet__phase {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* --- honest emptiness -------------------------------------------------- */
+
+.budempty {
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.budempty__hint {
+  margin-top: 6px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.budabsent .panel__body p {
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+/* --- the tables -------------------------------------------------------- */
+
+table.data.budtable tbody th,
+table.data.budtable tfoot th {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-body);
+  white-space: normal;
+  background: none;
+}
+
+table.data.budtable thead th {
+  padding: 9px 8px;
+  /* ★ The heading is allowed to wrap, and that is what makes the six-column table fit.
+     `table.data thead th` sets `white-space: nowrap` (0,1,2) and this rule is (0,2,2),
+     so this is an override rather than a duplicate. Leaving the headings unwrapped
+     makes "Allocations / Reimb." 157px wide and drives the table to 746px inside a
+     680px wrapper — the account code then gets squeezed to 108px and breaks across
+     three lines while the table still scrolls. Wrapped, every money column drops to
+     the width of its own figures and the whole table fits. */
+  white-space: normal;
+  line-height: 1.3;
+  vertical-align: bottom;
+}
+
+table.data.budtable tbody td {
+  padding: 10px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data.budtable tbody tr:hover td,
+table.data.budtable tbody tr:hover th {
+  background: var(--surface-hover);
+}
+
+/* The account a link asked for, marked in the table it appears in — so a reader
+   who arrived from an invoice can see which of the four is theirs without
+   re-reading the notice above. An inset shadow, never a border: a border would
+   change the cell's box and shift the column. */
+table.data.budtable tbody tr.is-focused th:first-child {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+table.data.budtable tbody tr.is-focused td,
+table.data.budtable tbody tr.is-focused th {
+  background: var(--surface-active);
+}
+
+/* the account column */
+
+/* A definite width, because the cell is the only one allowed to wrap — but a bare
+   `col` width is only a hint, and `table-layout: auto` will happily take the whole
+   overflow out of this column: left to itself it collapsed to 100px and broke the
+   31-character account code over three lines. `min-width` on the header cell is
+   the part the browser cannot ignore.
+
+   ★ The table still scrolls about 90px at this window width, and that is the
+   deliberate trade. Its floor is set by the **totals row**, which carries
+   fourteen-character figures ($95,355,458.93) that the four data rows do not, and
+   the five money columns cannot be narrower than the widest thing in them. Narrowing
+   them further means either dropping the cents — which would make a column of
+   figures that visibly does not add up to its own total — or squeezing this column
+   back to three lines of account code. `.table-wrap` scrolling is this app's
+   established answer for a table wider than the column (objectdetail, invoices and
+   checks all do it), so it is the right one here too. */
+table.data.budtable col.c-account {
+  width: 168px;
+}
+
+table.data.budtable th.budacct {
+  min-width: 168px;
+  font-weight: 600;
+}
+
+/* ★ THE ACCOUNT KEY IS A BUTTON AND HAS TO BE TOLD TO LOOK LIKE THE LINK IT
+   WAS. Every declaration below that is a reset — `padding`, `border`,
+   `background`, `font`, `text-align`, `cursor` — is undoing a UA style that a
+   `<button>` brings and an `<a>` did not, so the cell measures exactly what it
+   measured before: same mono 12px, same 136x54 box, same three wrapped lines.
+   `white-space: normal` is the one that is easy to miss: the account cell is the
+   exception to `table.data`'s `nowrap` (see the wrap note above), and the UA
+   does not let a button inherit that the way an anchor did. */
+.budacct__open {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--link);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: -0.01em;
+  white-space: normal;
+  /* Breaks after a hyphen, which is what a dashed key wants, and never mid-token. */
+  overflow-wrap: break-word;
+}
+
+.budacct__open:hover {
+  text-decoration: underline;
+}
+
+.budacct__open:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--tertiary-color);
+  border-radius: var(--radius-sm);
+}
+
+/* The disclosure's own label, which is what a reader sees before they know a
+   caret 18px to the left of it is the same control. It is a `display:block` line
+   either way — "Budget detail ›" when shut, "Hide detail ›" when open — so the
+   words change without the column height moving. */
+.budacct__go {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-body);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--link);
+}
+
+.budacct__when,
+.budacct__odd {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* The two accounts whose columns disagree with each other or with themselves.
+   `--warn-fg` on `--warn-bg` is the app's existing pair for exactly this: a fact
+   that is true and needs reading, not an error. */
+.budacct__odd {
+  margin-top: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-weight: 600;
+}
+
+/* a plain (non-link) account key, in the derivation table */
+.budacct--plain {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* money cells */
+
+table.data.budtable td.bud-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+
+table.data.budtable td.bud-num--move {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* the total row */
+
+table.data.budtable tfoot th,
+table.data.budtable tfoot td {
+  border-top: 2px solid var(--border);
+  border-bottom: 0;
+  background: var(--surface-sunken);
+}
+
+table.data.budtable tfoot th {
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+table.data.budtable tfoot td {
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* The totals row's first cell is a label with a second line under it, exactly
+   like the account cells above it — and the base `10px 8px` lets that line run to
+   the very edge of the column, where it is clipped by the table's own border. */
+table.data.budtable tfoot th:first-child {
+  padding: 10px 16px 10px 8px;
+}
+
+/* --- the period × version timeline ------------------------------------ */
+
+.budgroup__head th {
+  padding: 10px 8px !important;
+  background: var(--surface-sunken) !important;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.budgroup__key {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.budgroup__when,
+.budgroup__sum {
+  display: inline-block;
+  margin-top: 4px;
+  margin-right: 12px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.budgroup__sum {
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+table.data.budtable--periods col.c-period {
+  width: 18%;
+}
+
+table.data.budtable--periods tbody tr:first-child td,
+table.data.budtable--periods tbody tr:first-child th {
+  border-top: 0;
+}
+
+.bud-period {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.bud-period__num {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.bud-version__name {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+/* The budget type, as a chip. `CAPITAL` and `APPROP` are two different pots of
+   money that a reader has to be able to tell apart at a glance — the whole
+   reason the position view has two budget columns instead of one. `--tertiary-color`
+   is deliberately not used: at this size on the light surface it measures about
+   2.4:1, which fails AA. These are neutral chips with a weight difference. */
+.budtype {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.budtype--capital {
+  border-color: var(--border);
+  background: var(--surface-active);
+  color: var(--text-heading);
+}
+
+.budtype--approp {
+  background: var(--surface);
+  color: var(--text-body);
+}
+
+/* The third type in the sample carries no rows. It still gets a chip, because a
+   type that exists and is unused is a different fact from a type that does not
+   exist, and the screen reads the budget types rather than assuming two. */
+.budtype--grant {
+  border-style: dashed;
+}
+
+/* --- the versions ------------------------------------------------------ */
+
+table.data.budtable--versions col.c-vid {
+  width: 74px;
+}
+
+table.data.budtable--versions td.bud-name {
+  white-space: normal;
+  max-width: 280px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.bud-name__note {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+table.data.budtable--versions td.bud-range {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+table.data.budtable--versions td.bud-status {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.budlatest {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+}
+
+.budlatest--yes {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+/* The third state, and the reason the chip exists as a chip rather than two words:
+   an absent `LATEST_FLAG` is neither latest nor superseded, and it has to read as a
+   third thing at a glance. Dashed border, same device `.budtype--grant` uses for
+   "this type exists and is unused". */
+.budlatest--unknown {
+  border-style: dashed;
+}
+
+/* A cell the ledger does not answer. Deliberately an italic word rather than a blank:
+   an empty cell reads as "zero", a dash reads as "none", and this is a third thing —
+   the column is in the contract and the store does not supply it. A dash would also
+   be indistinguishable from `.budtype`'s "no budget type", which is a different fact. */
+.budabsent {
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+/* --- the derivation check --------------------------------------------- */
+
+.budsub {
+  margin: 18px 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.budderiv__verdict {
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ok-border);
+  border-radius: var(--radius-sm);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+table.data.budtable--deriv td.bud-num {
+  font-size: 0.75rem;
+}
+
+/* The same reasoning as the account column above: a definite width on the one cell
+   that may wrap, so the three money pairs keep their own widths. Here the column is
+   a `td`, not a `th`, and it already gets `white-space: normal` from
+   `table.data td:first-child` — the width is the part it still needs. */
+table.data.budtable--deriv td:first-child,
+table.data.budtable--deriv th[scope='row'] {
+  width: 150px;
+}
+
+/* The second figure on its own line, so a pair of eight-figure money columns does
+   not make the table four hundred pixels wider than the page. */
+.budderiv__of {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* A pair that did NOT agree. Rendered red-adjacent rather than hidden: the whole
+   value of the table is that a disagreement would be visible. */
+table.data.budtable--deriv td.bud-num[data-ok='false'],
+table.data.budtable--deriv td.bud-num[data-ok='false'] .budderiv__of {
+  color: var(--warn-fg);
+}
+
+table.data.budtable--deriv td.bud-num[data-ok='false'] {
+  background: var(--warn-bg);
+}
+
+/* the prose holding it together */
+
+.panel__body > p {
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+.panel__body > p + p {
+  margin-top: 8px;
+}
+
+.panel__body code,
+.budabsent code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.panel__body .chart-note {
+  margin-top: 10px;
+}
+
+/* A provenance caveat that belongs to a panel whose table is flush to the panel
+   edge (`budtable--versions` is: it has no `panel__body` around it). Left on
+   `.scopenote`'s own `margin: 0 0 14px` the note would run edge to edge and read
+   as a row of the table it is qualifying. 16px is the inset `.panel__head` uses,
+   so the note lines up with the heading above it rather than with the table. */
+.scopenote--panel {
+  margin: 14px 16px 0;
+}
+
+/* `.scopenote` is a flex container (`align-items:baseline; gap:8px`), so every
+   bare text node beside the flag becomes a flex item of its own and the 8px gap
+   lands between them. The purchase-order note gets away with it because it holds
+   a single `<code>`; a note with several inline code spans breaks into a dozen
+   ragged fragments, each preceded by a gap. Wrapping the body makes it one item. */
+.scopenote__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --- the detail panel -------------------------------------------------- */
+
+/*
+  ★ THIS PANEL USES THE APP'S SHARED `.drawer`, AND ONLY TWO THINGS ABOUT IT ARE
+    THIS PAGE'S: the width and the typeface of the account key.
+
+  `.drawer` already gives it `position: fixed; right: 0; top: 0`, the
+  `translateX(102%)` → `translateX(0)` transition on `.is-open`, `visibility`
+  switched in step with it (so a shut panel is not tabbable), `--shadow-drawer`,
+  the left border, the `100vh` column, the contained `overflow-y: auto` on
+  `.drawer__body`, and the `.drawer__grip` that `ResizeGrip` renders. All of that
+  is in `panel.css` and none of it is repeated here — a second implementation of
+  "slide out from the right" is exactly the duplication that makes the fifth panel
+  in an app behave differently from the other four.
+
+  ★ THE BASE IS 470px AND THIS RAISES IT TO 620, which is the widest of the five
+    panels and deliberate. Its body holds a seven-row segment table, a fund
+    breakdown grid and the movement table; at 470 those three start stacking, and
+    a panel that stacks is a panel a reader scrolls three times to compare two
+    numbers. The read-only panels (invoice, check) sit at 560.
+
+  ★ AND IT IS A FLOOR, NOT A FIXED WIDTH. `ResizeGrip` writes the reader's own
+    choice to `localStorage['budgets-panel-w']` and this declaration is what
+    applies only until they make one — which is the same contract the other four
+    panels have, and the reason `--drawer-w` is set here rather than a `width`.
+*/
+.drawer.budpanel {
+  --drawer-w: 620px;
+}
+
+/*
+  ★ THE ACCOUNT KEY IS THE ONE STRING IN THIS PANEL A READER MAY NEED TO READ BACK
+    CHARACTER BY CHARACTER, and the shared `.drawer__name` is a display size meant
+    for a project name. It stays mono and stays breakable: an account is
+    seven three-to-four character segments joined by dashes, so it has natural
+    break points and is never a run of unrelated glyphs.
+
+  `overflow-wrap: anywhere` rather than `break-word`, because at a 320px panel the
+  longest segment would otherwise overflow its own box before the browser agrees
+  there is anything to break — and `anywhere` is also what lets the element shrink
+  below its min-content width, which it has to do to be the thing that wraps.
+*/
+.budpanel__key {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The close button in this panel's head, which is a plain `button` reset in
+   `panel.css` (`border: 0; background: none; padding: 0`) — nothing to undo here.
+   A 30×30 target is what the other four panels give it and what it already has;
+   recorded so that the `.budpanel` block does not look like it forgot one. */
+
+/* The phasing sentence in the head can be long enough to run under the close
+   button, which is absolutely positioned at top 14 / right 14 against the 20px of
+   head padding. `.drawer__head` already reserves 20px on the right for it; this
+   only stops a very long sentence from pushing the head taller than the rules. */
+.budpanel .drawer__meta {
+  overflow-wrap: anywhere;
+}
+
+/* The one cross-reference in the foot, with a line's worth of clearance from the
+   grip on the left edge: the grip is 10px wide and overlays the panel's first
+   10px, so a control flush against the padding box would sit under it. */
+.budpanel .drawer__foot {
+  padding-left: 20px;
+}
+
+/* --- narrow ------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .budstats {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+
+  .budstat__v {
+    font-size: 1.125rem;
+  }
+
+  table.data.budtable col.c-account {
+    width: 130px;
+  }
+
+  table.data.budtable--versions td.bud-name {
+    max-width: 180px;
+  }
+
+  /* Below this width the five figures and the seven segments stop fitting beside
+     each other; the tab strip and the detail body stack. The detail's own padding
+     is gone (see `.buddet`) — the drawer body's is the one that applies now. */
+  .buddet__cols {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .buddet__grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+}

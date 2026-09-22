@@ -1,0 +1,342 @@
+/* ============================================================================
+   Combination search.
+
+   Almost nothing here is new. The facet chips are `.fchip`, the result card
+   borrows the picker's `.opt__*` pieces, the panel is `.drawer` + `.segs`, and the
+   search box is `.combo__control` — all of them already in the cascade. This file
+   holds only what the search page adds on top:
+
+     - `.segf*`  a facet row — a label column and a shelf of value chips, with a
+                 scroll bound and a find box for the segment that runs to 139.
+     - `.rcard`  the result card, which is a button carrying picker markup.
+     - `.lines`  the purchase-order lines in the panel.
+   ============================================================================ */
+
+/* --- facet rows -------------------------------------------------------- */
+
+.segf-list {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.segf {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 2px 14px;
+  align-items: start;
+  padding: 10px 12px;
+}
+
+.segf + .segf {
+  border-top: 1px solid var(--border);
+}
+
+.segf__label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-top: 5px;
+  min-width: 0;
+}
+
+.segf__name {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-heading);
+}
+
+.segf__role {
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+.segf__count {
+  margin-top: 2px;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.segf__body {
+  min-width: 0;
+}
+
+.segf__find {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  margin-bottom: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-heading);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+}
+
+.segf__find:focus {
+  border-color: var(--primary-color);
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+.segf__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A long row wraps down the column, so it needs a bound of its own — 139 levels would
+   otherwise push the results a screen and a half down the page. Every value is in the
+   DOM; the bound only decides how many are visible before the scroll starts. Tuned so
+   the busiest half of the level list is readable without touching the scrollbar. */
+.segf__row--scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 1px 6px 1px 1px;
+  align-content: flex-start;
+}
+
+.segf__none {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* --- results ----------------------------------------------------------- */
+
+.results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results li + li {
+  margin-top: 6px;
+}
+
+/* The whole card is one button: the card says what the combination is, the click
+   says show me. No selection state beyond which one the panel is holding. */
+.rcard {
+  display: block;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.rcard:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.rcard[aria-current='true'] {
+  border-color: var(--primary-color);
+  background: var(--surface-active);
+}
+
+.rcard:focus-visible {
+  outline: 3px solid var(--tertiary-color);
+  outline-offset: 1px;
+}
+
+.rcard code {
+  font-family: var(--font-mono);
+}
+
+/* The picker's name and meta were authored as <div>s. A button may not contain
+   them, so they arrive as <span>s and have to be blockified by hand. */
+.rcard .opt__name,
+.rcard .opt__meta,
+.rcard .opt__match {
+  display: block;
+}
+
+.rcard__cue {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--link);
+}
+
+.rmore {
+  margin-top: 10px;
+}
+
+/* --- the combination panel -------------------------------------------- */
+
+/* The key is the combination's real identity, so it sits under the headline
+   rather than inside it. */
+.drawer__key {
+  margin-top: 7px;
+}
+
+.drawer__key code {
+  display: inline-block;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-heading);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.line {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.line__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.line__po {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.line__amt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-heading);
+}
+
+.line__desc {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.line__meta {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* --- projects on a combination ----------------------------------------- */
+/* A combination carries several projects — Garner High's track replacement and its
+   fire-pump ventilation are both booked to 04-6570-862-522-2436-0840-000 — so each
+   one is a row with its own share of the money, not a single "holder" line. */
+
+.holds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hold {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.hold__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hold__name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text-heading);
+}
+
+.hold__amt {
+  flex: none;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-heading);
+}
+
+.hold__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hold__code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.hold__meta {
+  margin-top: 5px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.hold__meta b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-body);
+}
+
+/* --- narrow ------------------------------------------------------------ */
+
+@media (max-width: 780px) {
+  .segf {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .segf__label {
+    padding-top: 0;
+  }
+
+  /* The name and its figure are both long, so they stack rather than squeeze. */
+  .hold__top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}

@@ -1,0 +1,25 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "Get-Item": true,
+        "ForEach-Object": true,
+        "Out-File": true,
+        "Out-Null": true,
+        "npm run build": true,
+        "npx tsc": true,
+        "Tee-Object": true,
+        "npm run typecheck": true,
+        "Push-Location": true,
+        "Pop-Location": true,
+        "npx tsx": true,
+        ".\\server\\node_modules\\.bin\\tsx.cmd": true,
+        ".\\node_modules\\.bin\\tsc.cmd": true,
+        ".\\node_modules\\.bin\\tsx.cmd": true,
+        ".\\server\\node_modules\\.bin\\tsc.cmd": true,
+        "Test-Path": true,
+        "Test-NetConnection": true,
+        "npm --prefix server": true,
+        "npm --prefix app": true,
+        "npm run copy:oracle:dry": true,
+        "Get-Process": true
+    }
+}

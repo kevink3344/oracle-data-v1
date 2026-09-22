@@ -1,0 +1,15 @@
+{
+  "name": "oracle-data-tooling",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Repo-level tooling: builds and verifies the Turso sample Oracle-EBS database. Deliberately separate from app/, so the libSQL client (and the API token it needs) can never be bundled into the browser build.",
+  "scripts": {
+    "sample:build": "node scripts/build-turso-sample.mjs",
+    "sample:verify": "node scripts/verify-turso-sample.mjs",
+    "sample:sql": "node scripts/turso-run.mjs"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  }
+}

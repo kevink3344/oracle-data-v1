@@ -1,0 +1,358 @@
+/* ============================================================================
+   Editing a project: the level picker, and the budgets a level already carries.
+
+   `newproject.css` owns `.combo*`, `.listbox*` and `.opt*` and this file extends
+   that vocabulary rather than restating it — a level picker *is* the combination
+   picker narrowed to levels, so the control, the option list and the row shape are
+   shared verbatim and only the two things that genuinely differ get rules here:
+
+     - the field's value is four digits, so the input and the chosen row read as
+       codes rather than as prose;
+     - a budget group is not a table row. It is a label that wraps and a figure
+       that does not, in a column a third of the page wide. `table.data` is built
+       for the opposite — tabular numerals, no wrapping, hover-to-scan — and
+       borrowing it would have meant overriding its `white-space` with a more
+       specific selector. Specificity is not a layout decision.
+
+   ★ Every class below is one this file's markup actually emits, and every class
+     the markup emits is styled here or in `newproject.css`. A rule for a state
+     that cannot occur and a class with no rule are the same defect pointing in
+     opposite directions: both make the stylesheet read as evidence of something
+     that is not true.
+   ========================================================================== */
+
+/* --- the level field -------------------------------------------------- */
+
+/* The value is a code, so it is set in the mono face with the digits spaced —
+   `0454` read in a proportional font is four shapes to compare against the
+   extract; in mono it is four columns that line up with every other code the app
+   prints. No padding change: the tail (match count + clear) still floats over the
+   right-hand end of the field. */
+.combo__input--code {
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  letter-spacing: 0.14em;
+}
+
+/* `letter-spacing` is a trailing space too, which pushes a full four digits away
+   from the left edge of the padding box. It is only visible at the end of a
+   complete code, which is the state the field spends least time in. */
+.combo__input--code::placeholder {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  letter-spacing: normal;
+}
+
+/* Levels are ~139 rows against the combination picker's 328, and 460px of list
+   under a field that is itself the answer is a wall rather than a shortcut. */
+.listbox--levels {
+  max-height: 320px;
+}
+
+/* The level, then its name — and the name is what a reader recognises, so it
+   carries the weight (`opt__key` is the combination picker's equivalent and is
+   600 weight at 0.6875rem because there it is the *identifier*). */
+.opt__lvl {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-heading);
+}
+
+.opt__levelname {
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* --- the picker's footer ---------------------------------------------- */
+
+/* Under the list, not inside it: it explains what was removed from the list, so
+   it must survive an empty result and must not scroll away with the options. */
+.lvl {
+  display: block;
+}
+
+.lvl__foot {
+  margin: var(--space-2) 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.lvl__foot strong {
+  color: var(--text-muted);
+}
+
+.lvl__foot code {
+  font-family: var(--font-mono);
+}
+
+/* --- the budgets on a level ------------------------------------------- */
+
+.lb__lead {
+  margin: 0 0 var(--space-2);
+  font-size: 0.875rem;
+  color: var(--text-heading);
+}
+
+.lb__tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.lb__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.lb__facts dt {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lb__facts dd {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lb__groups {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lb__group {
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft, var(--border-strong));
+}
+
+.lb__group:last-child {
+  border-bottom: 1px solid var(--border-soft, var(--border-strong));
+}
+
+.lb__gtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+
+.lb__glabel {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.lb__gmeta {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb__gfig {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 4px 0 0;
+}
+
+.lb__gamt {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb__gshare {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb__total {
+  margin: var(--space-3) 0 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb__total .lb__gamt {
+  font-size: 0.8125rem;
+}
+
+.lb__foot {
+  margin: var(--space-3) 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--secondary-color);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.lb__foot strong {
+  color: var(--warn-fg);
+}
+
+/* The honest empty state. Sized like prose, not like a figure, because it is a
+   sentence about what is missing rather than a value that happens to be zero. */
+.lb__none {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.lb__none + .lb__none {
+  margin-top: var(--space-2);
+}
+
+.lb__none strong {
+  color: var(--text-heading);
+}
+
+.lb__none code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* --- deleting the project --------------------------------------------- */
+
+/* The panel body holds four stacked things — a lead sentence, the list of what
+   goes, an optional refusal and the control — so the gap between them is the
+   layout rather than a margin each one carries. `.panel__body` already supplies
+   the padding; this decides the rhythm inside it. */
+.del {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.del__lead {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+.del__lead strong {
+  color: var(--text-heading);
+}
+
+/* The consequences. Marked in the error colour so the three lines read as one
+   dangerous statement rather than as ordinary prose in a panel — and the marker
+   is *coloured* rather than replaced, because a custom glyph is one more thing to
+   line up across browsers and adds nothing a colour does not already say. */
+.del__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.del__list li::marker {
+  color: var(--err-fg);
+}
+
+.del__list strong {
+  color: var(--text-heading);
+}
+
+.del__list code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* The control and its aside. `flex-wrap` rather than a breakpoint: the hint is a
+   full sentence, and a narrow panel would otherwise push the button off the row
+   that labels it. */
+.del__go {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.del__hint {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* ★ ONE CHILD OF `.notice`, AND THAT IS THE WHOLE REASON THIS CLASS EXISTS.
+   `.notice` is a row flex with an 8px gap and no `flex-direction`, so a notice
+   holding two bare paragraphs lays them out as two columns with a gap between
+   them. Everything inside a notice on this page therefore goes into this one
+   element, which owns the column, the spacing and the wrapping; the notice itself
+   is left to draw the frame and the colour, which is all it should ever decide. */
+.del__confirm {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.del__confirm p {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* The two answers in the order they should be read: the safe one first, which is
+   also where the focus already is. No rule for `.del__confirm strong` — the
+   `.notice--err strong` rule already colours it, and a second rule saying the same
+   thing is a claim about a state that does not exist. */
+.del__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+/* --- responsive ------------------------------------------------------- */
+
+/* The facts grid is four columns inside a panel that is already the narrow side
+   of the page. Below the breakpoint the panel is full width, so the grid gets
+   *more* room rather than less and only needs to stop being 4-up on a phone. */
+@media (max-width: 900px) {
+  .lb__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

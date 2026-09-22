@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      ★ THE TAB SAYS THE NAME OF THE APPLICATION AND NOTHING ELSE.
+
+      It used to read "Chart of Accounts · Oracle Projects", which is a *screen*
+      title joined to a product name — and the browser tab is the wrong place for
+      either half. A tab is how you find this app among a dozen others, so it wants
+      the product, once: the ledger it happens to be showing is on the page.
+    -->
+    <title>Oracle Projects &amp; Accounts</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Applied before the bundle so a saved dark preference never flashes light.
+      // The mockups hard-coded data-theme="light" and therefore had this bug.
+      try {
+        var saved = localStorage.getItem('projects-theme');
+        var mode =
+          saved ||
+          (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', mode);
+      } catch (e) {
+        /* file:// and hardened privacy modes can throw on storage access */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
