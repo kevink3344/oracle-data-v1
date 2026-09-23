@@ -137,6 +137,153 @@
   font-weight: 600;
 }
 
+/* --- the panel's own two tabs ------------------------------------------ */
+
+/*
+ * ★ THE PANEL IS RESIZABLE, AND ITS BASE IS WIDER THAN THE OTHER DRAWERS'.
+ *
+ *   `.drawer` already gives it `position: fixed; right: 0; top: 0`, the slide
+ *   transition, the `visibility` switch, the left border, the contained scroll on
+ *   `.drawer__body`, and the `.drawer__grip` that `ResizeGrip` renders — all of it
+ *   from `panel.css`, none of it repeated here.
+ *
+ *   What this sets is the FLOOR, and only until a reader chooses their own width:
+ *   `ResizeGrip` writes their choice to `localStorage['activity-panel-w']` and this
+ *   declaration stops applying. That is the same contract the other four panels
+ *   have, which is why it is `--drawer-w` rather than `width`.
+ *
+ *   ★ 470 → 560, BECAUSE THE SCHEMA TAB IS A TABLE OF IDENTIFIERS. The shared 470px
+ *     base is sized for prose and a few figures. This panel's first tab holds a
+ *     column name, a declared type and a rules cell — three columns of short,
+ *     unbreakable strings — and at 470 every identifier longer than about 20
+ *     characters wraps onto a second line. 560 is the read-only panels' width and
+ *     the narrowest that keeps `AP_INVOICE_DISTRIBUTIONS_ALL` on one line.
+ */
+.drawer.drawer--activity {
+  --drawer-w: 560px;
+}
+
+/*
+ * The same tablist idiom as the register's, restyled for a drawer rather than a
+ * page. It is a variant rather than a new component on purpose: two tablists on
+ * one screen that behaved differently would be a thing a reader had to learn
+ * twice, and the register's own comment already argues that case.
+ *
+ * ★ FULL WIDTH, UNLIKE THE REGISTER'S `inline-flex`. The register's tabs sit above
+ *   a table and hug their labels; these sit in a drawer's head and divide it, so
+ *   each takes half the panel. That also gives the two labels a consistent hit
+ *   target instead of one wide button beside a narrow one.
+ *
+ * ★ AND IT IS FLUSH TO THE DRAWER'S EDGES, WITH THE BORDER ONLY ON THE BOTTOM. A
+ *   rounded, inset pill here would read as a control floating in the head rather
+ *   than as the panel's own two views — and the head above it is already a block
+ *   of chips and a title, so a third floating element would be one too many.
+ */
+.act__tabs--panel {
+  display: flex;
+  width: 100%;
+  gap: 0;
+  padding: 0;
+  margin-bottom: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.act__tabs--panel .act__tab {
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 9px 11px;
+  border-radius: 0;
+  /* The active tab is marked by a rule under it rather than a raised surface:
+     inside a drawer there is no page behind the tab strip for a shadow to lift
+     the label off, so a filled pill would just look like a button. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.act__tabs--panel .act__tab:hover {
+  background: var(--surface-hover);
+}
+
+.act__tabs--panel .act__tab.is-on {
+  background: transparent;
+  box-shadow: none;
+  border-bottom-color: var(--primary-color);
+}
+
+/* The body keeps the drawer's own padding, so the tab strip can be flush while
+   the content is not. */
+.act__tabs--panel + .drawer__body {
+  padding-top: 14px;
+}
+
+/* --- the schema table -------------------------------------------------- */
+
+/*
+ * ★ A DENSER TABLE THAN `table.data`, BECAUSE THE CONTENT IS DENSER. A schema list
+ *   is 13–40 short cells a reader scans rather than reads, and the shared
+ *   `table.data` rhythm (which is built for money and names) would make a 40-column
+ *   table scroll far more than it needs to.
+ *
+ * ★ AND IT DOES NOT GET `table.data`'s `white-space: nowrap`, WHICH IS THE TRAP
+ *   HERE. These cells hold identifiers and declared types, and a long one —
+ *   `AP_INVOICE_DISTRIBUTIONS_ALL`, `NUMBER(15,2)` — would push the table wider
+ *   than the drawer with no way to wrap. So wrapping is allowed and the column
+ *   names break on their own underscores where they can.
+ */
+.act__schema {
+  width: 100%;
+  font-size: 0.75rem;
+  border-collapse: collapse;
+}
+
+.act__schema th,
+.act__schema td {
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.act__schema thead th {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom-color: var(--border-strong);
+}
+
+/* The ordinal is a position, not data: right-aligned so the digits line up, and
+   faint so the eye skips it on the way to the name. */
+.act__schema td.n {
+  width: 2.5rem;
+  text-align: right;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.act__schema tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Wrapping is the point — see the rule above. `overflow-wrap` is what breaks a
+   long identifier that has no space in it. */
+.act__schema td code {
+  overflow-wrap: anywhere;
+}
+
+/* The Rules cell holds chips and a default, so it needs to lay them out rather
+   than stack them. */
+.act__schema td:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
 /* --- the table --------------------------------------------------------- */
 
 .act__table {

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../state/store';
 import { Chip } from '../components/Chip';
 import ErrorNotice from '../components/ErrorNotice';
-import { num } from '../data/format';
+import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
+import { num, pluralise } from '../data/format';
 import {
   captureReadings,
   loadActivity,
@@ -13,6 +14,7 @@ import {
   type ActivitySource,
   type ActivityTable,
 } from '../data/activity';
+import { loadDictionary, type DictionaryState } from '../data/dictionary';
 
 /**
  * Activity — an inventory of the database, and how much is in it.
@@ -160,6 +162,208 @@ function gapLine(snapshot: ActivityReading): string {
 }
 
 /**
+ * The Schema tab — every column of the object, as the app store declares it.
+ *
+ * ── ★ WHY THIS TAB EXISTS AT ALL
+ *
+ * The register answers "how many rows". The next question a reader has about an
+ * object is "what is in it" — which is what you ask when a count looks wrong, when
+ * you are about to write a view over the table, or when you are checking whether a
+ * column you expected is actually there. That question has an endpoint
+ * (`/api/meta/dictionary`) and until now no screen in this panel reached it.
+ *
+ * ── ★ THE ONE THING THIS TAB MUST NOT DO: IMPLY IT READ THE LIVE LEDGER
+ *
+ * `sqlite_master` is a SQLite catalogue, so the dictionary describes **the app
+ * store**. For a ledger object that means these are the columns the *sample*
+ * declares — the sample's projection of the extract — not Oracle's own shape. The
+ * two disagree, and they disagree most for exactly the objects a reader is most
+ * likely to look up: measured, `PO_HEADERS_ALL` is **13 columns here and 213 on
+ * Oracle**, and `GL_CODE_COMBINATIONS` is 15 against 112. A tab that showed 13
+ * columns under the heading "the columns of PO_HEADERS_ALL" would be wrong in the
+ * way this project keeps catching: a plausible answer to a question nobody asked.
+ *
+ * So the note at the foot of the tab names the store the list came from, and it
+ * says plainly that a ledger object's live shape may be wider.
+ *
+ * ── ★ AND `declaredType: ''` IS AN ANSWER, NOT A BLANK
+ *
+ * SQLite records the declared type verbatim and a table may have none, so an empty
+ * string is a real value. Measured: `DUAL`'s two columns both report `''`. The type
+ * cell therefore says "no declared type" in words rather than rendering an empty
+ * cell, which would read as a parse failure — the same distinction as
+ * `rowCount: null` versus `0`, one level down.
+ */
+function SchemaTab({ table, source }: { table: ActivityTable; source: ActivitySource }) {
+  const [state, setState] = useState<DictionaryState>({ status: 'loading' });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    void loadDictionary(controller.signal).then((next) => {
+      if (live) setState(next);
+    });
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, []);
+
+  /*
+   * ★ THE LOOKUP IS BY NAME AND THE ABSENCE IS A REAL ANSWER.
+   *
+   *   The dictionary is the app store's catalogue. A ledger object that the sample
+   *   does not carry — or one whose name differs between the two — simply is not in
+   *   it, and that is a fact worth saying rather than a bug to hide. The alternative
+   *   (a per-object request that 404s) would produce the same sentence from an error
+   *   path, which is a worse place to get it from.
+   */
+  const object = state.status === 'ready' ? state.objects.find((o) => o.name === table.name) : undefined;
+
+  if (state.status === 'loading') {
+    return (
+      <section className="dsec">
+        <div className="dsec__head">
+          <h3 className="dsec__title">Columns</h3>
+          <span className="dsec__hint">reading the catalogue</span>
+        </div>
+        <p className="chart-note">Reading the data dictionary…</p>
+      </section>
+    );
+  }
+
+  if (state.status === 'failed') {
+    return (
+      <section className="dsec">
+        <div className="dsec__head">
+          <h3 className="dsec__title">Columns</h3>
+          <span className="dsec__hint">could not be read</span>
+        </div>
+        <p className="chart-note">
+          <span className="act__bad">The data dictionary could not be read</span> — {state.message}.
+          The row counts on the Details tab are unaffected: they come from a different endpoint and
+          are read separately.
+        </p>
+      </section>
+    );
+  }
+
+  if (!object) {
+    return (
+      <section className="dsec">
+        <div className="dsec__head">
+          <h3 className="dsec__title">Columns</h3>
+          <span className="dsec__hint">not in the catalogue</span>
+        </div>
+        <p className="chart-note">
+          <code>{table.name}</code> is not in the data dictionary. The dictionary lists the{' '}
+          <b>app store's</b> own objects, so a ledger object the sample does not carry has no column
+          list here — and an object that exists on both sides under different names would appear
+          under the sample's name rather than this one.
+        </p>
+      </section>
+    );
+  }
+
+  const pk = object.columns.filter((c) => c.primaryKey);
+  const required = object.columns.filter((c) => c.notNull);
+
+  return (
+    <>
+      <section className="dsec">
+        <div className="dsec__head">
+          <h3 className="dsec__title">
+            {pluralise(object.columns.length, 'column')}
+          </h3>
+          <span className="dsec__hint">
+            {object.type} · {pk.length === 0 ? 'no primary key' : `${pluralise(pk.length, 'key column')}`}
+          </span>
+        </div>
+        <div className="table-wrap">
+          <table className="data act__schema">
+            <caption className="sr">
+              Every column of {object.name}, in the order the catalogue declares them.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" className="n">
+                  #
+                </th>
+                <th scope="col">Column</th>
+                <th scope="col">Declared type</th>
+                <th scope="col">Rules</th>
+              </tr>
+            </thead>
+            <tbody>
+              {object.columns.map((c) => (
+                <tr key={c.name}>
+                  {/* The ordinal is 0-based from `pragma_table_info`; shown 1-based
+                      because a reader counts from one, and labelled as a position
+                      rather than an id. */}
+                  <td className="n ax__span">{c.ordinal + 1}</td>
+                  <td>
+                    <code>{c.name}</code>
+                  </td>
+                  <td>
+                    {c.declaredType === '' ? (
+                      <span className="ax__span" title="SQLite records the declared type verbatim, and this column has none">
+                        no declared type
+                      </span>
+                    ) : (
+                      <code>{c.declaredType}</code>
+                    )}
+                  </td>
+                  <td>
+                    {c.primaryKey ? <Chip variant="info">primary key</Chip> : null}
+                    {c.notNull ? <Chip variant="neu">not null</Chip> : null}
+                    {c.defaultValue !== null ? (
+                      <span className="ax__span" title={`default ${c.defaultValue}`}>
+                        default <code>{c.defaultValue}</code>
+                      </span>
+                    ) : null}
+                    {!c.primaryKey && !c.notNull && c.defaultValue === null ? (
+                      <span className="ax__span">—</span>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="dsec">
+        <div className="dsec__head">
+          <h3 className="dsec__title">Where this list comes from</h3>
+          <span className="dsec__hint">{table.store === 'app' ? 'the app store' : 'the ledger'}</span>
+        </div>
+        <p className="chart-note">
+          The dictionary is read from <code>sqlite_master</code>, which is a SQLite catalogue — so it
+          describes the <b>app store</b> at <code>{source.label}</code>, and this is the shape that
+          store declares.
+        </p>
+        {table.store === 'ledger' ? (
+          <p className="chart-note">
+            <b>This object is a ledger object, so the live shape can be wider than this list.</b> The
+            sample is a narrowed projection of the extract: measured, <code>PO_HEADERS_ALL</code> has
+            13 columns here and 213 on Oracle, and <code>GL_CODE_COMBINATIONS</code> has 15 against
+            112. Read this as <i>the columns this application can see</i>, not as the ledger's own
+            schema.
+          </p>
+        ) : null}
+        <p className="chart-note">
+          {required.length === 0
+            ? 'No column here is declared NOT NULL.'
+            : `${pluralise(required.length, 'column')} ${required.length === 1 ? 'is' : 'are'} declared NOT NULL.`}{' '}
+          A declared type is what the DDL says, not a constraint SQLite enforces — a column can hold
+          a value of any type unless a `CHECK` says otherwise.
+        </p>
+      </section>
+    </>
+  );
+}
+
+/**
  * The slide-in.
  *
  * Reuses the `.drawer` classes the project details panel already uses, so the
@@ -170,7 +374,44 @@ function gapLine(snapshot: ActivityReading): string {
  *   and a date; *why* an object has no figure, *how* its count was narrowed, and
  *   *which database* answered are all sentences, and they belong somewhere with
  *   room to be read.
+ *
+ * ★ AND IT HAS TWO TABS, BECAUSE A READER ASKS TWO DIFFERENT QUESTIONS ABOUT AN
+ *   OBJECT. "How many rows does it hold, and how was that narrowed?" is the
+ *   register's question and is what this panel always answered. "What columns does
+ *   it have?" is the question you ask *next* — when the count is wrong, when you
+ *   are about to write a view over it, or when you are checking whether a column
+ *   you expected exists. They are answered by different endpoints (`/api/activity`
+ *   and `/api/meta/dictionary`), they fail independently, and a reader wants one at
+ *   a time rather than 40 columns above the paragraph they came to read.
+ *
+ *   ★ SCHEMA IS FIRST, AND THAT IS A DELIBERATE ORDER RATHER THAN A DEFAULT. The
+ *     schema is the *stable* fact about an object — it changes when the DDL
+ *     changes, which is rare — while the counts are readings that move and can be
+ *     absent. Opening on the stable fact means the panel's first screen is never
+ *     "not counted yet", and the tab a reader most often wants when they are
+ *     investigating something is the one already showing.
  */
+
+/** Which of the panel's two tabs is showing. */
+type PanelTab = 'schema' | 'details';
+
+const PANEL_TAB_ORDER: PanelTab[] = ['schema', 'details'];
+
+const PANEL_TAB_LABEL: Record<PanelTab, string> = {
+  schema: 'Schema',
+  details: 'Details',
+};
+
+/**
+ * Where the panel's width is remembered.
+ *
+ * ★ ITS OWN KEY, NOT A SHARED ONE. Every resizable panel in this app stores its
+ *   width separately — `projects-vendor-w`, `budgets-panel-w` — because a width
+ *   that suits a budget breakdown rarely suits a list of column names. Sharing one
+ *   key would make resizing any panel resize all of them on the next open.
+ */
+const WIDTH_KEY = 'activity-panel-w';
+
 function ActivityPanel({
   table,
   day,
@@ -187,6 +428,64 @@ function ActivityPanel({
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+
+  /*
+   * ★ THE TAB RESETS WHEN THE PANEL IS POINTED AT A DIFFERENT OBJECT, AND IT IS THE
+   *   CALL SITE'S `key` THAT DOES IT.
+   *
+   *   The panel is rendered with `key={opened.name}`, so pointing it at another row
+   *   remounts it and this state starts at 'schema' again — which is the behaviour a
+   *   reader expects (a new object opens on its own schema) and is also what makes
+   *   `SchemaTab`'s once-per-mount dictionary read correct.
+   *
+   *   ★ WITHOUT THAT KEY THIS IS A SILENT BUG, NOT A COSMETIC ONE. `SchemaTab`'s
+   *     effect has an empty dependency list, so it fetches on mount and never again;
+   *     a reused instance would keep showing the *first* object's columns under the
+   *     second object's name. So the key is not a nicety — it is what keeps the
+   *     column list attached to the table it describes.
+   */
+  const [panelTab, setPanelTab] = useState<PanelTab>('schema');
+  const panelTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  /*
+   * ★ THE PANEL IS RESIZABLE, LIKE EVERY OTHER DRAWER IN THIS APP.
+   *
+   *   It was the one drawer that was not, and the omission was worse here than it
+   *   would be elsewhere: this panel's Schema tab holds a table of identifiers and
+   *   declared types, which is exactly the content a reader wants wider — a
+   *   40-column list in a 380px panel wraps every name onto three lines.
+   *
+   *   `null` means "the stylesheet owns the width", which is what keeps the
+   *   responsive default working until a reader chooses one. The same convention
+   *   `Budgets` uses, and for the same reason: storing a number on mount would
+   *   freeze the panel at whatever the viewport happened to be.
+   */
+  const [width, setWidth] = useState<number | null>(() => readStoredWidth(WIDTH_KEY));
+  const [resizing, setResizing] = useState(false);
+  const rendered = panelRef.current?.getBoundingClientRect().width ?? 0;
+
+  const setUserWidth = (w: number) => {
+    const next = clampWidth(w);
+    setWidth(next);
+    storeWidth(WIDTH_KEY, next);
+  };
+  const resetWidth = () => {
+    setWidth(null);
+    storeWidth(WIDTH_KEY, null);
+  };
+
+  const onPanelTabKey = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault();
+      const at = PANEL_TAB_ORDER.indexOf(panelTab);
+      const step = e.key === 'ArrowRight' ? 1 : PANEL_TAB_ORDER.length - 1;
+      const next = PANEL_TAB_ORDER[(at + step) % PANEL_TAB_ORDER.length];
+      setPanelTab(next);
+      panelTabRefs.current[PANEL_TAB_ORDER.indexOf(next)]?.focus();
+    },
+    [panelTab],
+  );
 
   // ★ THE PANEL OWES THE OPENER ITS FOCUS BACK, and every other drawer in this app
   //   already pays it (`Checks`, `Invoices`, `PurchaseOrders`, `Budgets`, …). This
@@ -243,16 +542,29 @@ function ActivityPanel({
   const s = table.snapshot;
   const countedIn = source.sharedWithLedger ? source.countLabel : source.label;
 
+  /* `--drawer-w` is the same custom property every other drawer's width comes from,
+     so the grip needs no CSS of its own beyond the shared `.drawer__grip` rule. */
+  const style = width ? ({ '--drawer-w': `${clampWidth(width)}px` } as CSSProperties) : undefined;
+
   return (
     <aside
       ref={panelRef}
       id="activity-detail"
-      className="drawer is-open"
+      className={`drawer drawer--activity is-open${resizing ? ' is-resizing' : ''}`}
+      style={style}
       role="dialog"
       aria-modal="true"
-      aria-label={`${table.name} — row count details`}
+      aria-label={`${table.name} — schema and row count details`}
       tabIndex={-1}
     >
+      <ResizeGrip
+        value={width ?? rendered}
+        onChange={setUserWidth}
+        onReset={resetWidth}
+        onDraggingChange={setResizing}
+        controls="activity-detail"
+        label="Resize the schema and details panel"
+      />
       <div className="drawer__head">
         <div className="drawer__eyebrow">
           {owned ? 'app table' : 'extract'} · {table.kind}
@@ -315,7 +627,7 @@ function ActivityPanel({
           type="button"
           className="drawer__close"
           onClick={onClose}
-          aria-label="Close the row count details panel"
+          aria-label="Close the schema and row count details panel"
         >
           <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path
@@ -328,141 +640,189 @@ function ActivityPanel({
         </button>
       </div>
 
-      <div className="drawer__body">
-        {s ? (
-          <section className="dsec">
-            <div className="dsec__head">
-              <h3 className="dsec__title">The recorded count</h3>
-              <span className="dsec__hint">a reading, not a live figure</span>
-            </div>
-            <dl className="ax">
-              <dt>
-                Rows at the last reading <time dateTime={s.date}>{s.date}</time>
-              </dt>
-              <dd>
-                <b className="ax__n">{num(s.rowCount)}</b>
-                <br />
-                <span className="ax__span">read at {s.capturedAt}</span>
-              </dd>
-              <dt>Against the reading before it</dt>
-              <dd>
-                {s.previousCount === null ? (
-                  <span className="ax__span">
-                    There is none. This is the first reading of this object, so there is nothing to
-                    subtract from it yet — a difference appears once a second reading has been taken
-                    on a later day.
-                  </span>
-                ) : (
-                  <>
-                    <b className="ax__n">{num(s.previousCount)}</b> on{' '}
-                    <time dateTime={s.previousDate ?? ''}>{s.previousDate}</time>
+      {/*
+        ★ A REAL TABLIST, THE SAME PATTERN THE REGISTER ABOVE USES. `role="tablist"`
+        with `aria-selected`, a shared panel, and arrow keys — so a screen reader is
+        told these are two views of one object rather than two buttons, and the
+        keyboard moves between them without a Tab stop each. Reusing the register's
+        own idiom is deliberate: two tablists on one screen that behaved differently
+        would be a bug a reader would have to learn twice.
+      */}
+      <div
+        className="act__tabs act__tabs--panel"
+        role="tablist"
+        aria-label={`${table.name} — which view`}
+        onKeyDown={onPanelTabKey}
+      >
+        {PANEL_TAB_ORDER.map((t, i) => (
+          <button
+            key={t}
+            ref={(el) => {
+              panelTabRefs.current[i] = el;
+            }}
+            id={`activity-panel-tab-${t}`}
+            type="button"
+            role="tab"
+            className={`act__tab${panelTab === t ? ' is-on' : ''}`}
+            aria-selected={panelTab === t}
+            aria-controls="activity-panel-tabpanel"
+            tabIndex={panelTab === t ? 0 : -1}
+            onClick={() => setPanelTab(t)}
+          >
+            {PANEL_TAB_LABEL[t]}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="drawer__body"
+        id="activity-panel-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`activity-panel-tab-${panelTab}`}
+      >
+        {panelTab === 'schema' ? (
+          <SchemaTab table={table} source={source} />
+        ) : (
+          <>
+            {s ? (
+              <section className="dsec">
+                <div className="dsec__head">
+                  <h3 className="dsec__title">The recorded count</h3>
+                  <span className="dsec__hint">a reading, not a live figure</span>
+                </div>
+                <dl className="ax">
+                  <dt>
+                    Rows at the last reading <time dateTime={s.date}>{s.date}</time>
+                  </dt>
+                  <dd>
+                    <b className="ax__n">{num(s.rowCount)}</b>
                     <br />
-                    <span className="ax__span">{gapLine(s)}</span>
-                  </>
-                )}
-              </dd>
-            </dl>
-          </section>
-        ) : null}
+                    <span className="ax__span">read at {s.capturedAt}</span>
+                  </dd>
+                  <dt>Against the reading before it</dt>
+                  <dd>
+                    {s.previousCount === null ? (
+                      <span className="ax__span">
+                        There is none. This is the first reading of this object, so there is nothing
+                        to subtract from it yet — a difference appears once a second reading has
+                        been taken on a later day.
+                      </span>
+                    ) : (
+                      <>
+                        <b className="ax__n">{num(s.previousCount)}</b> on{' '}
+                        <time dateTime={s.previousDate ?? ''}>{s.previousDate}</time>
+                        <br />
+                        <span className="ax__span">{gapLine(s)}</span>
+                      </>
+                    )}
+                  </dd>
+                </dl>
+              </section>
+            ) : null}
 
-        {s && s.previousCount !== null ? (
-          <section className="dsec">
-            <div className="dsec__head">
-              <h3 className="dsec__title">What a difference of counts can and cannot say</h3>
-              <span className="dsec__hint">a net figure</span>
-            </div>
-            <p className="chart-note">
-              A difference of counts is a <b>net</b> figure: four more rows can be six inserted and
-              two deleted, and this object cannot tell those apart — it never sees a delete, only the
-              arithmetic that survives one. It is also not a count of anything that happened on{' '}
-              {longDay(day)}: the two readings may be a fortnight apart, which is why both dates are
-              printed above.
-            </p>
-          </section>
-        ) : null}
+            {s && s.previousCount !== null ? (
+              <section className="dsec">
+                <div className="dsec__head">
+                  <h3 className="dsec__title">What a difference of counts can and cannot say</h3>
+                  <span className="dsec__hint">a net figure</span>
+                </div>
+                <p className="chart-note">
+                  A difference of counts is a <b>net</b> figure: four more rows can be six inserted
+                  and two deleted, and this object cannot tell those apart — it never sees a delete,
+                  only the arithmetic that survives one. It is also not a count of anything that
+                  happened on {longDay(day)}: the two readings may be a fortnight apart, which is
+                  why both dates are printed above.
+                </p>
+              </section>
+            ) : null}
 
-        <section className="dsec">
-          <div className="dsec__head">
-            <h3 className="dsec__title">How this count was narrowed</h3>
-            <span className="dsec__hint">
-              {table.scoped ? 'the scope applies' : 'nothing to narrow by'}
-            </span>
-          </div>
-          {table.scopeMode === 'segments' ? (
-            <p className="chart-note">
-              This object carries the account's own columns, so the count is a filter on them:{' '}
-              <code>SEGMENT1</code> for the fund and <code>SEGMENT3</code> for the program, testing{' '}
-              <b>{scopeWords(scope)}</b>. Those are the only rows in it this application is about.
-            </p>
-          ) : table.scopeMode === 'lookup' ? (
-            <p className="chart-note">
-              This object carries an account only as a code-combination id, so the fund and program
-              cannot be tested on it directly. The count resolves the id through{' '}
-              <code>GL_CODE_COMBINATIONS</code> — testing <b>{scopeWords(scope)}</b> there — and
-              counts the rows whose combination is in that set.
-            </p>
-          ) : (
-            <p className="chart-note">
-              This object has neither an account column nor a code-combination id, so{' '}
-              <b>{scopeWords(scope)}</b> has nothing to test on it. Its count is the whole object,
-              and it is marked as such on the list rather than being quietly left out.
-            </p>
-          )}
-        </section>
-
-        {table.reason ? (
-          <section className="dsec">
-            <div className="dsec__head">
-              <h3 className="dsec__title">Why there is no count here</h3>
-            </div>
-            <p className="chart-note">{table.reason}</p>
-          </section>
-        ) : null}
-
-        <section className="dsec">
-          <div className="dsec__head">
-            <h3 className="dsec__title">Where this comes from</h3>
-            <span className="dsec__hint">{table.store === 'app' ? 'the app store' : 'the ledger'}</span>
-          </div>
-          {table.store === 'app' ? (
-            <p className="chart-note">
-              This is one of this application's own tables. The ledger holds no copy of it, so its
-              count is taken in the app store at <code>{countedIn}</code>.
-              {owned
-                ? ' Its rows move when a project is recorded or bound, and the next reading will show that.'
-                : ''}
-            </p>
-          ) : (
-            <p className="chart-note">
-              This is a ledger object. Its count is taken over the connection at{' '}
-              <code>{source.countLabel}</code>
-              {source.sharedWithLedger ? (
-                <>
-                  {' '}
-                  — which is the app store as well, so the object list and its counts come from the
-                  same database.
-                </>
+            <section className="dsec">
+              <div className="dsec__head">
+                <h3 className="dsec__title">How this count was narrowed</h3>
+                <span className="dsec__hint">
+                  {table.scoped ? 'the scope applies' : 'nothing to narrow by'}
+                </span>
+              </div>
+              {table.scopeMode === 'segments' ? (
+                <p className="chart-note">
+                  This object carries the account's own columns, so the count is a filter on them:{' '}
+                  <code>SEGMENT1</code> for the fund and <code>SEGMENT3</code> for the program,
+                  testing <b>{scopeWords(scope)}</b>. Those are the only rows in it this application
+                  is about.
+                </p>
+              ) : table.scopeMode === 'lookup' ? (
+                <p className="chart-note">
+                  This object carries an account only as a code-combination id, so the fund and
+                  program cannot be tested on it directly. The count resolves the id through{' '}
+                  <code>GL_CODE_COMBINATIONS</code> — testing <b>{scopeWords(scope)}</b> there — and
+                  counts the rows whose combination is in that set.
+                </p>
               ) : (
-                <>
-                  . The reading itself is stored in the app store at <code>{source.label}</code>, so
-                  that a count taken today survives until the next one is taken.
-                </>
+                <p className="chart-note">
+                  This object has neither an account column nor a code-combination id, so{' '}
+                  <b>{scopeWords(scope)}</b> has nothing to test on it. Its count is the whole
+                  object, and it is marked as such on the list rather than being quietly left out.
+                </p>
               )}
-            </p>
-          )}
-          {table.store === 'ledger' ? (
-            <p className="chart-note">
-              The list of names is the sample's declared inventory rather than Oracle's dictionary,
-              so an object on this list that the account cannot read answers with its own error
-              instead of a count. Pressing “Record counts now” is what reports that.
-            </p>
-          ) : null}
-          <p className="chart-note">
-            Open the raw object in{' '}
-            <Link to={`/objects/${encodeURIComponent(table.name)}`}>the object browser</Link> to read
-            its rows.
-          </p>
-        </section>
+            </section>
+
+            {table.reason ? (
+              <section className="dsec">
+                <div className="dsec__head">
+                  <h3 className="dsec__title">Why there is no count here</h3>
+                </div>
+                <p className="chart-note">{table.reason}</p>
+              </section>
+            ) : null}
+
+            <section className="dsec">
+              <div className="dsec__head">
+                <h3 className="dsec__title">Where this comes from</h3>
+                <span className="dsec__hint">
+                  {table.store === 'app' ? 'the app store' : 'the ledger'}
+                </span>
+              </div>
+              {table.store === 'app' ? (
+                <p className="chart-note">
+                  This is one of this application's own tables. The ledger holds no copy of it, so
+                  its count is taken in the app store at <code>{countedIn}</code>.
+                  {owned
+                    ? ' Its rows move when a project is recorded or bound, and the next reading will show that.'
+                    : ''}
+                </p>
+              ) : (
+                <p className="chart-note">
+                  This is a ledger object. Its count is taken over the connection at{' '}
+                  <code>{source.countLabel}</code>
+                  {source.sharedWithLedger ? (
+                    <>
+                      {' '}
+                      — which is the app store as well, so the object list and its counts come from
+                      the same database.
+                    </>
+                  ) : (
+                    <>
+                      . The reading itself is stored in the app store at <code>{source.label}</code>
+                      , so that a count taken today survives until the next one is taken.
+                    </>
+                  )}
+                </p>
+              )}
+              {table.store === 'ledger' ? (
+                <p className="chart-note">
+                  The list of names is the sample's declared inventory rather than Oracle's
+                  dictionary, so an object on this list that the account cannot read answers with its
+                  own error instead of a count. Pressing “Record counts now” is what reports that.
+                </p>
+              ) : null}
+              <p className="chart-note">
+                Open the raw object in{' '}
+                <Link to={`/objects/${encodeURIComponent(table.name)}`}>the object browser</Link> to
+                read its rows.
+              </p>
+            </section>
+          </>
+        )}
       </div>
     </aside>
   );
@@ -1159,7 +1519,23 @@ export default function Activity() {
       ) : null}
 
       {opened && data ? (
+        /*
+         * ★ `key` ON THE TABLE NAME, AND IT IS LOAD-BEARING FOR THE PANEL'S TABS.
+         *
+         *   The panel holds two pieces of state that belong to *one object*: which tab
+         *   is showing, and the dictionary read the Schema tab made. Without a key,
+         *   clicking a second row's "view" while the panel is open reuses this
+         *   component instance — so a reader who was on the Schema tab of table A
+         *   would land on the Schema tab of table B (fine, but by luck), and the
+         *   dictionary lookup would not re-run (not fine: `SchemaTab`'s effect has an
+         *   empty dependency list, so it fetches once per mount and would show table
+         *   A's columns under table B's name).
+         *
+         *   Keying by name makes "a new object opens on its own schema" a property of
+         *   the code rather than of the order a reader happens to click in.
+         */
         <ActivityPanel
+          key={opened.name}
           table={opened}
           day={data.date}
           scope={data.scope}
