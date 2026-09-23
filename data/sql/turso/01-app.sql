@@ -19,6 +19,7 @@
 --     app_user                one row per person who may sign in, and their tenant
 --     geo_origin              one row per named place a driving distance is measured FROM
 --     vendor_site_geo         one row per vendor site — where it is, and how far it is from an origin
+--     ledger_read_cap         one row per ledger object — how many rows to read, and in what order
 --
 --  ---------------------------------------------------------------------------
 --  WHY IT IS SEPARATE FROM 00-schema.sql
@@ -1276,4 +1277,102 @@ CREATE TABLE IF NOT EXISTS field_override (
 -- No index beyond the primary key, deliberately. The only read is one subject's
 -- overrides, which the primary key's leading column already serves, and the write
 -- is a point lookup on the whole triple. Hundreds of rows, not millions.
+
+
+-- ============================================================================
+--  ledger_read_cap — how many rows this app reads from a ledger object, and in
+--  what order.
+--
+--  ---------------------------------------------------------------------------
+--  WHY THIS TABLE EXISTS
+--  ---------------------------------------------------------------------------
+--  The EBS instance holds tables in the hundreds of millions of rows
+--  (`GL_BALANCES` is 157 M; the AP surface is 1.2 M checks). A register that
+--  reads one of those whole is not slow — it is a request that never returns.
+--  This table is where an administrator says, per object, "read at most N rows,
+--  and read them *this* way", so the bound is data that can be changed without a
+--  deploy rather than a constant in a route.
+--
+--  ---------------------------------------------------------------------------
+--  ★ `order_by` IS REQUIRED WHENEVER `max_rows` IS SET, AND THAT IS THE WHOLE
+--    POINT OF THE TABLE
+--  ---------------------------------------------------------------------------
+--  A cap with no ordering is not a smaller answer — it is a DIFFERENT, ARBITRARY
+--  one. `SELECT * FROM AP_INVOICES_ALL WHERE ROWNUM <= 100000` returns whichever
+--  rows Oracle reached first: a count of 100,000 then means "at least 100,000",
+--  a sum is the sum of an unknown subset, and every percentage on the page has
+--  the wrong denominator. None of that is visible in the payload.
+--
+--  With an ordering it becomes a reproducible window that can be *labelled*:
+--  "the 100,000 most recent by INVOICE_DATE". That is a claim a reader can check
+--  and a screen can state. The route refuses a row with `max_rows` and no
+--  `order_by` rather than running it, because the un-ordered form is the one that
+--  arrives looking correct.
+--
+--  ---------------------------------------------------------------------------
+--  ★ A CAP IS NOT A PERFORMANCE FIX, AND THIS TABLE DOES NOT PRETEND TO BE ONE
+--  ---------------------------------------------------------------------------
+--  The cap bounds what crosses the wire and what the process holds. It does NOT
+--  bound the work: Oracle still has to *find* the first N rows, so on an
+--  unindexed predicate the statement is as expensive as before. The lever that
+--  makes a read fast is the scope — the fund/programme/start-FY predicate pushed
+--  into the SQL — which is why `db/row-budget.ts` bounds what may be *returned*
+--  while the scope owns what may be *read*. Both are needed and they do different
+--  jobs; a comment here claiming otherwise would be the kind of thing this
+--  project has already had to retract once.
+--
+--  ---------------------------------------------------------------------------
+--  ★ THE SQL IS PER-DIALECT, AND THE ROUTE OWNS THE DIFFERENCE
+--  ---------------------------------------------------------------------------
+--  Oracle has no `LIMIT`: it spells the cap `FETCH FIRST n ROWS ONLY` (12c+) or
+--  the nested `ROWNUM` form (11g+). SQLite/libSQL spells it `LIMIT n`. The
+--  `sql` column therefore stores a statement WITHOUT a cap — the cap is appended
+--  by `db/read-cap.ts` in the dialect of whichever store the statement routed to,
+--  so one row serves both backends and the stored text never has to be edited
+--  when the deployment moves from one to the other.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS ledger_read_cap (
+  -- The ledger object this row governs, as the registry spells it —
+  -- 'AP_INVOICES_ALL', 'GL_BALANCES'. Matched case-insensitively by the resolver,
+  -- because Oracle uppercases unquoted identifiers and a person typing a table
+  -- name will not reliably do so.
+  table_name  TEXT NOT NULL PRIMARY KEY,
+
+  -- The statement the app runs for this object. Stored WITHOUT a row cap: the cap
+  -- is appended per dialect at read time (see the header). NULL means "no stored
+  -- statement" — the object is capped but still read by whatever route owns it,
+  -- which is the common case for a table the app already knows how to query.
+  sql         TEXT,
+
+  -- The cap. NULL means uncapped, which is the default: a table is only bounded
+  -- when somebody decides it needs to be, so adding this table changes no
+  -- behaviour until a row is written.
+  max_rows    INTEGER,
+
+  -- ★ REQUIRED WHEN `max_rows` IS SET. The column(s) the window is taken in, as
+  -- the ledger names them — 'INVOICE_DATE DESC', 'CHECK_ID'. Text rather than
+  -- structured, because the app does not parse it: it is interpolated into the
+  -- statement's ORDER BY by `db/read-cap.ts` after passing the same identifier
+  -- allowlist every other ORDER BY in this server passes (`parseSort`), so a
+  -- value that is not a plain column name with an optional direction is refused
+  -- rather than concatenated.
+  order_by    TEXT,
+
+  -- Why this number, in the administrator's own words. Shown in the panel beside
+  -- the field, because "100,000" with no reason is a number the next reader will
+  -- change. Nothing parses it.
+  note        TEXT,
+
+  -- Who set it and when, as the session named them — the same convention as
+  -- `saved_view.created_by` and `field_override.set_by`: a display name frozen at
+  -- the moment of the write, not a foreign key, so a later rename does not rewrite
+  -- a historical attribution.
+  set_by      TEXT,
+  set_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- No index beyond the primary key. The table has one row per ledger object the
+-- app reads (tens, not thousands), and every read is a point lookup by name or a
+-- full scan of the whole table for the admin list. An index would be decoration.
 

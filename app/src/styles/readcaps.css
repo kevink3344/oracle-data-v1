@@ -1,0 +1,271 @@
+/* ==========================================================================
+   Read caps — the per-object row bounds, and the panel that edits one.
+
+   ★ IT EXTENDS RATHER THAN REDECLARES. The page is a `.stack` of `.panel`s with a
+   `.page-head` above them, like every other screen; the fields are `.field` /
+   `.input`, the buttons are `.btn`, and the panel is the shared `.drawer` with the
+   shared `.drawer__head` / `__body` / `__foot`. Nothing here re-implements any of
+   that. What is here is the part with no ancestor to inherit from:
+
+     - `.rctable` / `.rcrow*`   the register of objects and their bounds
+     - `.rcfilter`              the table-name filter above it
+     - `.rcform*`               the panel's form, including the SQL box
+     - `.rcprev*`               the preview: its meta line, the SQL disclosure and
+                                the result table
+
+   ★ THE PREVIEW TABLE IS DELIBERATELY NARROWER THAN THE REGISTER. A preview shows
+   whatever columns the statement returns, which can be a dozen, so it scrolls
+   inside its own wrapper rather than making the panel wide. `.table-wrap` already
+   does that — it is reused, not restated.
+
+   ========================================================================== */
+
+/* --- the register ------------------------------------------------------ */
+
+.rcfilter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.rcfilter__input {
+  flex: 1 1 auto;
+  max-width: 420px;
+}
+
+/* The dialect sentence. Sits between the filter and the table, so it is read
+   before the rows it describes rather than after them. */
+.rcnote {
+  margin: 0 16px 12px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.rctable {
+  width: 100%;
+}
+
+/* The object name is an identifier, so it is monospaced and never wraps — a
+   wrapped table name is unreadable and there is room for it. */
+.rcrow__name {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.rcrow__name code,
+.rcrow__order code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+}
+
+/* The limit is a number a reader compares down the column, so it is tabular and
+   right-aligned — the same reason money is. */
+.rcrow__limit {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rcrow__order {
+  white-space: nowrap;
+}
+
+/* "unbounded" and the em-dash are both absences, and neither should read as a
+   value. Muted, and never bold. */
+.rcrow__none {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.rcrow__by {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.rcrow__act {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The row is the trigger, so it takes the pointer; the button inside is the
+   keyboard-reachable path (a `<tr onClick>` is never focusable). */
+.rcrow {
+  cursor: pointer;
+}
+
+.rcrow--capped .rcrow__limit {
+  font-weight: 600;
+}
+
+.rcrow__empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* --- the panel form ---------------------------------------------------- */
+
+.rcform {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rcform__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 12px;
+}
+
+/* The SQL box. Monospaced, and it does not grow with content — a long statement
+   scrolls inside it rather than pushing the fields below it off the panel. */
+.rcform__sql {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 96px;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* The rule about a limit needing an ordering. It is the server's rule, stated
+   where the fields are, so a reader meets it before the refusal rather than after. */
+.rcform__rule {
+  margin: -4px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* The declared default's own reasoning, shown directly under the statement box.
+   ★ IT IS SET APART FROM `.field__note` ON PURPOSE: the note below it is the app's
+   standing instruction ("do not add a row limit here"), while this is a fact about
+   *this* object — which column is not the obvious name, which table has no date.
+   Two different kinds of sentence, so they do not share a treatment. */
+.rcform__default {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- the preview ------------------------------------------------------- */
+
+.rcprev {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.rcprev__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rcprev__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.rcprev__empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* The meta line: how many rows, whether it was cut, the cap, and the timing.
+   One sentence rather than four stat tiles, because it is read as a sentence. */
+.rcprev__meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ★ THE STALE NOTICE IS NOT AN ERROR. The preview ran correctly; the form has
+   simply moved on. A warning tint would say something went wrong, which it did
+   not — so it takes the muted note treatment instead. */
+.rcprev__stale {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.04));
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* The executed SQL, folded away. It is the thing a bug report needs and the thing
+   a reader rarely wants, which is exactly what `<details>` is for. */
+.rcprev__sql summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.rcprev__sql pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.04));
+  overflow-x: auto;
+}
+
+.rcprev__sql code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* ★ THE PREVIEW TABLE GETS ITS OWN SCROLLER AND A HEIGHT CAP. A statement can
+   return a dozen columns and the panel shows 50 rows; without a cap the preview
+   would push the Save button off the panel and the form would be unfinishable. */
+.rcprev__wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.rcprev__table {
+  width: 100%;
+  font-size: 0.75rem;
+}
+
+.rcprev__table th,
+.rcprev__table td {
+  padding: 5px 8px;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rcprev__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* --- the panel's own width --------------------------------------------- */
+
+/* 620px, matching the other detail panels. The preview table scrolls inside it
+   rather than widening the panel, so a wide statement does not make the form
+   unreadable. */
+.rcpanel {
+  --drawer-w: 620px;
+}

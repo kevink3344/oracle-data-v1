@@ -360,6 +360,28 @@
   color: var(--text-muted);
 }
 
+/* ★ A CAP IS A REAL FIGURE, SO IT IS SET LIKE ONE — AND IT IS THE ONLY CELL IN THIS
+ *   COLUMN A READER IS MEANT TO ACT ON.
+ *
+ * The two neighbours are both absences: `rows not counted` is italic and muted, and a
+ * narrowed pair is a measurement with its context. A cap is neither — it is a stored
+ * setting that decides how much of the table the app will read, and it is the one
+ * number here that somebody chose. So it takes `--text-body`, the same step the
+ * leading figure of a scoped pair uses, which is what makes the capped rows findable
+ * at a glance in a list of thirty-four.
+ *
+ * ★ THE COLOUR IS NOT THE ONLY SIGNAL. The text itself is `up to N rows` against
+ *   `rows not counted`, so the distinction survives a reader who cannot see the
+ *   weight difference — the same rule `.signin__ledger-count--scoped` follows.
+ *
+ * Contrast measured on this card's backdrop: `--text-body` at 11px is the token the
+ * scoped figure already uses and passes AA here; `--text-faint` measures 2.52:1 and is
+ * why `--none` is muted rather than faint.
+ */
+.signin__ledger-count--cap {
+  color: var(--text-body);
+}
+
 /* --- the brand, on both screens that carry it ------------------------------ */
 
 /* ★ THE MARK AND THE NAME ARE TWICE THE SIZE THEY WERE, AND THEY NOW STACK.

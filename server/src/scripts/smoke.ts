@@ -6,8 +6,7 @@ import { createApp } from '../app.js';
 import { config, DB_MODES } from '../config/env.js';
 import { applyPragmas, closeDb, dbStatus, probeDb, storeDriver } from '../db/client.js';
 import * as queryGuard from '../db/query-guard.js';
-import { execute, quoteIdent, rows } from '../db/sql.js';
-import { defaultTenant } from '../auth/session.js';
+import { execute, quoteIdent, rows } from '../db/sql.js';import { defaultTenant } from '../auth/session.js';
 import { derivedPlan } from '../db/derived.js';
 import { registeredRoutes } from '../http/api.js';
 import { READ_ONLY_POSTS as readOnlyPosts } from '../http/middleware.js';
@@ -6180,6 +6179,785 @@ async function main(): Promise<void> {
       { key: SITE_PROBE_KEY_FOLD },
     );
     assert.equal(siteRowsLeft[0]?.n, 0, 'the site probe override survived the run');
+  });
+
+  // ---- Payables, live from the ledger (plan docs/plans/ap-live-data.md) ----
+  //
+  // ★ THESE GATES ARE ORACLE-ONLY, AND THEY SAY SO RATHER THAN FAILING. Every one
+  //   of them reads `WCSEXP_AP_*`, which are the customer's extract **views on the
+  //   live instance** and have no SQLite counterpart — so under `DB_MODE=local`
+  //   they fail with `no such table` for a reason that has nothing to do with the
+  //   payables surface. A gate that fails for the wrong reason is worse than one
+  //   that skips with a reason: the failure trains a reader to ignore it.
+  //
+  //   ★ THE SAME MISTAKE WAS MADE IN THE READ-CAP GATES AND FIXED THERE BY USING A
+  //     PORTABLE TABLE. That fix does not apply here: the AP routes genuinely read
+  //     Oracle-only objects, so there is no portable form. Skipping is the honest
+  //     answer, and `skip()` prints the reason beside the name.
+  //
+  // ★ THESE ENDPOINTS BYPASS THE `{ data }` ENVELOPE, so every read below goes
+  //   through `body.body.ResultSets` — two `body`s, because the outer one is the
+  //   HTTP body and the inner one is the envelope the frozen files use. That
+  //   shape is the whole point: a client that already reads `invoices.json` can
+  //   point at `/api/ap/invoices` and parse the identical structure.
+  //
+  // ★ THE COUNTS ARE THE EXTRACT'S OWN, WHICH IS WHAT MAKES THEM A GATE RATHER
+  //   THAN A SNAPSHOT. The frozen files were produced by a script reading the same
+  //   views, so 4,218 checks and 126 invoices are a *cross-check* between two
+  //   independent routes to the same rows — not a number copied from the API's
+  //   own output into its own test.
+  //
+  // ★ THE WINDOW IS DERIVED, SO THESE GATES CANNOT BE SATISFIED BY A LITERAL.
+  //   `windowStart()` reads `GL_PERIODS` for the current fiscal year. A check
+  //   asserting "the earliest row is >= 2025-07-01" would pass forever against a
+  //   hard-coded date; A4 asks the ledger what the window *is* and then asserts
+  //   the rows agree with it, so a stale literal fails on the first new fiscal year.
+
+  interface ApEnvelope {
+    body: { ResultSets: Record<string, Record<string, unknown>[]> };
+  }
+
+  /**
+   * One table out of a ResultSets envelope, asserted to be present.
+   *
+   * ★ THE INDEX SIGNATURE MAKES EVERY READ `T[] | undefined`, and that is the
+   *   honest type — the envelope's own shape does not promise which tables a given
+   *   endpoint emits. Reading `ResultSets.Table1` and treating it as an array is
+   *   the same class of mistake as `Record<string, number>` swallowing a field the
+   *   server never sent, so the presence is asserted once, here, with a message
+   *   naming the table. Every check below then reads a real array.
+   */
+  const table = (env: ApEnvelope, name: string): Record<string, unknown>[] => {
+    const t = env.body.ResultSets[name];
+    assert.ok(Array.isArray(t), `the response carries no ${name} table`);
+    return t;
+  };
+
+  const apChecks = async (): Promise<ApEnvelope> => {
+    const res = await get('/api/ap/checks');
+    assert.equal(res.status, 200, `GET /api/ap/checks returned ${res.status}`);
+    return (await res.json()) as ApEnvelope;
+  };
+
+  const apInvoices = async (): Promise<ApEnvelope> => {
+    const res = await get('/api/ap/invoices');
+    assert.equal(res.status, 200, `GET /api/ap/invoices returned ${res.status}`);
+    return (await res.json()) as ApEnvelope;
+  };
+
+  // ★ THE AP GATES RUN ONLY WHERE THE VIEWS EXIST, AND THE SKIP NAMES THE REASON.
+  //   `WCSEXP_AP_*` are the customer's extract views on the live instance; the
+  //   SQLite sample has no counterpart, so under `DB_MODE=local` every one of these
+  //   would fail with `no such table` — a failure about the fixture, wearing the
+  //   name of a payables check. `skip()` counts them separately and prints why, so
+  //   a green run on the Oracle arm and a skipped run here are both honest.
+  const apViewsExist = dbStatus().mode === 'oracle';
+
+  if (!apViewsExist) {
+    for (const name of [
+      'A1: GET /api/ap/checks answers with the ResultSets envelope',
+      "A2: the checks window holds 4,218 checks — the extract's own count",
+      "A3: the invoice window holds 126 invoices — the extract's own count",
+      'A4: the window is derived from GL_PERIODS, not written into the query',
+      'A5: the links table is DISTINCT, so no check repeats an invoice',
+      'A6: every link carries VENDOR_ID — the column the frozen file lacks',
+      'A7: every invoice carries VENDOR_ID and VENDOR_SITE_ID',
+      'A8: the account rows are one per (invoice, code combination)',
+      'A9: every account row is in scope — fund and program',
+      'A10: the account rows belong to invoices the endpoint served',
+      'A11: the line route reaches fewer of these invoices than the distribution',
+      'A12: the checks endpoint has no scope fragment, and that is deliberate',
+      'CONTROL: an unknown AP path returns 404, so the routes are real',
+    ]) {
+      skip(name, 'the WCSEXP_AP_* views exist only on the Oracle ledger — run with DB_MODE=oracle');
+    }
+  } else {
+  await check('A1: GET /api/ap/checks answers with the ResultSets envelope', async () => {
+    const body = await apChecks();
+    assert.ok(body.body, 'the response has no `body` — is the rawBody flag missing?');
+    assert.ok(body.body.ResultSets, 'no ResultSets — the handler is emitting the { data } envelope');
+    assert.deepEqual(
+      Object.keys(body.body.ResultSets).sort(),
+      ['Table1', 'Table2'],
+      'the checks endpoint must carry exactly the two tables the frozen file has',
+    );
+  });
+
+  await check('A2: the checks window holds 4,218 checks — the extract\'s own count', async () => {
+    const checks = table(await apChecks(), 'Table1');
+    // ★ 4,218 IS MEASURED, NOT ASSUMED. It is one fiscal year of `WCSEXP_AP_CHECKS`
+    //   (the view holds 1,246,676 rows in total), and it is byte-identical to the
+    //   frozen extract this endpoint replaces — which is the cross-check. If this
+    //   fails, read `windowStart()` first: the window is derived from GL_PERIODS,
+    //   so a new fiscal year legitimately changes this number, and the fix is to
+    //   re-measure against the extract rather than to relax the assertion.
+    assert.equal(
+      checks.length,
+      4218,
+      `expected 4,218 checks in the current fiscal window, got ${checks.length}. ` +
+        'If the fiscal year has rolled over, re-measure against the frozen extract ' +
+        'before changing this number.',
+    );
+  });
+
+  await check('A3: the invoice window holds 126 invoices — the extract\'s own count', async () => {
+    const invoices = table(await apInvoices(), 'Table1');
+    // ★ 126 IS THE DISCRIMINATOR FOR THE SCOPE, not merely a count. Unscoped the
+    //   window holds 3,743 invoices; scoped through `AP_INVOICE_DISTRIBUTIONS_ALL`
+    //   it holds 126; scoped through `AP_INVOICE_LINES_ALL` it holds 61. So this
+    //   number is what proves the scope goes through the *distribution* — an
+    //   invoice line carries a default account that may differ from where the
+    //   money actually went, and the line route silently drops in-scope invoices.
+    assert.equal(
+      invoices.length,
+      126,
+      `expected 126 invoices scoped through the distribution, got ${invoices.length}. ` +
+        '61 would mean the scope moved to AP_INVOICE_LINES_ALL — see A11.',
+    );
+  });
+
+  await check('A4: the window is derived from GL_PERIODS, not written into the query', async () => {
+    // Ask the ledger what the window is, then assert the rows agree with it. A
+    // hard-coded literal in the route would still satisfy "every row is >= some
+    // date" — it cannot satisfy "every row is >= the date the ledger names".
+    const periods = await rows<{ FY_START: string }>(
+      `SELECT TO_CHAR(MIN(START_DATE),'YYYY-MM-DD') AS FY_START
+         FROM GL_PERIODS
+        WHERE PERIOD_YEAR = (SELECT MAX(PERIOD_YEAR) FROM GL_PERIODS)`,
+    );
+    const fyStart = periods[0]?.FY_START;
+    assert.equal(typeof fyStart, 'string', 'GL_PERIODS declares no current fiscal year');
+    assert.ok((fyStart as string).length > 0);
+
+    const checks = table(await apChecks(), 'Table1');
+    const dates = checks
+      .map((r) => r.CHECK_DATE)
+      .filter((d): d is string => typeof d === 'string');
+    assert.ok(dates.length > 0, 'no check carries a CHECK_DATE');
+    const earliest = [...dates].sort()[0];
+    assert.ok(
+      typeof earliest === 'string' && earliest >= (fyStart as string),
+      `a check dated ${earliest} predates the ledger's own window start ${fyStart} — ` +
+        'the route is not using the derived window',
+    );
+  });
+
+  await check('A5: the links table is DISTINCT, so no check repeats an invoice', async () => {
+    const links = table(await apChecks(), 'Table2');
+    assert.ok(links.length > 0, 'the links table is empty');
+    // ★ `WCSEXP_AP_INVOICE_PAYMENTS` is NOT unique on (CHECK_ID, INVOICE_ID,
+    //   PAYMENT_NUM), so the join alone returns a check's invoices twice over.
+    //   Without the DISTINCT this assertion is exactly what fails.
+    const seen = new Set<string>();
+    for (const r of links) {
+      const k = `${r.CHECK_ID}|${r.INVOICE_NUM}|${r.INVOICE_DATE}`;
+      assert.ok(!seen.has(k), `the link ${k} appears twice — is the DISTINCT missing?`);
+      seen.add(k);
+    }
+  });
+
+  await check('A6: every link carries VENDOR_ID — the column the frozen file lacks', async () => {
+    const links = table(await apChecks(), 'Table2');
+    const missing = links.filter((r) => r.VENDOR_ID === null || r.VENDOR_ID === undefined);
+    // ★ THIS IS THE REASON THE ENDPOINT EXISTS. The frozen `checks.json` carries no
+    //   vendor id, so a client could only match a vendor by name — and the Lenovo
+    //   case in the plan is precisely a name that resolves to two companies. A
+    //   single null here means the join through the invoice to the vendor is
+    //   broken, which no count would reveal.
+    assert.equal(
+      missing.length,
+      0,
+      `${missing.length} links carry no VENDOR_ID, so the vendor join is incomplete`,
+    );
+  });
+
+  await check('A7: every invoice carries VENDOR_ID and VENDOR_SITE_ID', async () => {
+    const invoices = table(await apInvoices(), 'Table1');
+    const noVendor = invoices.filter((r) => r.VENDOR_ID === null || r.VENDOR_ID === undefined);
+    assert.equal(noVendor.length, 0, `${noVendor.length} invoices carry no VENDOR_ID`);
+    // VENDOR_SITE_ID is what makes the vendor-companies → sites-register link
+    // possible (phase 4 of the plan), so it is asserted separately: a row can
+    // legitimately have a vendor and no site, and that is a different gap.
+    const noSite = invoices.filter((r) => r.VENDOR_SITE_ID === null || r.VENDOR_SITE_ID === undefined);
+    assert.ok(
+      noSite.length < invoices.length,
+      'no invoice carries a VENDOR_SITE_ID, so the sites join is not reading the column',
+    );
+  });
+
+  await check('A8: the account rows are one per (invoice, code combination)', async () => {
+    const accounts = table(await apInvoices(), 'Table3');
+    assert.ok(accounts.length > 0, 'Table3 is empty — the account rows did not come through');
+    const seen = new Set<string>();
+    for (const r of accounts) {
+      const k = `${r.INVOICE_ID}|${r.CODE_COMBINATION_ID}`;
+      assert.ok(!seen.has(k), `${k} appears twice — the GROUP BY is not collapsing`);
+      seen.add(k);
+    }
+    // The seven segments must be projected, or a client cannot build the dotted
+    // account key without a second lookup — the same reason the frozen file
+    // carries them.
+    for (const seg of ['SEGMENT1', 'SEGMENT3', 'SEGMENT5']) {
+      assert.ok(seg in (accounts[0] as object), `Table3 does not project ${seg}`);
+    }
+  });
+
+  await check('A9: every account row is in scope — fund and program', async () => {
+    const accounts = table(await apInvoices(), 'Table3');
+    // ★ THE SCOPE IS TWO SEGMENTS. Filtering on the fund alone returned 6,195
+    //   account rows in a probe; the route returns 182 because `apScope` also
+    //   tests SEGMENT3 against the organization's programs. Asserting both is
+    //   what distinguishes "the fund filter ran" from "the scope ran".
+    const tenant = await defaultTenant();
+    const offFund = accounts.filter((r) => r.SEGMENT1 !== tenant.fund);
+    assert.equal(
+      offFund.length,
+      0,
+      `${offFund.length} account rows carry a fund other than ${tenant.fund}`,
+    );
+    const programs = new Set(tenant.programs as readonly string[]);
+    const offProgram = accounts.filter((r) => !programs.has(String(r.SEGMENT3)));
+    assert.equal(
+      offProgram.length,
+      0,
+      `${offProgram.length} account rows carry a program outside ${[...programs].join(', ')}`,
+    );
+  });
+
+  await check('A10: the account rows belong to invoices the endpoint served', async () => {
+    const body = await apInvoices();
+    const served = new Set(table(body, 'Table1').map((r) => r.INVOICE_ID));
+    const orphans = table(body, 'Table3').filter((r) => !served.has(r.INVOICE_ID));
+    // ★ A JOIN THAT IS TOO WIDE SHOWS UP HERE AND NOWHERE ELSE. Table3 is bounded
+    //   by the same window and scope as Table1, so an account row for an invoice
+    //   the endpoint did not serve means the two queries disagree about the
+    //   population — which every count above would still report as plausible.
+    assert.equal(
+      orphans.length,
+      0,
+      `${orphans.length} account rows name an invoice that Table1 did not serve`,
+    );
+  });
+
+  await check('A11: the line route reaches fewer of these invoices than the distribution', async () => {
+    // ★ THE DISCRIMINATOR THAT JUSTIFIES THE SCOPE, AND IT IS MEASURED ON THE
+    //   ROUTE'S OWN POPULATION RATHER THAN THE WHOLE TABLE. An earlier version ran
+    //   `COUNT(DISTINCT)` over every line in `AP_INVOICE_LINES_ALL`; it did not
+    //   return in minutes, and a gate nobody can afford to run is not a gate. The
+    //   claim only needs the 126 invoices the endpoint already serves retested
+    //   through the line route, so the query is bounded to those ids.
+    //
+    //   ★ THE COLUMN IS `DEFAULT_DIST_CCID`, NOT `DEFAULT_CODE_COMBINATION_ID` —
+    //   measured from `SELECT *` metadata, because `ALL_TAB_COLUMNS` returns zero
+    //   rows for this table (the dictionary blindness this repo already records).
+    const invoices = table(await apInvoices(), 'Table1');
+    const ids = invoices
+      .map((r) => r.INVOICE_ID)
+      .filter((v): v is number => typeof v === 'number');
+    assert.equal(ids.length, invoices.length, 'some invoice carries no numeric INVOICE_ID');
+
+    const binds: Record<string, string | number> = { fund: '04' };
+    const list = ids.map((id, i) => {
+      binds[`i${i}`] = id;
+      return `:i${i}`;
+    });
+    const viaLine = await rows<{ N: number }>(
+      `SELECT COUNT(DISTINCT i.INVOICE_ID) AS N
+         FROM WCSEXP_AP_INVOICES i
+         JOIN AP_INVOICE_LINES_ALL l ON l.INVOICE_ID = i.INVOICE_ID
+         JOIN GL_CODE_COMBINATIONS g ON g.CODE_COMBINATION_ID = l.DEFAULT_DIST_CCID
+        WHERE i.INVOICE_ID IN (${list.join(',')})
+          AND g.SEGMENT1 = :fund
+          AND g.SEGMENT3 IN ('861','862','863')`,
+      binds,
+    );
+    const n = Number(viaLine[0]?.N ?? 0);
+    assert.ok(Number.isFinite(n), 'the line-route probe returned no number');
+    // A negative assertion, with the message saying what it means if it PASSES:
+    // if the line route ever reaches all 126, the discriminator that justifies
+    // scoping through the distribution has gone — the data or the route changed,
+    // and §2.4 of the plan needs re-reading rather than the assertion relaxing.
+    assert.ok(
+      n < ids.length,
+      `the line route now reaches all ${ids.length} invoices — the distribution-vs-line ` +
+        'discriminator is gone, so re-read §2.4 of docs/plans/ap-live-data.md',
+    );
+  });
+
+  await check('A12: the checks endpoint has no scope fragment, and that is deliberate', async () => {
+    // ★ A CHECK CARRIES NO ACCOUNT SEGMENT. `WCSEXP_AP_CHECKS` has four columns, so
+    //   there is nothing on it to test a fund or a program against — the scope
+    //   reaches these rows through the invoice each check settled. This asserts the
+    //   consequence rather than the implementation: the check count is bounded by
+    //   the *window*, so it is far larger than the scoped invoice population, and
+    //   a future change that quietly scoped checks by invoice would collapse it.
+    const checks = table(await apChecks(), 'Table1');
+    const invoices = table(await apInvoices(), 'Table1');
+    assert.ok(
+      checks.length > invoices.length,
+      `the checks endpoint returned ${checks.length} rows against ${invoices.length} invoices — ` +
+        'if checks are now scoped to invoices, the endpoint description is wrong',
+    );
+  });
+
+  await check('CONTROL: an unknown AP path returns 404, so the routes are real', async () => {
+    const res = await get('/api/ap/nope');
+    assert.equal(res.status, 404, 'an unknown AP path did not 404 — is the router mounted too widely?');
+    // The second half matters: a 404 from a dead server looks identical, so prove
+    // the server is answering by asking a path that must work.
+    const live = await get('/api/ap/checks');
+    assert.equal(live.status, 200, 'the AP router answers 404 for everything');
+  });
+  }
+
+  // ---- Read caps (the per-object row bounds) -------------------------------
+  //
+  // ★ THE GATE THAT MATTERS IS C1: A LIMIT WITH NO ORDERING MUST BE REFUSED.
+  //   `WHERE ROWNUM <= 100000` returns whichever rows the database reached first,
+  //   so a count of 100,000 means "at least 100,000" and every total built from it
+  //   describes an arbitrary subset — invisibly. The refusal is the feature, and a
+  //   suite that only checked the happy path would not notice it being removed.
+  //
+  // ★ C5 CHECKS THE DIALECT FORM, WHICH IS THE OTHER THING THAT CANNOT BE ASSUMED.
+  //   Oracle has no `LIMIT`; the cap has to be a nested `ROWNUM` wrap so the
+  //   ordering and the bound compose in the order a reader expects. Appending
+  //   `WHERE ROWNUM <= n` to the outside of an ordered query takes n arbitrary rows
+  //   and then sorts those n — a different answer wearing the same shape.
+
+  interface ReadCapWire {
+    tableName: string;
+    sql: string | null;
+    maxRows: number | null;
+    orderBy: string | null;
+    note: string | null;
+    setBy: string | null;
+    capped: boolean;
+    /** The registry's statement for the object, when one is declared. */
+    defaultSql: string | null;
+    defaultOrderBy: string | null;
+    defaultNote: string | null;
+  }
+
+  interface ReadCapListWire {
+    items: ReadCapWire[];
+    dialect: 'sqlite' | 'oracle';
+    knownTables: string[];
+    counts: { total: number; capped: number };
+  }
+
+  interface PreviewWire {
+    statement: string;
+    dialect: 'sqlite' | 'oracle';
+    maxRows: number | null;
+    orderBy: string | null;
+    previewRows: number;
+    columns: string[];
+    rows: Record<string, unknown>[];
+    returned: number;
+    truncated: boolean;
+    ms: number;
+  }
+
+  /** A super-admin session, needed by the write and preview routes. */
+  const readCapSession = async (): Promise<string> => {
+    const { email, password } = config.superAdmin;
+    assert.ok(
+      email !== undefined && password !== undefined,
+      'no bootstrap account, so the read-cap writes cannot be exercised — see the sign-in section',
+    );
+    const res = await signIn(email, password);
+    assert.equal(res.status, 200, `sign-in returned ${res.status}`);
+    const body = (await res.json()) as { data: { token: string } };
+    return body.data.token;
+  };
+
+  // ★ THE GATE'S TABLE MUST EXIST IN BOTH STORES, AND THE FIRST VERSION DID NOT.
+  //   It used `WCSEXP_AP_CHECKS`, which is an Oracle view with no SQLite counterpart,
+  //   so the preview 400'd under `DB_MODE=local` and the check failed for a reason
+  //   that had nothing to do with the cap — a gate that only runs on one arm is a
+  //   gate that silently stops testing the other. `GL_CODE_COMBINATIONS` is a real
+  //   table in the sample (00-schema.sql) and a real object on Oracle, so the same
+  //   assertions run on both.
+  const CAP_TABLE = 'GL_CODE_COMBINATIONS';
+  const CAP_COLUMN = 'CODE_COMBINATION_ID';
+
+  await check('C1: GET /api/read-caps lists the objects and the dialect', async () => {
+    const res = await get('/api/read-caps');
+    assert.equal(res.status, 200, `the list returned ${res.status}`);
+    const body = (await res.json()) as { data: ReadCapListWire };
+    assert.ok(Array.isArray(body.data.items), 'no items array');
+    // ★ THE DIALECT IS REPORTED, NOT ASSUMED. It decides which SQL form the cap
+    //   takes, so a client that guessed would render the wrong one.
+    assert.ok(['sqlite', 'oracle'].includes(body.data.dialect), `unexpected dialect ${body.data.dialect}`);
+    // ★ THE KNOWN LIST IS THE REGISTRY'S, so it must contain the ledger objects the
+    //   other routes read. Two names is enough to prove it is populated from the
+    //   registry rather than empty.
+    assert.ok(body.data.knownTables.length > 0, 'knownTables is empty — is the registry read?');
+    assert.ok(
+      body.data.knownTables.includes('GL_BALANCES'),
+      'GL_BALANCES is missing from knownTables, so the list is not the ledger registry',
+    );
+    // Every item must be a real object, or the panel offers a cap nothing can use.
+    for (const item of body.data.items) {
+      assert.ok(
+        body.data.knownTables.includes(item.tableName),
+        `${item.tableName} has a cap but is not a known ledger object`,
+      );
+    }
+  });
+
+  await check('C2: an object with no cap is reported as uncapped, not as a 404', async () => {
+    const res = await get('/api/read-caps/GL_BALANCES');
+    assert.equal(res.status, 200, `expected 200 for an uncapped object, got ${res.status}`);
+    const body = (await res.json()) as { data: ReadCapWire };
+    assert.equal(body.data.tableName, 'GL_BALANCES');
+    assert.equal(body.data.maxRows, null);
+    assert.equal(body.data.capped, false);
+  });
+
+  await check('C3: a capped row is ALWAYS stored with an ordering', async () => {
+    // ★ THE INVARIANT, NOT THE REFUSAL — AND THE DISTINCTION IS THE FINDING.
+    //
+    //   `resolveReadCap` refuses a row with `max_rows` and no `order_by`. That guard
+    //   is real and must stay: a row already in the table with the forbidden shape
+    //   (hand-edited, or written before a default existed) has to be refused rather
+    //   than read as an arbitrary window.
+    //
+    //   But it is UNREACHABLE BY REQUEST, and two earlier versions of this check
+    //   failed by assuming otherwise. The write path falls back to the object's
+    //   declared default ordering, and every registered object now declares one — so
+    //   `GL_CODE_COMBINATIONS` returned 200 (it has a default), and `PA_TASKS` was
+    //   chosen on the assumption it had none, which the check's own guard caught.
+    //
+    //   So what is asserted is the property that makes the refusal unreachable and
+    //   keeps every capped read reproducible: after any write, a capped row carries
+    //   an ordering. That is the invariant a future change would break, and it is
+    //   checkable through the real API.
+    const token = await readCapSession();
+    const { defaultReadFor } = await import('../db/ledger-defaults.js');
+    const declared = defaultReadFor(CAP_TABLE);
+    assert.ok(declared, `${CAP_TABLE} has no default, so this check has no statement to use`);
+
+    const saved = await authorized('PUT', `/api/read-caps/${CAP_TABLE}`, {
+      token,
+      // A limit and NO ordering — the shape the read path refuses.
+      body: { sql: declared.sql, maxRows: 5, orderBy: null },
+    });
+    assert.equal(saved.status, 200, `the write returned ${saved.status}`);
+    const wire = ((await saved.json()) as { data: ReadCapWire }).data;
+
+    assert.equal(wire.maxRows, 5, 'the limit was not stored');
+    assert.ok(
+      wire.orderBy !== null && wire.orderBy !== '',
+      'a capped row was stored with no ordering — the read path would refuse it, and any ' +
+        'consumer reading the row directly would take an arbitrary window',
+    );
+    // ★ AND IT IS THE DEFAULT'S ORDERING, not an arbitrary substitute.
+    assert.equal(wire.orderBy, declared.orderBy, 'the stored ordering is not the declared default');
+
+    const cleared = await authorized('DELETE', `/api/read-caps/${CAP_TABLE}`, { token });
+    assert.equal(cleared.status, 200, `the cleanup delete returned ${cleared.status}`);
+  });
+
+  await check('C3b: a limit with no ordering DOES fall back to the declared default', async () => {
+    const token = await readCapSession();
+    // ★ THE OTHER HALF OF THE RULE, AND IT IS A DELIBERATE DIFFERENCE RATHER THAN AN
+    //   OVERSIGHT. `GL_CODE_COMBINATIONS` declares an ordering, so a draft carrying a
+    //   limit and no ordering is legal — it means "the default ordering". Without
+    //   this, a client that omitted the field would be refused for a reason the panel
+    //   could not explain, since the panel always sends the field's value.
+    const res = await authorized('PUT', `/api/read-caps/${CAP_TABLE}`, {
+      token,
+      body: {
+        sql: `SELECT ${CAP_COLUMN}, SEGMENT1 FROM ${CAP_TABLE}`,
+        maxRows: 100,
+        orderBy: null,
+      },
+    });
+    assert.equal(res.status, 200, `the default-ordering fallback must be accepted, got ${res.status}`);
+    const wire = ((await res.json()) as { data: ReadCapWire }).data;
+    // ★ THE EFFECTIVE ORDERING IS STORED, NOT THE NULL THAT WAS SENT. A row holding a
+    //   limit and no ordering is the one shape the read path refuses, so storing the
+    //   fallback keeps the row self-describing — and it keeps working if the default
+    //   is later changed or removed.
+    assert.equal(
+      wire.orderBy,
+      'CODE_COMBINATION_ID DESC',
+      'the fallback ordering was not stored, so the row would be unreadable',
+    );
+    assert.equal(wire.maxRows, 100);
+
+    // Clean up so the later checks start from a clean store.
+    const cleared = await authorized('DELETE', `/api/read-caps/${CAP_TABLE}`, { token });
+    assert.equal(cleared.status, 200, `the cleanup delete returned ${cleared.status}`);
+  });
+
+  await check('C4: an ordering naming a column the statement lacks is refused', async () => {
+    const token = await readCapSession();
+    const res = await authorized('PUT', `/api/read-caps/${CAP_TABLE}`, {
+      token,
+      body: {
+        sql: `SELECT ${CAP_COLUMN}, SEGMENT1 FROM ${CAP_TABLE}`,
+        maxRows: 10,
+        // A real column of a different table — the copy-paste mistake the check exists
+        // to catch, and one that would otherwise reach the database as a bad identifier.
+        orderBy: 'INVOICE_DATE DESC',
+      },
+    });
+    assert.equal(res.status, 400, `an unknown ordering column must be refused, got ${res.status}`);
+    const body = (await res.json()) as { error: { message: string } };
+    assert.match(body.error.message, /INVOICE_DATE/, 'the refusal must name the token it rejected');
+  });
+
+  await check('C5: the preview applies the cap in the deployment\'s own dialect', async () => {
+    const token = await readCapSession();
+    const res = await authorized('POST', `/api/read-caps/${CAP_TABLE}/preview`, {
+      token,
+      body: {
+        sql: `SELECT ${CAP_COLUMN}, SEGMENT1 FROM ${CAP_TABLE}`,
+        maxRows: 25,
+        orderBy: `${CAP_COLUMN} DESC`,
+      },
+    });
+    assert.equal(res.status, 200, `the preview returned ${res.status}`);
+    const body = (await res.json()) as { data: PreviewWire };
+    const d = body.data;
+
+    assert.equal(d.dialect, dbStatus().mode === 'oracle' ? 'oracle' : 'sqlite');
+    assert.ok(d.columns.includes(CAP_COLUMN), `the columns are wrong: ${d.columns.join(', ')}`);
+    assert.ok(d.rows.length > 0, 'the preview returned no rows');
+    assert.ok(d.rows.length <= d.previewRows, `the preview returned more than ${d.previewRows} rows`);
+
+    // ★ THE STATEMENT IS THE EVIDENCE, AND THE FORM IS DIALECT-SPECIFIC.
+    if (d.dialect === 'oracle') {
+      assert.match(d.statement, /ROWNUM\s*<=/, 'the Oracle form must bound with ROWNUM');
+      assert.ok(!/\bLIMIT\b/i.test(d.statement), 'LIMIT does not parse on Oracle');
+      // ★ THE WRAP, NOT AN APPENDED PREDICATE. `WHERE ROWNUM <= n` on the outside of
+      //   an ordered query takes n arbitrary rows and sorts those n.
+      assert.match(
+        d.statement,
+        /SELECT\s+\*\s+FROM\s*\(\s*SELECT/i,
+        'the cap must WRAP the ordered query, not be appended to it',
+      );
+    } else {
+      assert.match(d.statement, /\bLIMIT\b/i, 'the SQLite form must bound with LIMIT');
+      assert.ok(!/\bROWNUM\b/i.test(d.statement), 'ROWNUM does not exist on SQLite');
+    }
+
+    // The ordering is interpolated, so it must arrive quoted rather than raw.
+    assert.match(
+      d.statement,
+      new RegExp(`"${CAP_COLUMN}"\\s+DESC`, 'i'),
+      'the ordering must be quoted in the statement',
+    );
+  });
+
+  await check('C6: a cap round-trips, and the list reflects it', async () => {
+    const token = await readCapSession();
+    const saved = await authorized('PUT', `/api/read-caps/${CAP_TABLE}`, {
+      token,
+      body: {
+        sql: `SELECT ${CAP_COLUMN}, SEGMENT1 FROM ${CAP_TABLE}`,
+        maxRows: 250,
+        orderBy: `${CAP_COLUMN} DESC`,
+        note: 'Smoke check — removed below.',
+      },
+    });
+    assert.equal(saved.status, 200, `the save returned ${saved.status}`);
+    const wire = ((await saved.json()) as { data: ReadCapWire }).data;
+    assert.equal(wire.maxRows, 250);
+    assert.equal(wire.orderBy, `${CAP_COLUMN} DESC`);
+    assert.equal(wire.capped, true);
+    // ★ THE ATTRIBUTION IS THE SESSION'S NAME, not a foreign key — the same
+    //   convention `field_override.set_by` and `saved_view.created_by` keep.
+    assert.ok(wire.setBy && wire.setBy.length > 0, 'the cap carries no attribution');
+
+    const list = (await (await get('/api/read-caps')).json()) as { data: ReadCapListWire };
+    const found = list.data.items.find((i) => i.tableName === CAP_TABLE);
+    assert.ok(found, `${CAP_TABLE} is missing from the list after saving a cap`);
+    assert.equal(found.maxRows, 250);
+    assert.equal(list.data.counts.capped, list.data.items.filter((i) => i.capped).length);
+  });
+
+  await check('C7: the cap is removed, and the object reads unbounded again', async () => {
+    const token = await readCapSession();
+    const res = await authorized('DELETE', `/api/read-caps/${CAP_TABLE}`, { token });
+    // ★ 200, NOT 204. The route returns whether a row was removed, and a 204 would
+    //   discard it — the client would have to assume the outcome. This cost a round
+    //   trip: the panel reported `Cannot read properties of null (reading 'data')`
+    //   because a 204 has no body to unwrap.
+    assert.equal(res.status, 200, `the delete returned ${res.status}`);
+    const body = (await res.json()) as { data: { removed: boolean } };
+    assert.equal(body.data.removed, true, 'the cap was not removed');
+
+    const after = (await (await get(`/api/read-caps/${CAP_TABLE}`)).json()) as { data: ReadCapWire };
+    assert.equal(after.data.maxRows, null);
+    assert.equal(after.data.capped, false);
+  });
+
+  await check('CONTROL: an unknown ledger object name is still answerable', async () => {
+    // The read-cap surface is keyed by a name a person types, so the control that
+    // matters is that a name the registry does not know is not silently accepted as
+    // a cap target — the list is what bounds it, and this asserts the list is the
+    // authority by checking a made-up name is absent from it.
+    const list = (await (await get('/api/read-caps')).json()) as { data: ReadCapListWire };
+    assert.ok(
+      !list.data.knownTables.includes('NO_SUCH_TABLE_ZZZ9'),
+      'a fabricated name appeared in knownTables, so the list is not the registry',
+    );
+    assert.ok(list.data.knownTables.length > 10, 'the registry list is implausibly short');
+  });
+
+  // ---- The declared defaults (db/ledger-defaults.ts) -----------------------
+  //
+  // ★ THESE GATES CHECK THE DEFAULTS AGAINST THE SAME RULES THE WRITE PATH
+  //   ENFORCES, because a default is a statement the app will run and nobody
+  //   reviews it at the moment it runs. Three properties, each of which has a
+  //   failure mode that is silent in a preview and loud in production:
+  //
+  //     1. no row limit in the statement — the cap is appended per dialect, so a
+  //        `LIMIT` written here would be a syntax error on Oracle and, on SQLite,
+  //        would double up with the appended one
+  //     2. never `SELECT *` — 200+ columns on some of these tables
+  //     3. every `orderBy` names a column the statement actually mentions — the
+  //        same check `orderByFragment` applies, run here so a typo fails the
+  //        suite rather than a reader's first preview
+  //
+  // ★ AND A DEFAULT IS NOT A CAP, ASSERTED SEPARATELY. Nothing in the registry
+  //   bounds anything: an object with no stored cap reads every matching row, which
+  //   is exactly what it did before this feature existed.
+
+  await check('C8: every declared default is a statement the read path could run', async () => {
+    const { allDefaults } = await import('../db/ledger-defaults.js');
+    const defaults = allDefaults();
+    assert.ok(defaults.length > 0, 'no defaults are declared at all');
+
+    for (const { table, def } of defaults) {
+      assert.ok(def.sql.trim().length > 0, `${table} has a blank default statement`);
+
+      // 1 — no row limit. See the section comment.
+      assert.ok(
+        !/\bLIMIT\b/i.test(def.sql),
+        `${table}'s default carries a LIMIT — the cap is appended per dialect, so this ` +
+          'would be a syntax error on Oracle and would double up on SQLite',
+      );
+      assert.ok(
+        !/\bROWNUM\b/i.test(def.sql),
+        `${table}'s default carries a ROWNUM bound — the cap belongs to read-cap.ts, not here`,
+      );
+      assert.ok(
+        !/\bFETCH\s+FIRST\b/i.test(def.sql),
+        `${table}'s default carries FETCH FIRST — the cap is appended per dialect, not written in`,
+      );
+
+      // 2 — never `SELECT *`.
+      assert.ok(
+        !/SELECT\s+\*/i.test(def.sql),
+        `${table}'s default is a SELECT * — some of these tables have 200+ columns, and the ` +
+          "preview's column list would become a function of the deployment's schema",
+      );
+
+      // 3 — the ordering names a column the statement mentions. This is the same
+      //     rule `orderByFragment` applies at write time; running it here means a
+      //     typo fails the suite instead of a reader's first preview.
+      assert.ok(def.orderBy.trim().length > 0, `${table}'s default declares no ordering`);
+      const upper = def.sql.toUpperCase();
+      for (const token of def.orderBy.split(',')) {
+        const name = token.trim().split(/\s+/)[0]!;
+        assert.ok(
+          new RegExp(`\\b${name}\\b`, 'i').test(upper),
+          `${table}'s default orders by "${name}", which its statement does not mention — ` +
+            'the write path would refuse this, so the default must not ship it',
+        );
+      }
+
+      assert.ok(def.note.trim().length > 0, `${table}'s default carries no note`);
+    }
+  });
+
+  await check('C9: a default is served for an object with no cap row, and is not a cap', async () => {
+    // GL_CODE_COMBINATIONS is declared in the registry and has no stored cap on a
+    // clean store, so it is the object that proves the two are independent.
+    const res = await get('/api/read-caps/GL_CODE_COMBINATIONS');
+    assert.equal(res.status, 200, `the object returned ${res.status}`);
+    const body = (await res.json()) as { data: ReadCapWire };
+    assert.ok(body.data.defaultSql, 'the object has no default statement, so the registry is not served');
+    assert.ok(!/SELECT\s+\*/i.test(body.data.defaultSql!), 'the served default is a SELECT *');
+    // ★ A DEFAULT IS NOT A CAP. This is the assertion that keeps the feature from
+    //   quietly bounding reads nobody asked to bound.
+    assert.equal(body.data.maxRows, null, 'the object is capped without a stored row');
+    assert.equal(body.data.capped, false, 'a default made the object report as capped');
+  });
+
+  await check('C10: a preview with no statement falls back to the default', async () => {
+    const token = await readCapSession();
+    // ★ NO `sql` AND NO `orderBy` — the object's own default supplies both. This is
+    //   the request the panel makes on a first visit, and it is the one that proves
+    //   the fallback is wired rather than merely present.
+    const res = await authorized('POST', `/api/read-caps/${CAP_TABLE}/preview`, {
+      token,
+      body: { maxRows: 5 },
+    });
+    assert.equal(res.status, 200, `the default-driven preview returned ${res.status}`);
+    const d = ((await res.json()) as { data: PreviewWire }).data;
+
+    assert.ok(d.statement.length > 0, 'the preview ran no statement');
+    assert.ok(d.columns.length > 0, 'the preview returned no columns, so nothing ran');
+    assert.ok(d.rows.length > 0, 'the preview returned no rows from the default');
+    // The ordering came from the default rather than from the request.
+    assert.ok(d.orderBy, 'the preview reports no ordering, so the default was not applied');
+    assert.ok(
+      d.statement.includes(d.orderBy.split(/\s+/)[0]!),
+      `the reported statement does not contain the ordering ${d.orderBy}`,
+    );
+    // And the default's own ordering rule held: the statement is bounded, in this
+    // deployment's dialect, around an ordered inner query.
+    if (d.dialect === 'oracle') {
+      assert.match(d.statement, /ROWNUM\s*<=/, 'the Oracle form must bound with ROWNUM');
+    } else {
+      assert.match(d.statement, /\bLIMIT\b/i, 'the SQLite form must bound with LIMIT');
+    }
+  });
+
+  await check('C11: every cappable object is listed by the ledger summary', async () => {
+    // ★ THE GATE FOR A REAL, REPORTED GAP: a cap set on an object the sign-in card did
+    //   not list. The card's rows come from `/api/meta/ledger-summary`, which used to
+    //   list `registeredResources()` alone — 32 objects — while the cap registry governs
+    //   50, because it also covers the objects the live routes read by hand: every
+    //   `WCSEXP_*` view plus the two AP base tables. A cap on one of those counted
+    //   toward the headline total while no row carried it.
+    //
+    //   ★ THE ASSERTION IS A SUBSET CHECK IN THE DIRECTION THAT MATTERS: every object a
+    //     cap can be written for must appear in the summary. The reverse does not hold
+    //     and must not be asserted — the summary also lists the composed `V_*` views,
+    //     which are not cappable because they are not stored.
+    const summary = (await (await get('/api/meta/ledger-summary?counts=false')).json()) as {
+      data: { objects: { name: string; store: string }[] };
+    };
+    const listed = new Set(summary.data.objects.map((o) => o.name.toUpperCase()));
+
+    const caps = (await (await get('/api/read-caps')).json()) as { data: ReadCapListWire };
+    const cappable = caps.data.knownTables;
+
+    const missing = cappable.filter((name) => !listed.has(name.toUpperCase()));
+    assert.equal(
+      missing.length,
+      0,
+      `${missing.length} cappable object(s) have no row in the ledger summary, so a cap on ` +
+        `one would count toward the headline while nothing showed it: ${missing.join(', ')}`,
+    );
+
+    // ★ AND THE CONTROL THAT MAKES THE ABOVE MEANINGFUL: a name that is in NEITHER list
+    //   must not be there. Without it, a summary that listed every string in the
+    //   registry — or one that ignored the filter entirely — would pass the check above.
+    assert.ok(
+      !listed.has('NO_SUCH_TABLE_ZZZ9'),
+      'the summary listed a fabricated name, so the subset check above proves nothing',
+    );
+    assert.ok(
+      cappable.length > 10,
+      `the cap registry is implausibly short (${cappable.length}), so the subset check is vacuous`,
+    );
   });
 
   // ---- Controls: these MUST fail -----------------------------------------

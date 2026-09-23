@@ -3,3 +3,9 @@ dist
 public/oracle
 *.local
 .DS_Store
+
+# TypeScript's incremental build cache. It is a derived artefact — a binary record of
+# which files `tsc` has already seen — and it changes on every build, so tracking it
+# puts a diff in every commit that says nothing about the change. It was tracked from
+# the initial commit and is untracked here rather than left to churn.
+tsconfig.tsbuildinfo

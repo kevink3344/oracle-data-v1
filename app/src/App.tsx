@@ -18,6 +18,7 @@ import Checks from './routes/Checks';
 import Invoices from './routes/Invoices';
 import ViewBuilder from './routes/ViewBuilder';
 import Settings from './routes/Settings';
+import ReadCaps from './routes/ReadCaps';
 import SignIn from './routes/SignIn';
 import Budgets from './routes/Budgets';
 import PurchaseOrders from './routes/PurchaseOrders';
@@ -92,6 +93,13 @@ const SCREENS: Record<string, ReactElement> = {
   // gear in the rail is not an access control. It is also the first screen whose
   // subject is *which rows the app reads* rather than what is in them.
   '/settings': <Settings />,
+  // The per-object read caps. ★ The only screen in the app whose subject is **how
+  // much the app reads** rather than what is in the data: the EBS instance holds
+  // tables in the hundreds of millions of rows, and a register that reads one of
+  // those whole is a request that never returns. An administrator bounds each
+  // object here, and the panel runs the statement before saving it so a cap is
+  // something that was looked at rather than a number in a box.
+  '/admin/read-caps': <ReadCaps />,
   // The budgeted accounts. ★ The only screen in the app that reads **no extract
   // at all** — the eight files in `public/oracle/` are every one of them
   // commitments or spend, and not one carries a budget position. `V_BUDGET_BY_ACCOUNT_PERIOD`

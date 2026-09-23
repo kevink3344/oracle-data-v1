@@ -5,7 +5,7 @@ import { dbStatus, probeDb } from '../db/client.js';
 import { quoteIdent, rows } from '../db/sql.js';
 import { API_VERSION } from '../http/openapi.js';
 import { config, DB_MODES, REPO_ROOT } from '../config/env.js';
-import { storeForTable, type StoreId } from '../db/store.js';
+import { storeForTable, tablesOfClass, type StoreId } from '../db/store.js';
 import { ledgerPlan } from '../db/ledger-shape.js';
 import { isDerivedTable } from '../db/derived.js';
 import { scopeModeFor } from './activity.js';
@@ -16,6 +16,26 @@ import { registeredResources } from './resource.js';
  * reading data out of it. Kept deliberately free of any dependence on a *working*
  * database, because they are what you reach for when it is not working.
  */
+
+/**
+ * Every ledger object a read cap can be written for.
+ *
+ * ★ IT IS THE SAME SET THE READ-CAP REGISTER OFFERS, DERIVED FROM THE SAME PLACE.
+ *   `routes/readCaps.ts` builds its list from `tablesOfClass('EBS')`, which is the store
+ *   registry's own classification — so this is not a second copy of that list, it is the
+ *   same query. A hand-written list here would be the fifth copy of a registry this
+ *   project has already had to reconcile four times (see the ★ block on
+ *   `ROUTING_APP_TABLES`), and the drift would show up as exactly the symptom that
+ *   prompted this: a cappable object with no row on the sign-in card.
+ *
+ * ★ `DUAL` IS EXCLUDED BECAUSE IT IS NOT A LEDGER OBJECT. It is Oracle's one-row dummy
+ *   table, it is in the registry so that `SELECT 1 FROM DUAL` routes correctly, and
+ *   offering a read cap for it would be offering a cap on the constant 1. The read-cap
+ *   register filters it for the same reason.
+ */
+function ledgerCapTables(): string[] {
+  return tablesOfClass('EBS').filter((t) => t !== 'DUAL');
+}
 
 const HealthSchema = z
   .object({
@@ -533,8 +553,8 @@ export function metaRouter(): Router {
       // ★ DEDUPED BY TABLE AND SORTED HERE, NOT IN THE DATABASE, BECAUSE THE LIST IS THE
       //   DESCRIPTORS. Several resources can point at one table, and counting it once per
       //   descriptor would inflate the total by the number of screens that show it.
-      const objects = [...new Map(registeredResources().map((r) => [r.table, r])).values()]
-        .map((r) => ({
+      const described = [...new Map(registeredResources().map((r) => [r.table, r])).values()].map(
+        (r) => ({
           name: r.table,
           label: r.label,
           store: storeForTable(r.table),
@@ -545,8 +565,55 @@ export function metaRouter(): Router {
            *   are here to resolve a read source, not to be served.
            */
           columns: r.columns,
-        }))
-        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        }),
+      );
+
+      /*
+       * ★ ★ THE LIST IS THE DESCRIPTORS *UNIONED WITH* THE CAP REGISTRY, AND THE UNION
+       *   IS THE FIX FOR A REAL GAP.
+       *
+       *   This handler used to list `registeredResources()` alone — 32 objects. But the
+       *   read-cap registry governs **50**, because it also covers the objects the live
+       *   routes read by hand: every `WCSEXP_*` view, plus `AP_INVOICE_LINES_ALL` and
+       *   `AP_INVOICE_DISTRIBUTIONS_ALL`. Those have no descriptor, so a cap could be
+       *   set on one and the card would never show it — the cap would count toward the
+       *   headline total while no row carried it. Reported exactly that way: *"I do not
+       *   see all of the tables listed, for example AP_INVOICE_LINES_ALL has a row limit
+       *   but does not show up in the list. Same for the WCSEXP views."*
+       *
+       *   ★ THE UNION IS TAKEN HERE RATHER THAN IN THE CLIENT, BECAUSE THE CLIENT CANNOT
+       *     DO IT. The cap registry knows the object's *name*; only the store registry
+       *     knows which store it lives in, and only the descriptor list knows a human
+       *     label. A client-side merge would have to invent both.
+       *
+       *   ★ AND THE EXTRA OBJECTS ARE LABELLED BY THEIR OWN NAME, WHICH IS HONEST RATHER
+       *     THAN LAZY. A descriptor carries a label like `Purchase-order line`; a view
+       *     the payables routes read has no such label because no screen names it. Using
+       *     the table name as the label says "this is a ledger object, and here is what
+       *     it is called" — which is true — instead of inventing a description nobody
+       *     wrote.
+       *
+       *   ★ `storeForTable` IS CALLED FOR THE EXTRAS TOO, AND IT THROWS ON AN UNKNOWN
+       *     NAME. That is the behaviour we want: every name in the cap registry is
+       *     registered by construction (the registry is what `storeForTable` reads), so a
+       *     throw here would mean the two lists had genuinely diverged — a loud failure
+       *     at the point of the mistake rather than a silently missing row.
+       */
+      const byName = new Map(described.map((o) => [o.name.toUpperCase(), o]));
+      for (const name of ledgerCapTables()) {
+        if (byName.has(name.toUpperCase())) continue;
+        byName.set(name.toUpperCase(), {
+          name,
+          label: name,
+          store: storeForTable(name),
+          // No descriptor, so no declared columns: the count resolves the object by its
+          // own name rather than through a read source. See `countObjects`.
+          columns: [],
+        });
+      }
+      const objects = [...byName.values()].sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
 
       const scope = declaredScope();
 

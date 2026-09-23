@@ -363,6 +363,12 @@ const APP_OWNED_TABLES = [
   //   because by then the hand-copy was diffed against the DDL instead of being
   //   trusted. A list is a claim until a gate compares it to its source.
   'user_pin',
+  // Added by the read-cap feature: one row per ledger object, saying how many rows
+  // to read and in what order. ★ THE FIFTH ADDITION AND THE FIRST THAT WAS NOT A
+  // DRIFT AT ALL — the gate below named this table the moment the DDL declared it,
+  // which is the whole point of having replaced the hand-copy's trust with a
+  // comparison. Listed because the gate said so, not because somebody remembered.
+  'ledger_read_cap',
 ];
 
 // ★ THE LIST ABOVE AND THE DDL MUST AGREE, AND THAT IS CHECKED RATHER THAN

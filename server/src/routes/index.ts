@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { metaRouter } from './meta.js';
 import { extractRouter } from './extract.js';
+import { apRouter } from './ap.js';
 import { vendorSitesRouter } from './vendorSites.js';
 import { createApi } from '../http/api.js';
 import { registerActivity } from './activity.js';
@@ -16,6 +17,7 @@ import { registerSpend } from './spend.js';
 import { registerVendors } from './vendors.js';
 import { registerViewBuilder } from './views.js';
 import { registerPins } from './pins.js';
+import { registerReadCaps } from './readCaps.js';
 import { registerAi } from './ai.js';
 import { registry } from '../http/openapi.js';
 
@@ -109,6 +111,24 @@ export function apiRouter(): Router {
 
   api.router.use(metaRouter());
   api.router.use(extractRouter());
+
+  // ★ THE PAYABLES SURFACE, LIVE — the replacement for two frozen files that three
+  //   screens read. It is logic-shaped rather than table-shaped: each endpoint
+  //   re-emits the extract's own envelope (`body.ResultSets.Table1…`), so the three
+  //   client parsers keep working and the repoint is a URL change rather than a
+  //   reshape. That is why it is a router and not a `registerXxx(api)`.
+  //
+  //   It sits beside `extractRouter` deliberately: both read the ledger live, both
+  //   derive their window from configuration rather than a parameter, and both
+  //   import `scopeClause` so there is one definition of what "in scope" means.
+  api.router.use(apRouter());
+
+  // The per-object read caps. Logic-shaped rather than table-shaped: the CRUD is
+  // ordinary, but the preview endpoint runs a draft statement against the ledger
+  // and returns the rows it produced, which no resource descriptor can express.
+  // It is also the only admin surface whose subject is *how much the app reads*
+  // rather than what is in the data.
+  registerReadCaps(api);
 
   // The vendor-site register is a logic domain, not a table: it is an aggregate
   // over purchase orders with a scope imported from the extract, so it declares

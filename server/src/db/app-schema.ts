@@ -110,6 +110,12 @@ export const APP_TABLES = [
   // copy of the Oracle value, because the delete path restores "what the ledger
   // says" by removing this row rather than by replaying a cached one.
   'field_override',
+  // How many rows this app reads from a ledger object, and in what order. One row
+  // per object the administrator has decided to bound; an object with no row is
+  // uncapped, so adding this table changes nothing until a row is written. The
+  // `order_by` column is required whenever `max_rows` is set — a cap with no
+  // ordering is a random sample, not a smaller answer. See the DDL header.
+  'ledger_read_cap',
 ] as const;
 
 const APP_TABLE_SET: ReadonlySet<string> = new Set<string>(APP_TABLES);

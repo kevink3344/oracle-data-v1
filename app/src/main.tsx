@@ -73,6 +73,11 @@ import './styles/vendors.css';
 // variant to — so it comes after all four. Before rail.css, which is the last word
 // on the shell.
 import './styles/customfields.css';
+// The read-cap register and its panel. Reuses `.drawer` from panel.css, `.field` /
+// `.input` / `.btn` from components.css and `.table-wrap` from base.css, so it only
+// adds the parts with no ancestor to inherit from — the register rows, the form and
+// the preview. It follows customfields.css because it also uses `.sr`.
+import './styles/readcaps.css';
 // Last, and after shell.css in particular: it expands the rail into a tree, so it
 // has to be able to override the rail's own rules.
 import './styles/rail.css';

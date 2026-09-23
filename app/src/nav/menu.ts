@@ -690,6 +690,20 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
         plan: 'docs/plans/view-builder.md',
       },
       {
+        label: 'Read caps',
+        to: '/admin/read-caps',
+        reads: 'app-side, plus a preview of whatever statement it is given',
+        api: '/api/read-caps',
+        built: true,
+        note:
+          'How many rows the app reads from each ledger object, and in what order. The ledger ' +
+          'holds tables in the hundreds of millions of rows, so an unbounded read is a request ' +
+          'that never returns — this is where the bound is set, per object, without a deploy. ' +
+          'The panel runs the statement before saving it, so a cap is something that was looked ' +
+          'at rather than a number in a box.',
+        plan: 'docs/plans/read-caps.md',
+      },
+      {
         label: 'Segments',
         to: '/admin/segments',
         reads: 'app-side',

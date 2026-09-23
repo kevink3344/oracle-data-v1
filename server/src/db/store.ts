@@ -132,6 +132,34 @@ const EBS_TABLES = [
   'WCSEXP_AP_INV_DISTRIBUTIONS',
   'WCSEXP_AP_CHECKS',
   'WCSEXP_AP_INVOICE_PAYMENTS',
+  // ★ THE TWO AP BASE TABLES THE LIVE PAYABLES ROUTES NEED, AND WHY ONLY TWO.
+  //
+  //   `routes/ap.ts` reads the three `WCSEXP_AP_*` views above for the documents,
+  //   but the views carry **no account segment** — so the scope cannot be tested on
+  //   them and has to reach a base table. Two are needed:
+  //
+  //     AP_INVOICE_LINES_ALL          the invoice's order link (`PO_HEADER_ID`)
+  //     AP_INVOICE_DISTRIBUTIONS_ALL  the account each invoice was charged to
+  //
+  //   ★ `AP_INVOICE_DISTRIBUTIONS_ALL.DIST_CODE_COMBINATION_ID` IS THE SCOPE KEY,
+  //     and the name is not guessable: `ALL_TAB_COLUMNS` returns **0 rows** for that
+  //     table while a qualified `SELECT` reads it fine, so it was read from result
+  //     metadata. `CODE_COMBINATION_ID` raises ORA-00904.
+  //
+  //   ★ AND THE DISTRIBUTION IS THE RIGHT TABLE WHERE THE LINE IS NOT. Measured for
+  //     the shipped tenant: scoping through the distribution gives **126** invoices
+  //     — the frozen extract's own count — while scoping through the line gives
+  //     **61**, because a line's default account may differ from where the money was
+  //     actually distributed. Both are registered because both are readable and the
+  //     line is used for the order link; only the distribution scopes.
+  //
+  //   ★ THE OTHER THREE AP BASE TABLES ARE DELIBERATELY ABSENT — `AP_CHECKS_ALL`,
+  //     `AP_INVOICES_ALL` and `AP_INVOICE_PAYMENTS_ALL` are readable but unused
+  //     (the views cover them), and `WCSEXP_AP_INVOICE_LINES` does not exist on this
+  //     instance (ORA-00942). This list is the set of tables the API *reads*, so an
+  //     entry nothing queries is a grant this code never exercises.
+  'AP_INVOICE_LINES_ALL',
+  'AP_INVOICE_DISTRIBUTIONS_ALL',
   // The one table that is not a table
   'DUAL',
 ] as const;
@@ -227,6 +255,13 @@ export const ROUTING_APP_TABLES = [
   // that added it to the DDL and to `app-schema.ts`, having just cited the drift
   // that made the third comparison necessary.
   'field_override',
+  // How many rows this app reads from a ledger object, and in what order. Listed
+  // here in the same change that added it to the DDL and to `app-schema.ts` — the
+  // discipline this comment block exists to enforce, applied rather than restated.
+  // A row here decides a *read* of a ledger object, and the ledger store is
+  // read-only, so the routing question this list answers is which store holds the
+  // CAP, not which holds the rows being capped.
+  'ledger_read_cap',
 ] as const;
 
 /**

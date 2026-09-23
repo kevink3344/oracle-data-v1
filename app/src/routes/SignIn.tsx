@@ -38,12 +38,13 @@
  *      it dropped this browser's copy of the token.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AppBrand from '../components/AppBrand';
 import { num, pluralise } from '../data/format';
 import { LEDGER_SCALE, recordsFloor } from '../data/ledgerScale';
 import { useLedgerSummary, type LedgerObject } from '../data/ledgerSummary';
+import { capTotals, describeCapTotal, loadReadCaps, type ReadCapList } from '../data/readCaps';
 import { isSuperAdmin, signIn, signOut, useSession } from '../data/session';
 
 /**
@@ -125,8 +126,80 @@ function readFrom(state: unknown): string | null {
  *   shape as it loads: a headline, and a chevron only when there is something behind
  *   it.
  */
+/**
+ * The caps this deployment has set, or `null` when they could not be read.
+ *
+ * ★ EVERY FAILURE COLLAPSES TO NULL, DELIBERATELY. See the call site: this figure is
+ *   supplementary to a pre-auth card, so a reader must never be blocked by it. The
+ *   alternative — a `failed` state the card has to render — would put an explanation
+ *   of a read nobody asked for on the first screen of the application.
+ *
+ * ★ AND IT DOES NOT RETRY. The card is drawn once, before a session exists; a retry
+ *   loop here would be a request per second against an endpoint that is already
+ *   answering, for a figure that changes only when an administrator edits a cap.
+ *
+ * ★ IT RETURNS THE WHOLE LIST, NOT JUST THE TOTALS, BECAUSE THE ROWS NEED IT. Each
+ *   ledger row shows its own object's cap, so the map has to be available per object —
+ *   and deriving both the per-row figure and the headline total from one payload is
+ *   what stops them disagreeing. A second request for the totals would be a second
+ *   answer to the same question.
+ */
+function useReadCaps(): ReadCapList | null {
+  const [list, setList] = useState<ReadCapList | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    loadReadCaps()
+      .then((next) => {
+        if (live) setList(next);
+      })
+      .catch(() => {
+        // Left as null — every row falls back to the words it printed before this
+        // feature existed, and the headline falls back to the table count alone.
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return list;
+}
+
 function LedgerSnapshot() {
   const state = useLedgerSummary();
+  /*
+   * ★ THE CAP TOTAL IS A SECOND, INDEPENDENT READ, AND ITS FAILURE IS NOT THE CARD'S.
+   *
+   *   The caps are a deployment fact (how much the app will read), not part of the
+   *   ledger summary (what the ledger holds), so they come from their own endpoint —
+   *   and that endpoint needs no session, which is what makes it usable here.
+   *
+   *   ★ A FAILED CAP READ MUST NOT BREAK THE CARD. This is the first screen of the
+   *   application; a reader who cannot sign in because a *supplementary* figure did not
+   *   load would be paying for the wrong thing. So the hook collapses every failure to
+   *   `null` and the headline falls back to the table count alone — the sentence it
+   *   printed before this feature existed. The distinction the card keeps elsewhere
+   *   (a failed read is stated, never rendered as zero) is kept here by *omission*
+   *   rather than by a sentence, because a pre-auth screen is the wrong place to
+   *   explain a read the reader did not ask for.
+   */
+  const caps = useReadCaps();
+  const capSummary = caps === null ? null : capTotals(caps);
+  /**
+   * Each object's cap, keyed by name, for the rows.
+   *
+   * ★ BUILT ONCE PER PAYLOAD RATHER THAN SEARCHED PER ROW. Thirty-four rows each doing
+   *   a linear scan of fifty items is the kind of thing that never matters until it
+   *   does; a map is the same code and has no such edge. The key is upper-cased because
+   *   the registry spells the names in upper case and the descriptor list does too —
+   *   but the two are separate sources, so the fold is what makes the join safe rather
+   *   than lucky.
+   */
+  const capByName = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const item of caps?.items ?? []) map.set(item.tableName.toUpperCase(), item.maxRows);
+    return map;
+  }, [caps]);
 
   if (state.status === 'loading') {
     return (
@@ -291,7 +364,7 @@ function LedgerSnapshot() {
   })();
 
   /*
-   * ★ THE CARD LEADS WITH THE TABLE COUNT, AND THE ROW FIGURES ARE GONE FROM IT.
+   * ★ THE CARD LEADS WITH THE TABLE COUNT, THE RECORDED SCALE, AND THE LIVE CAP TOTAL.
    *
    *   This block used to read `32 tables · 197,019,139 records`, and the second half of
    *   that was the most expensive read in the app: a `COUNT(*)` over `GL_BALANCES` at
@@ -301,17 +374,39 @@ function LedgerSnapshot() {
    *   reported symptom was the screen sitting on "Counting the ledger…".
    *
    *   Parallelising the count loop did not fix it (397.3 s sequential, 307.7 s with four
-   *   workers), so the figure was removed from this screen instead of made faster. The
-   *   request now asks for `counts=false` and the server answers from the descriptor
+   *   workers), so the LIVE figure was removed from this screen instead of made faster.
+   *   The request now asks for `counts=false` and the server answers from the descriptor
    *   list, which is exact and free.
    *
-   *   ★ WHAT IS LOST, STATED PLAINLY: the scope evidence. The sentence that compared
-   *   `scopedRecords` against `ledgerRecords` — the one that showed fund 04 was actually
-   *   narrowing the reads — cannot be made without both numbers, so it is gone from this
-   *   card. It belongs on the Activity page, which counts these same objects inside a
-   *   session where a wait is expected. A pre-auth card is the wrong place to spend six
-   *   minutes proving a restriction, and a partial total here would have invited the
-   *   reader to treat it as the whole.
+   *   ★ ★ AND THE SCALE FIGURE COMES BACK — AS A *RECORDED* ONE, WHICH IS THE WHOLE
+   *     POINT OF THIS CHANGE. Management want a glimpse before they sign in, and a card
+   *     that says only "34 tables" gives them no sense of the data at all. So the three
+   *     figures are composed from what is *free*:
+   *
+   *       34 tables            the descriptor list — exact, and a schema fact
+   *       over 197 million     `LEDGER_SCALE`, measured off-line, WITH ITS DATE
+   *       up to N rows         the live cap total — a stored row, not a scan
+   *
+   *     ★ THE MIDDLE ONE IS THE ONE THAT NEEDS CARE, AND IT IS HANDLED BY SAYING SO.
+   *       It is not this second's count and it does not pretend to be: the sentence
+   *       below names the day it was measured, the database it was measured against and
+   *       the scope it was taken under. That is the same rule the card applies in the
+   *       other direction when the server hands it a memoised figure — a number is
+   *       either current or accompanied by its date. A recorded figure *with* its
+   *       provenance is honest; the same figure presented as live is not.
+   *
+   *     ★ AND IT IS A FLOOR (`over 197 million`), NOT THE EXACT `197,019,139`. An exact
+   *       figure is a promise that stops being true the moment a row is inserted;
+   *       `recordsFloor` is true before the next row and after it. See its own note —
+   *       it also survives a scope change, which the exact number would not.
+   *
+   *   ★ WHAT IS STILL *NOT* HERE: THE LIVE COUNT, AND THE SCOPE EVIDENCE IT CARRIED. The
+   *     sentence that compared `scopedRecords` against `ledgerRecords` — the one that
+   *     showed fund 04 was actually narrowing the reads — cannot be made without a live
+   *     pass, so it stays gone from this card. It belongs on the Activity page, which
+   *     counts these same objects inside a session where a wait is expected. The
+   *     recorded figure below is *not* a substitute for it: it is a scale reference,
+   *     and it says so.
    */
   return (
     <details className="signin__scale">
@@ -321,6 +416,33 @@ function LedgerSnapshot() {
               rendered separately here. It was, and the figure read
               `32 tables · 10,378 10,378 records`. */}
           {pluralise(summary.objectCount, 'table')} the API serves
+          {/* ★ THE RECORDED SCALE, IN THE HEADLINE, BECAUSE IT IS THE FIGURE MANAGEMENT
+              ARE LOOKING FOR. It is a floor with its date attached in the body below —
+              the headline carries the magnitude, the body carries the provenance, and
+              neither claims to be a live count. */}
+          {' · '}
+          {recordsFloor()}
+          {/*
+            ★ THE CAP TOTAL IS APPENDED ONLY WHEN A CAP IS IN FORCE, AND THE CONDITION
+              IS THE HONESTY OF THE SENTENCE RATHER THAN A LAYOUT CHOICE.
+
+              An uncapped deployment reads every matching row, so there is no number to
+              print — and `0 rows` would be the most alarming way to describe an
+              unbounded read. `describeCapTotal` returns null in that case, so the
+              headline falls back to exactly what it said before this feature existed.
+
+              ★ AND IT IS `up to N rows`, NOT `N rows available`. The caps are a limit
+                on what will be *read*; they are not a measurement of what is *there*.
+                On an object whose table holds fewer rows than its cap the two coincide
+                only by luck, so the wording has to be true in both directions.
+
+              ★ THE FIGURE IS NOT DATED, BECAUSE IT CANNOT GO STALE THE WAY A COUNT
+                DOES. A cap is a stored row an administrator edits; it does not move
+                on its own, so there is no age to disclose. That is the same reason the
+                table list beside it is not dated. */}
+          {capSummary !== null && describeCapTotal(capSummary) !== null ? (
+            <> · {describeCapTotal(capSummary)}</>
+          ) : null}
         </span>
         {/* No chevron element: the marker is `.signin__scale-head::after` in the
             sheet, turned by the `open` attribute. A glyph swapped in here would be a
@@ -359,23 +481,104 @@ function LedgerSnapshot() {
               would reasonably conclude the figures had broken. Saying that the counts
               are not taken here — and where they are — is the difference between a
               card that is deliberately quiet and one that looks broken.
-          */}
+
+              ★ AND THE CAP SENTENCE ANSWERS THE QUESTION THAT REPLACES IT. A reader
+                who wants a scale figure now has one: not how many rows the ledger
+                holds (which costs a scan) but how many the app will read (which is a
+                stored row). The two are different claims and the card says which it
+                is making — see `describeCapTotal` for why the wording is `up to`. */}
           {' '}This card lists what the ledger holds rather than how much of it there is:
           counting the rows means a scan of every table, and the largest is 157 million
-          rows, which is not a wait to put in front of a sign-in form. The figures are on
-          the Activity page once you are signed in.
+          rows, which is not a wait to put in front of a sign-in form.
+          {/*
+            ★ THE RECORDED FIGURE'S PROVENANCE, STATED WHERE THE FIGURE IS QUOTED.
+
+              The headline says `over 197 million`. That is a figure taken off-line, and
+              the rule this card keeps is that a number is either current or accompanied
+              by its date — so it is accompanied by its date, its database and its scope,
+              here, immediately below it.
+
+              ★ IT IS THE SAME SENTENCE THE FAILED-READ PATH USES, VIA `RecordedScale`, AND
+                THAT IS DELIBERATE RATHER THAN A SHORTCUT. Two copies of a provenance
+                sentence is how one of them silently stops being true — and this is now
+                the *second* place the recorded figure is quoted, which is exactly the
+                condition that made `RecordedScale` a component in the first place.
+          */}
+          {' '}
+          <strong>{recordsFloor()}</strong> records is a figure {recordedProvenance()} — stated
+          with its date rather than presented as this second&rsquo;s, because counting this ledger
+          live is a scan of 157 million rows and more. The live figures are on the Activity page
+          once you are signed in.
+          {capSummary !== null && capSummary.capped > 0 ? (
+            <>
+              {' '}
+              How much the app will <em>read</em> is bounded separately, and that is a stored
+              setting rather than a measurement: {describeCapTotal(capSummary)} out of{' '}
+              {pluralise(capSummary.total, 'ledger object')}, set in Administration › Read caps. The
+              objects with no cap are read whole.
+              {/*
+                ★ THE TWO LISTS ARE NOT THE SAME LIST, AND THE CARD SAYS SO.
+                  This card lists the 34 descriptors the API serves; the cap registry governs
+                  50 ledger objects, because it also covers the `WCSEXP_*` views and the two AP
+                  base tables that the live payables routes read but no descriptor describes.
+                  So a cap can exist on an object with no row above — and the headline total
+                  would include it while nothing on the card showed it.
+
+                  The sentence is emitted ONLY when the two sets actually differ, and it names
+                  the count rather than the objects: a reader who wants the list has the Read
+                  caps page, and enumerating 21 view names on a sign-in card would be the
+                  opposite of what this card is for.
+              */}
+              {capSummary.total > summary.objectCount ? (
+                <>
+                  {' '}
+                  That register covers {capSummary.total - summary.objectCount} more objects than the
+                  list above — the extract views and the AP base tables the payables routes read,
+                  which no descriptor here describes.
+                </>
+              ) : null}
+            </>
+          ) : null}
         </p>
 
         <ul className="signin__ledger">
           {ledger.map((object) => (
-            <LedgerRow key={object.name} object={object} />
+            <LedgerRow key={object.name} object={object} cap={capByName.get(object.name.toUpperCase()) ?? null} />
           ))}
           {app.map((object) => (
-            <LedgerRow key={object.name} object={object} appOwned />
+            <LedgerRow
+              key={object.name}
+              object={object}
+              cap={capByName.get(object.name.toUpperCase()) ?? null}
+              appOwned
+            />
           ))}
         </ul>
       </div>
     </details>
+  );
+}
+
+/**
+ * The provenance of the recorded figure, as one sentence.
+ *
+ * ★ IT IS A FUNCTION NOW BECAUSE TWO PLACES QUOTE THE FIGURE, AND ONE COPY IS THE POINT.
+ *   The `ready` state prints it beside the headline; the failed and slow states print it
+ *   through `RecordedScale`. Two copies of a provenance sentence is how one of them
+ *   silently stops being true — and the figure is now quoted in *both* branches of the
+ *   same card, which is exactly the condition that made this a component in the first
+ *   place. Making the sentence a function is the same move one level down.
+ *
+ * ★ AND THE TWO CALLERS NEED DIFFERENT LEAD-INS, WHICH IS WHY THIS RETURNS THE CLAIM
+ *   RATHER THAN THE WHOLE PARAGRAPH. The `ready` state is describing a figure it just
+ *   showed, so it leads with the number; the failed state is offering a scale reference
+ *   in place of one it could not take, so it leads with "for scale only". The shared
+ *   part is the provenance, and that is what is shared.
+ */
+function recordedProvenance(): string {
+  return (
+    `recorded on ${LEDGER_SCALE.measuredOn} against ${LEDGER_SCALE.target}, ` +
+    `under ${LEDGER_SCALE.scope}`
   );
 }
 
@@ -395,16 +598,31 @@ function RecordedScale({ lead }: { lead: string }) {
   return (
     <p className="signin__scale-note">
       {lead} For scale only: the Oracle source this copy came from measured{' '}
-      {pluralise(LEDGER_SCALE.tables, 'table')} and {recordsFloor()} records on{' '}
-      {LEDGER_SCALE.measuredOn}, under {LEDGER_SCALE.scope} — a different database, and an account
-      scope stated rather than left to be assumed, so the figure is named as what it is instead of
-      being presented as this one&rsquo;s.
+      {pluralise(LEDGER_SCALE.tables, 'table')} and {recordsFloor()} records{' '}
+      {recordedProvenance()} — a different database, and an account scope stated rather than
+      left to be assumed, so the figure is named as what it is instead of being presented as
+      this one&rsquo;s.
     </p>
   );
 }
 
 /**
- * One table and its row count.
+ * One table and its figure.
+ *
+ * ★ THE FIGURE IS THE CAP WHEN THERE IS ONE, AND THE WORDS WHEN THERE IS NOT. The
+ *   column used to read `rows not counted` on every row, because the card asks for
+ *   `counts=false` and a `COUNT(*)` over these tables is the six-minute read this
+ *   screen deliberately gave up. The cap is a *stored setting* rather than a
+ *   measurement, so it costs nothing to show — and it is the figure that actually
+ *   answers the reader's question, which is not "how many rows are there" but "how
+ *   much of this will the app read".
+ *
+ * ★ THE TWO ARE NOT THE SAME CLAIM AND THE ROW DOES NOT PRETEND THEY ARE. A cap is a
+ *   ceiling on what will be read; a row count is a measurement of what is there. So a
+ *   capped row reads `up to N rows` and never a bare number, which would be read as a
+ *   count. An uncapped row keeps `rows not counted`, which is still true — the card
+ *   did not count it — and the note above the list says the uncapped objects are read
+ *   whole.
  *
  * ★ `null` RENDERS AS WORDS, NOT AS `0`. A count that could not be taken and a
  *   table with no rows are opposite facts, and the endpoint reports them
@@ -418,13 +636,51 @@ function RecordedScale({ lead }: { lead: string }) {
  *   is therefore `N of M` where it is scoped, with `M` in a quieter weight than the
  *   narrowed count, which is the one the heading's claim is about.
  */
-function LedgerRow({ object, appOwned = false }: { object: LedgerObject; appOwned?: boolean }) {
+function LedgerRow({
+  object,
+  cap,
+  appOwned = false,
+}: {
+  object: LedgerObject;
+  /** This object's row cap, or null when it has none. */
+  cap: number | null;
+  appOwned?: boolean;
+}) {
   // ★ NARROWED INTO LOCALS, SO THE `as number` CAST DOES NOT HAVE TO APPEAR AT THE
   //   POINT OF RENDERING. The three conditions are the same ones `scoped` encodes; a
   //   cast at the call site would assert the invariant forty lines from where the
   //   endpoint guarantees it, and would silently survive its loss.
   const whole = object.rowCount;
   const narrowed = object.scoped ? object.scopedRowCount : null;
+
+  /*
+   * ★ THE CAP WINS OVER THE COUNT, AND THAT ORDER IS DELIBERATE.
+   *
+   *   A `counts=true` caller can get both, and when it does the cap is still the
+   *   figure this column is about: the card's subject is how much the app reads, and a
+   *   row count beside it would be a second, differently-meaning number in a column
+   *   that holds one. The count is not lost — it is on the Activity page, which is
+   *   where the card says the figures are.
+   *
+   *   `cap !== null` alone, with no `> 0` guard: a cap of zero is refused by the write
+   *   path (it must be positive), so a stored zero would be a hand-edited row — and
+   *   rendering it as `up to 0 rows` is the honest reading of what it says.
+   */
+  if (cap !== null) {
+    return (
+      <li className={rowClass(appOwned)}>
+        <span className="signin__ledger-name" title={object.label}>
+          {object.name}
+        </span>
+        <span className="signin__ledger-count signin__ledger-count--cap">
+          {/* `up to` rather than a bare number: the cap is a ceiling on what will be
+              read, not a measurement of what is there. See the doc block. */}
+          {`up to ${num(cap)} rows`}
+        </span>
+      </li>
+    );
+  }
+
   if (whole === null) {
     /*
      * ★ `rowCount: null` NOW MEANS "NOT ASKED FOR" RATHER THAN "COULD NOT BE COUNTED",
@@ -441,6 +697,11 @@ function LedgerRow({ object, appOwned = false }: { object: LedgerObject; appOwne
      *   preserved for a caller that does ask: a `counts=true` payload whose object
      *   failed still arrives as `null`, and the two are told apart by `countedAt` —
      *   a stamp means the pass ran, `null` means it did not.
+     *
+     *   ★ AND `rows not counted` IS STILL THE RIGHT WORDS FOR AN UNCAPPED ROW. The cap
+     *     branch above returns first, so reaching here means no cap is in force and no
+     *     count was taken — both true, and the note above the list says the uncapped
+     *     objects are read whole.
      */
     return (
       <li className={rowClass(appOwned)}>
