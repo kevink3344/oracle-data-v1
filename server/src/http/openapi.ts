@@ -59,6 +59,39 @@ export const TAGS = [
   { name: 'Projects', description: 'Projects, portfolios, and the unclaimed-combination queue.' },
   { name: 'Funding', description: 'Budgets, adjustments, changes, journals, and available funds.' },
   { name: 'Spend', description: 'Encumbrances, invoices, payments, and commitments against actuals.' },
+  /*
+   * ★ `Invoices` AND `Checks` ARE THEIR OWN SECTIONS, AND THEY SIT DIRECTLY AFTER
+   *   `Spend` BECAUSE THAT IS WHERE THEY CAME FROM.
+   *
+   *   Both endpoints were originally tagged `Spend`, which grouped them with
+   *   encumbrances and commitments against actuals. That is a defensible grouping by
+   *   *question* — all four are about money leaving — but it buries the two live AP
+   *   reads under four other endpoints, and they are the two a payables reader opens
+   *   the document for.
+   *
+   *   ★ THE ORDER IS NOT COSMETIC: `docs.ts` sets `tagsSorter: undefined`, so this
+   *     array IS the rendering order. Putting them here rather than at the end keeps
+   *     the money questions together — Spend, then the two registers that answer the
+   *     narrower version of it — instead of appending them after `AI`.
+   *
+   *   ★ AND THE DESCRIPTIONS SAY WHAT MAKES THEM DIFFERENT FROM THE REST OF THE
+   *     DOCUMENT: both read the **live ledger**, not the frozen extract, and both
+   *     re-emit the extract's own envelope. A reader who has used the other
+   *     registers needs to know the response shape differs.
+   */
+  {
+    name: 'Invoices',
+    description:
+      'The invoice register, live from the ledger. Answers with the extract’s own ' +
+      '`body.ResultSets` envelope rather than this API’s `{ data }` shape, so a client that ' +
+      'already reads `invoices.json` can point at it unchanged.',
+  },
+  {
+    name: 'Checks',
+    description:
+      'The payments register, live from the ledger — one row per payment document, with the ' +
+      'invoices each one settled. Same extract-shaped envelope as `Invoices`.',
+  },
   { name: 'Procurement', description: 'Purchase orders, lines, shipments, distributions, and reference codes.' },
   { name: 'Vendors', description: 'Vendor companies, sites, and spend.' },
   { name: 'Chart of Accounts', description: 'Account combinations, the seven segments, periods, and balances.' },

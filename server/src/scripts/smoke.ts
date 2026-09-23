@@ -5569,6 +5569,42 @@ async function main(): Promise<void> {
       );
     }
 
+    // ★ THE TWO AP REGISTERS HAVE THEIR OWN SECTIONS, AND THIS IS THE GATE FOR IT.
+    //   Both were tagged `Spend`, which grouped them with encumbrances and commitments
+    //   against actuals — and the whole point of the change was that a payables reader
+    //   should find them without reading four other endpoints first. Mis-tagging either
+    //   one back to `Spend` would leave the path, the operationId and the schema all
+    //   exactly right, so nothing else in this suite would notice.
+    for (const [path, method, section] of [
+      ['/api/ap/invoices', 'get', 'Invoices'],
+      ['/api/ap/checks', 'get', 'Checks'],
+    ] as const) {
+      assert.deepEqual(
+        tagged(path, method),
+        [section],
+        `${method.toUpperCase()} ${path} is grouped under ${JSON.stringify(tagged(path, method))}, ` +
+          `not ${section} — a payables reader would not find it`,
+      );
+      assert.ok(
+        names.includes(section),
+        `the ${section} tag is not declared, so its routes have no section to group under`,
+      );
+    }
+
+    // ★ AND NEITHER CARRIES A WRITE OPERATION, WHICH IS A REQUIREMENT RATHER THAN AN
+    //   OBSERVATION. Both read the ledger, the account holds SELECT only, and the
+    //   requirement was explicit: "We will not be adding any data so no need for POST
+    //   calls." A `post` appearing on either path would mean somebody added a write to
+    //   a read-only surface, and the failure would otherwise be a 404 at runtime.
+    for (const path of ['/api/ap/invoices', '/api/ap/checks'] as const) {
+      const methods = Object.keys(spec.paths[path] ?? {});
+      assert.deepEqual(
+        methods.filter((m) => m !== 'get'),
+        [],
+        `${path} carries ${methods.join(', ')} — this surface is read-only by requirement`,
+      );
+    }
+
     // ★ AND THE ORDER IS THE DECLARED ORDER, NOT ALPHABETICAL. `docs.ts` sets
     //   `tagsSorter: undefined`, so the array above IS the Swagger grouping order
     //   — which makes its order a decision somebody made, and `Meta` then `Auth` is

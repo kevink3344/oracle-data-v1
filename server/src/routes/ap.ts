@@ -210,7 +210,11 @@ export function apRouter(): Router {
       'correct link count, and the fanned-out form inflated it.\n\n' +
       '★ `VENDOR_ID` IS CARRIED, AND THE FROZEN FILE COULD NOT. It is what lets a client join ' +
       'these rows to the vendor-site register on a real foreign key rather than a name match.',
-    tags: ['Spend'],
+    // ★ ITS OWN SECTION, NOT `Spend`. See the ★ block on `TAGS`: the two AP registers were
+    //   grouped with encumbrances, which buried the endpoints a payables reader opens the
+    //   document for. Retagged rather than duplicated — the path and the handler are
+    //   unchanged, so this is a documentation change and nothing else.
+    tags: ['Checks'],
     response: ChecksResponse,
     rawBody: true,
     errors: [500, 503],
@@ -311,7 +315,9 @@ export function apRouter(): Router {
       '★ **`VENDOR_ID` IS CARRIED**, which the frozen file could not — it is the key that joins ' +
       'these rows to the vendor-site register.\n\n' +
       '`Table3` is the account rows, at one row per `(invoice, code combination)`.',
-    tags: ['Spend'],
+    // ★ ITS OWN SECTION, NOT `Spend` — see the note on the checks route and the ★ block
+    //   on `TAGS`. The path and the handler are unchanged.
+    tags: ['Invoices'],
     response: InvoicesResponse,
     rawBody: true,
     errors: [500, 503],
