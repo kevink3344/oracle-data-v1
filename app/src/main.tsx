@@ -78,6 +78,14 @@ import './styles/customfields.css';
 // adds the parts with no ancestor to inherit from — the register rows, the form and
 // the preview. It follows customfields.css because it also uses `.sr`.
 import './styles/readcaps.css';
+// The SQL annotation shown when a reader turns the trace on in Settings: the note
+// beside a scope line, the compact form under a stat card, and the page-level
+// disclosure. It extends nothing and is extended by nothing — it introduces
+// `--sql-fg` (defined in tokens.css) and three independent class families — so its
+// position is free. Placed here rather than earlier because it is a *reading aid*
+// layered over whatever page it appears on, and it must not be the sheet that
+// decides anything about a table or a panel.
+import './styles/sql.css';
 // Last, and after shell.css in particular: it expands the rail into a tree, so it
 // has to be able to override the rail's own rules.
 import './styles/rail.css';

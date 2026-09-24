@@ -76,6 +76,16 @@
   --neu-bg: #eef1f3;
   --neu-fg: #3e4a53;
 
+  /* --- the SQL annotation colour ---------------------------------------
+     ★ A TOKEN OF ITS OWN, AND NOT `--err-fg` OR `--warn-fg`. Those two mean
+     "something is wrong"; a query shown for review is not wrong, and reusing
+     them would tell a reader the page had a problem. This is red because the
+     request asked for red and because annotation should be unmistakable for a
+     figure — but it is a *quiet* red, mixed toward the surface so it reads as
+     evidence rather than as an alarm. Measured 4.9:1 on `--surface` and 5.2:1
+     on `--surface-sunken`, both above AA for body text. */
+  --sql-fg: #a32638;
+
   /* --- the "New" mark: a dot, so a graphic colour and not a text one ---
      The mark has been three things now. A `.chip--neu` pill at 46x27, which
      outweighed the project name it annotated. Then lettering at 26x15, green
@@ -178,6 +188,11 @@
   --err-bg: #33101f;
   --err-fg: #f08cb4;
   --err-border: rgba(240, 140, 180, 0.32);
+
+  /* The dark-theme SQL annotation. Lifted well above the light value: the same
+     `#a32638` on `#131e33` measures 2.1:1 and is unreadable. Measured 6.4:1 on
+     `--surface` and 7.1:1 on `--surface-sunken`. */
+  --sql-fg: #f08a94;
   --neu-bg: #1c2740;
   --neu-fg: #a9b8cf;
 

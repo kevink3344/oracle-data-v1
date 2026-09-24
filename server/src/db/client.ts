@@ -3,6 +3,7 @@ import { createLibsqlDriver, type SqlDriver } from './driver.js';
 import { createRoutedDriver, type RoutedDriver, type StoreId } from './hybrid.js';
 import { createOracleDriver, oracleClientVersion } from './oracle.js';
 import { storeForTable } from './store.js';
+import { noteStatement } from '../http/sql-trace.js';
 
 /**
  * The single database driver for the process, plus the readiness flag the health
@@ -51,9 +52,39 @@ const ledger: SqlDriver =
  */
 const app: SqlDriver = config.appDb.shared ? ledger : createLibsqlDriver(config.appDb);
 
+/**
+ * ★ THE SQL TRACE IS RECORDED AT THE DRIVER, AND THAT IS THE ONLY PLACE THAT CATCHES EVERYTHING.
+ *
+ *   The first attempt recorded statements in `db/sql.ts`'s `rows()`/`one()`/`execute()` helpers. That
+ *   covers every route that uses them — which is most of the app — but **not** the routes that call
+ *   `db.execute` directly, and the two payables registers (`routes/ap.ts`) are exactly that: five
+ *   direct calls each. So `/api/ap/checks` and `/api/ap/invoices` answered with no trace while every
+ *   other endpoint carried one, which is the opposite of what a reader checking a payables figure
+ *   needs.
+ *
+ *   Decorating the driver instead means the trace is a property of *running a statement*, not of
+ *   which helper ran it. It also removes the risk of the next direct caller being silently untraced,
+ *   which is the failure mode a per-helper hook has by construction.
+ *
+ *   `noteStatement` is a no-op when no request scope is active, so scripts, startup probes and the
+ *   smoke suite are unaffected. It measures with `performance.now()` rather than trusting a driver
+ *   to report its own duration, because only one of the two backends does.
+ */
+function traced(inner: SqlDriver): SqlDriver {
+  return {
+    ...inner,
+    async execute(req) {
+      const started = performance.now();
+      const res = await inner.execute(req);
+      noteStatement(req.sql, performance.now() - started, res.rows.length);
+      return res;
+    },
+  };
+}
+
 export const db: RoutedDriver = createRoutedDriver({
-  ledger,
-  app,
+  ledger: traced(ledger),
+  app: traced(app),
   shared: config.appDb.shared,
   labels: { ledger: config.db.label, app: config.appDb.label },
   writable: { ledger: config.db.allowWrites, app: config.appDb.allowWrites },

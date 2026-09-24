@@ -1,0 +1,267 @@
+/*
+   SQL annotation — the statements behind a figure, for a reader who asked to see them.
+
+   ── WHAT THIS FILE STYLES
+
+     - `.sqlnote*`   the full treatment, used beside the scope line
+     - `.statsql*`   the compact form, used under a stat card
+     - `.sqlpanel*`  the page-level disclosure at the foot of a register
+
+   ── ★ WHY ALL THREE SET THE TEXT IN `--sql-fg`, AND WHY THAT TOKEN IS NOT `--err-fg`
+
+   The colour means "this is evidence, not a figure". `--err-fg` and `--warn-fg` mean
+   "something is wrong", and a query shown for review is not wrong — using them would
+   tell a reader the page had a problem it does not have. `--sql-fg` is defined in both
+   themes in `tokens.css` with the measured contrast recorded there.
+
+   ── ★ WHY EVERY STATEMENT IS ONE LINE AND SCROLLS RATHER THAN WRAPPING
+
+   A statement is read by scanning for a column name, and a wrapped statement breaks the
+   clause structure across lines so the scan fails. `white-space: pre` plus
+   `overflow-x: auto` keeps each statement on one line and lets a long one scroll inside
+   its own box instead of pushing the figures it explains off the panel. The server's own
+   newlines are already collapsed before render (`compact()` in `SqlNote.tsx`), so this
+   is the second half of the same decision rather than a duplicate of it.
+*/
+
+/* ── The full treatment: beside the scope line ─────────────────────────────── */
+
+.sqlnote {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sql-fg);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+}
+
+.sqlnote__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* The flag is a label, not a pill: this is annotation and a filled chip would give
+   it the same weight as the scope notes, which are statements about the data. */
+.sqlnote__flag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sql-fg);
+}
+
+.sqlnote__label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sqlnote__meta {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sqlnote__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.sqlnote__item {
+  display: grid;
+  gap: 2px;
+}
+
+.sqlnote__sql {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--sql-fg);
+  white-space: pre;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.sqlnote__cost {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── The compact form: under a stat card ───────────────────────────────────── */
+
+.statsql {
+  margin-top: 6px;
+  display: grid;
+  gap: 3px;
+}
+
+.statsql__flag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sql-fg);
+}
+
+.statsql__label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ★ SMALLER THAN `.sqlnote__sql`, AND THAT IS THE POINT OF THE VARIANT. Under a card
+   the statement is a footnote to a figure that is already the subject; at the note's
+   size a card would grow until it pushed the figures it explains off screen. */
+.statsql__sql {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--sql-fg);
+  white-space: pre;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.statsql__meta {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+/* ── The extract's own provenance, for a page with no query to show ────────── */
+
+/*
+   ★ THE ACCENT IS `--text-muted`, NOT `--sql-fg`, AND THAT IS THE POINT.
+
+   `--sql-fg` means "here is the statement". This block is the *absence* of one — the
+   rows came from a file. Reusing the red would tell a reader a query is on screen and
+   then not show one, which is worse than saying nothing. The muted left edge keeps the
+   two visually related (same family, same shape) while making the difference legible
+   before a word is read.
+*/
+.sqlnote--extract {
+  border-left-color: var(--border-strong);
+}
+
+.sqlnote--extract .sqlnote__flag {
+  color: var(--text-muted);
+}
+
+.sqlnote__body {
+  display: grid;
+  gap: 6px;
+}
+
+.sqlnote__line {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+
+/* The file paths and endpoints are evidence, so they read as code — but in the body
+   colour rather than the SQL red, for the reason above. */
+.sqlnote__line code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/* ── The page-level disclosure ─────────────────────────────────────────────── */
+.sqlpanel .panel__body {
+  display: grid;
+  gap: 10px;
+}
+
+.sqlpanel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.sqlpanel__item {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sql-fg);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+}
+
+.sqlpanel__sql {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--sql-fg);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.sqlpanel__cost {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── The Settings toggle ───────────────────────────────────────────────────── */
+
+.sqlpref {
+  display: grid;
+  gap: 8px;
+}
+
+.sqlpref__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sqlpref__row input {
+  margin-top: 2px;
+  flex: none;
+}
+
+.sqlpref__text {
+  display: grid;
+  gap: 3px;
+}
+
+.sqlpref__label {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.sqlpref__hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* The worked example, so a reader sees what they are switching on before they switch
+   it on. It is inert — no request, no trace — and says so. */
+.sqlpref__demo {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sql-fg);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+}
+
+.sqlpref__demo code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--sql-fg);
+  white-space: pre;
+  overflow-x: auto;
+}

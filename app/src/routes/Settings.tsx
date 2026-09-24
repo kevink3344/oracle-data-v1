@@ -71,6 +71,7 @@ import {
 } from '../data/organizations';
 import { fiscalYearStart, rowsInScope, scopeSpoken, type Scope } from '../data/scope';
 import { isSuperAdmin, refreshSession, useSession } from '../data/session';
+import { useShowSql } from '../data/showSql';
 import { useStore } from '../state/store';
 
 /** The program pairs the chart of accounts offers under one fund. */
@@ -416,6 +417,74 @@ function ScopeFields({
   );
 }
 
+/**
+ * The switch that shows the SQL behind the figures.
+ *
+ * ── WHY IT IS ON THIS PAGE AND NOT A PAGE-LEVEL CONTROL
+ *
+ * It is a *reading* preference rather than a property of any one screen: turning it on changes a
+ * dozen pages at once, so the control belongs where the other deployment-wide settings live. It is
+ * deliberately **not** behind `requireSuperAdmin` — staff checking a figure are exactly the people
+ * who need it, and the panel below the register is reachable by a member while the register itself
+ * is not.
+ *
+ * ── ★ THE WORKED EXAMPLE IS THE POINT OF THE PANEL
+ *
+ * A checkbox labelled "show SQL" asks a person to switch on something they cannot see. The demo
+ * statement below it is inert — it is a literal, not a request — and it shows the *shape* of what
+ * will appear: a real statement, in the annotation colour, at the size it will be. Somebody who
+ * does not want that on every page can decide before they turn it on, which is the difference
+ * between a preference and a surprise.
+ */
+function SqlPreferencePanel() {
+  const [on, setOn] = useShowSql();
+
+  return (
+    <section className="panel">
+      <div className="panel__head">
+        <h2 className="panel__title">Show the SQL behind the figures</h2>
+        <span className="panel__count">{on ? 'on' : 'off'}</span>
+      </div>
+      <div className="panel__body">
+        <div className="sqlpref">
+          <div className="sqlpref__row">
+            <input
+              type="checkbox"
+              id="show-sql"
+              checked={on}
+              onChange={(event) => setOn(event.target.checked)}
+            />
+            <div className="sqlpref__text">
+              <label className="sqlpref__label" htmlFor="show-sql">
+                Show the statement each figure was computed from
+              </label>
+              <span className="sqlpref__hint">
+                Adds the SQL to the scope note beside a register, under each stat card, and once at
+                the foot of the page — in red, with the time and row count each statement returned.
+                The statement is the one the server actually ran, not a copy written here, so what
+                you read is what produced the number.
+              </span>
+            </div>
+          </div>
+
+          <div className="sqlpref__demo" aria-hidden="true">
+            <code>
+              SELECT COUNT(*) AS n FROM ( SELECT "BUDGET_VERSION_ID", "BUDGET_NAME" FROM
+              "GL_BUDGET_VERSIONS" ) src
+            </code>
+          </div>
+
+          <span className="sqlpref__hint">
+            A preference on this browser, like the theme — it is remembered between visits and does
+            not change what anyone else sees. With it off, the server does not send the statements at
+            all, so the pages are exactly as they were.
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Settings() {
   const user = useSession();
   const { lines } = useStore();
@@ -556,9 +625,6 @@ export default function Settings() {
         <div className="page-head">
           <div>
             <h1>Settings</h1>
-            <p className="page-head__sub">
-              Which organization this deployment reads, and what each one selects from the extract.
-            </p>
           </div>
           <div className="page-head__actions">
             <Link className="btn btn--ghost" to="/">
@@ -811,13 +877,14 @@ export default function Settings() {
         </div>
       </section>
 
+      <SqlPreferencePanel />
+
       <OrgPanel
         row={editing}
         options={options}
         lines={lines}
         onClose={() => setEditing(null)}
-        onSaved={(next) => {
-          // ★ THE ROW IS REPLACED BY SLUG, NOT RE-FETCHED. Two reasons, and either
+        onSaved={(next) => {          // ★ THE ROW IS REPLACED BY SLUG, NOT RE-FETCHED. Two reasons, and either
           //   alone would be enough: the server already answered with the **stored**
           //   row (`readBack`), so a second GET would re-read a row this page is
           //   holding; and `slug` never moves — the route's own note says a rename
