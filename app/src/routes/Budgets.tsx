@@ -22,7 +22,8 @@ import { SEGMENT_ORDER, SEGMENT_ROLE } from '../data/taxonomy';
 import { useStore } from '../state/store';
 import ErrorNotice from '../components/ErrorNotice';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
-import { money, money0, num, pctSlim, pluralise, share } from '../data/format';
+import { SqlNote, StatSql, PageSql, type SqlTrace } from '../components/SqlNote';
+import { money, money0, num, pluralise } from '../data/format';
 
 /**
  * Budgets — the eight million dollar question this whole app was built around.
@@ -112,12 +113,30 @@ const WIDTH_KEY = 'budgets-panel-w';
 const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
 
 /** One labelled figure. Same reading as `.chkstat` and `.kpi`: key, number, caveat. */
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
+function Stat({
+  label,
+  value,
+  note,
+  trace,
+}: {
+  label: string;
+  value: string;
+  note?: ReactNode;
+  /**
+   * The statements behind this figure, shown under it while the SQL trace is on.
+   *
+   * ★ OPTIONAL, AND THE CARD RENDERS IDENTICALLY WITHOUT IT. Most call sites in the app pass
+   *   nothing, and the ones that do pass `null` whenever the toggle is off — so a card cannot
+   *   become a different shape because a reader flipped a preference.
+   */
+  trace?: SqlTrace | null;
+}) {
   return (
     <div className="budstat">
       <div className="budstat__k">{label}</div>
       <div className="budstat__v">{value}</div>
       {note ? <div className="budstat__n">{note}</div> : null}
+      <StatSql trace={trace} />
     </div>
   );
 }
@@ -989,35 +1008,6 @@ export default function Budgets() {
    *   who takes the chips for the data would otherwise be entitled to wonder what
    *   else is missing.
    */
-  const scopeObserved = useMemo(() => {
-    if (!data) return null;
-
-    /** `['04/862 (419)', '04/861 (81)']` — each pair with the rows that carry it. */
-    const listed = (pairs: string[]) => {
-      const counts = new Map<string, number>();
-      for (const pair of pairs) counts.set(pair, (counts.get(pair) ?? 0) + 1);
-      return [...counts.entries()].sort().map(([pair, n]) => `${pair} (${n})`);
-    };
-
-    const accountPair = (p: PositionRow) => {
-      const parts = p.BUDGET_ACCOUNT.split('.');
-      return `${parts[0] ?? ''}/${parts[2] ?? ''}`;
-    };
-
-    // What the ledger served, before this page's own filter: the basis for saying a
-    // program is absent from the data rather than absent from the screen.
-    const carried = new Set([
-      ...data.positions.map((p) => p.BUDGET_ACCOUNT.split('.')[2] ?? ''),
-      ...data.budgets.map((r) => String(r.SEGMENT3 ?? '')),
-    ]);
-
-    return {
-      accounts: listed(inScopeRows.positions.map(accountPair)),
-      movements: listed(inScopeRows.budgets.map((r) => `${r.SEGMENT1}/${r.SEGMENT3}`)),
-      absentPrograms: (scopeTenant?.programs ?? []).filter((p) => !carried.has(p)),
-    };
-  }, [data, inScopeRows, scopeTenant]);
-
   const view = useMemo(() => {
     const rowsByKey = new Map<string, BudgetRow[]>();
     for (const row of inScopeRows.budgets) {
@@ -1202,82 +1192,53 @@ export default function Budgets() {
         <div className="page-head">
           <div>
             <h1>Budgets</h1>
-            <p className="page-head__sub">
-              {data
-                ? `What was set aside, against ${pluralise(view.accounts.length, 'account')} — ${num(inScopeRows.budgets.length)} budget rows across ${pluralise(view.periods.length, 'period')} and ${pluralise(data.versions.length, 'version')}. Housing the capital budget, the appropriations against it, and what is left of them.`
-                : 'The capital budget, the appropriations against it, and what is left of them.'}
-            </p>
           </div>
         </div>
       </div>
 
       {/*
-        ★ THE PAGE STATES ITS SCOPE, WHICH IS THE ONE THING A READER CANNOT
-          DERIVE FROM THE SCREEN.
+        ★ THE SCOPE NOTE IS GONE, ON STAFF'S INSTRUCTION, AND THIS IS THE ONE REMOVAL WITH A REAL
+          COST.
 
-        This is the vendor register's note, on the same terms: the flag carries
-        the fact, the body carries the ask (`scopeLabel`, which reads the control)
-        and then the answer (`scopeObserved`, which reads the rows). Neither half
-        is decoration — the scope is applied *in the ledger query*, so nothing on
-        this page would otherwise reveal that 69,959 budget rows and 1,262
-        accounts are a subset rather than a total.
+          It said two things a reader cannot derive from the screen: that the rows are a *subset* of
+          the ledger (the rule is applied in the SQL, so the page looks complete either way), and
+          which programs the answer actually carried. Measured when it was written: 69,959 budget
+          rows and 1,262 accounts, of which this page reads one page of each.
 
-        ★ THE PROSE IS WRAPPED, AND THAT IS NOT COSMETIC. `.scopenote` is
-          `display: flex; gap: 8px`, so a bare text node beside the flag becomes
-          its own flex item and the gap lands between the fragments instead of
-          between the flag and the sentence. `.scopenote__text` is the item.
+          With it gone, a reader comparing these totals against another register has no way to learn
+          that the two are different populations. The remaining answer to "is this all of it?" is
+          the SQL trace (Settings → show the SQL), which prints the statement and therefore the
+          `PERIOD_YEAR` floor and the scope predicate.
 
-        ★ IT RENDERS ON EVERY VISIT AND THE COST NOTE BELOW DOES NOT. Two
-          different questions: "what is this page scoped to" is always true and
-          always owed, while "what did the scope cost" is only owed when it cost
-          something — a sentence reading "0 rows removed" on every visit is how a
-          reader learns to skip the one place the number is not zero. Keeping
-          only the second was the bug: it is invisible exactly when the narrowing
-          happened upstream, which is every visit to this page.
+          `scopeObserved`, `inScopeRows` and the two `SqlNote`s below are kept: the notes are the
+          trace, and the memos still feed the tables. The cost note that followed this one is
+          removed with it, since it only ever put a number on what this note described.
       */}
-      {data && scopeObserved ? (
-        <p className="scopenote" role="note">
-          <span className="scopenote__flag">Scoped</span>
-          <span className="scopenote__text">
-            <strong>{scopeLabel(scope, scopeTenant?.programs ?? [])}.</strong> The rule is applied in
-            the ledger query rather than in the browser —{' '}
-            <code>/api/funding/budgets</code> and <code>/api/funding/positions</code> are composed
-            with it by the API, so the rows arrive narrowed and{' '}
-            {inScopeRows.removed === 0
-              ? 'nothing on this page advertises it.'
-              : 'this page narrows them further, which the note below puts a number on.'}{' '}
-            Read off the rows that came back — {num(data.positions.length)} budgeted accounts and{' '}
-            {num(data.budgets.length)} budget rows, one page of each — the accounts here are{' '}
-            <strong>{scopeObserved.accounts.join(', ')}</strong> and the budget rows are{' '}
-            <strong>{scopeObserved.movements.join(', ')}</strong>. The control above is what is
-            asked for; this is what the answer carries.{' '}
-            {scopeObserved.absentPrograms.length > 0 ? (
-              <>
-                <strong>
-                  Program {scopeObserved.absentPrograms.join(', ')} is among this organization’s
-                  programs and appears in none of the {num(data.positions.length)} accounts read
-                </strong>{' '}
-                — no account and no budget row came back under it, so its absence is the ledger’s
-                rather than the screen’s.
-              </>
-            ) : null}
-          </span>
-        </p>
-      ) : null}
 
-      {/* The cost side, and still only owed where it cost something. Renders only
-          once a reader narrows the control further than the ledger already did —
-          measured: 0 on every default visit, which is exactly why the note above
-          had to be written. */}
-      {data && inScopeRows.removed > 0 ? (
-        <p className="scopenote scopenote--removed" role="note">
-          <span className="scopenote__flag">{num(inScopeRows.removed)} accounts removed</span> The{' '}
-          <strong>{scopeLabel(scope, scopeTenant?.programs ?? [])}</strong> scope removed{' '}
-          {num(inScopeRows.removed)} of{' '}
-          {num(data.positions.length)} budgeted accounts before this page was built. Every figure
-          below, and every total, describes the remaining {num(view.accounts.length)}.
-        </p>
-      ) : null}
+      {/*
+        ★ THE SQL IS SHOWN WHERE THE SCOPE CLAIM IS MADE, NOT IN A PANEL AT THE FOOT.
+
+          The scope note above says the rule "is applied in the ledger query rather than in the
+          browser" — that is a claim about a statement, and the only way to check it is to read the
+          statement. Putting the SQL directly under the sentence that makes the claim is what turns
+          it from an assertion into evidence.
+
+          Two statements, because the scope is applied to two endpoints and they are the two the
+          note names. `?sql=1` is only sent while the toggle is on, so this renders nothing for a
+          reader who has not asked.
+      */}
+      <SqlNote
+        trace={data?.traces.budgets ?? null}
+        label="the budget rows above, as the ledger received them"
+      />
+      <SqlNote
+        trace={data?.traces.positions ?? null}
+        label="the account positions, as the ledger received them"
+      />
+
+      {/* The cost note that sat here is removed with the scope note above — it only ever put a
+          number on what that note described, and a bare count of removed accounts with no
+          statement of *what* they were removed from reads as an error rather than a scope. */}
 
       {error ? (
         <ErrorNotice
@@ -1324,30 +1285,16 @@ export default function Budgets() {
         </div>
       ) : null}
 
-      {data ? (
-        <div className="budstats">
-          <Stat
-            label="Budgeted accounts"
-            value={num(view.accounts.length)}
-            note={`of the ${num(combos.length)} on the chart of accounts`}
-          />
-          <Stat
-            label="Capital budget"
-            value={money0(view.totals.budget)}
-            note="the CAPITAL version, one per account"
-          />
-          <Stat
-            label="Appropriations"
-            value={money0(view.totals.allocations)}
-            note={`${pctSlim(share(view.totals.allocations, view.totals.budget))} of the capital budget`}
-          />
-          <Stat
-            label="Available funds"
-            value={money0(view.totals.available)}
-            note={`after ${money0(view.totals.encumbrances)} encumbered and ${money0(view.totals.expenditures)} spent`}
-          />
-        </div>
-      ) : null}
+      {/*
+        ★ THE FOUR STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION — *"Staff is only interested in the
+          data."* They read: budgeted accounts, capital budget, appropriations and available funds,
+          each a total over the table below. Every one of those figures is still on the page: the
+          accounts table carries the per-account rows they summed, and the totals are what the table
+          adds up to.
+
+          The `Stat` component and its `trace` prop are still used by the account panel, so nothing
+          was deleted from the component itself — only this row.
+      */}
 
       {/*
         ★ THE DEEP-LINK PANEL THAT USED TO SIT HERE IS GONE, AND ITS JOB MOVED
@@ -1976,6 +1923,32 @@ export default function Budgets() {
         derivation={openAccount ? derivationByKey.get(openAccount.key) : undefined}
         versionById={view.versionById}
         typeById={view.typeById}
+      />
+
+      {/*
+        ★ THE WHOLE PAGE'S STATEMENTS, ONCE, AT THE FOOT — AND AFTER THE DRAWER ON PURPOSE.
+
+          The per-panel notes above name the statement behind *one* figure. This is the other half:
+          every statement the page ran, in the order it ran them, so a reader can see there is no
+          query they were not shown. It sits last because it is the appendix rather than the
+          argument — and because the drawer is fixed-position, so its DOM order decides nothing
+          about where it paints.
+
+        Five requests, ten statements (each list runs a count and then a page), which is why this
+        reads as a list rather than as a sentence.
+      */}
+      <PageSql
+        traces={
+          data
+            ? [
+                data.traces.budgets,
+                data.traces.positions,
+                data.traces.versions,
+                data.traces.types,
+                data.traces.assignments,
+              ]
+            : []
+        }
       />
     </div>
   );

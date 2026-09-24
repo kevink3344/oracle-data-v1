@@ -5,7 +5,6 @@ import ErrorNotice from '../components/ErrorNotice';
 import TrendChart from '../components/TrendChart';
 import { ALLOC_RULE } from '../data/derive';
 import { SEGMENT_ORDER, PURPOSE_META, objectTitle } from '../data/taxonomy';
-import { scopeLabel } from '../data/scope';
 import { money0, moneyShort, monthLong, num, pctSlim, pluralise, share } from '../data/format';
 import type { ExtractLine, PurposeCode } from '../data/types';
 
@@ -20,7 +19,6 @@ interface Finding {
 export default function Dashboard() {
   const { status, error, reload, lines, projects, months, summary, selectLevel } = useStore();
   const { constants, scopeStats } = useStore();
-  const { scope, scopeTenant, extractSource } = useStore();
   const [month, setMonth] = useState<string | null>(null);
 
   /**
@@ -73,23 +71,6 @@ export default function Dashboard() {
    *   comma form whenever the held list is not the tenant's whole list, which is exactly the reading
    *   we want: `/` claims "every program this organization holds", a comma does not.
    */
-  const servedScope = useMemo(() => {
-    const asked = scopeTenant?.programs ?? scope.programs;
-    const held = scopeStats.programsPresent;
-    const funds = scopeStats.fundsPresent;
-    return {
-      asked,
-      held,
-      funds,
-      missing: asked.filter((p) => !held.includes(p)),
-      label: scopeLabel(
-        { fund: funds.length === 1 ? funds[0] : scope.fund, programs: held.length ? held : asked },
-        asked,
-      ),
-      askedLabel: scopeLabel(scope, asked),
-    };
-  }, [scopeStats, scopeTenant, scope]);
-
   const byObject = useColumnTotals(pickObject);
 
   // An object code can appear under more than one purpose, so the bar colour uses
@@ -120,13 +101,6 @@ export default function Dashboard() {
     return out;
   }, [projects]);
 
-  const approvedTotal = useMemo(
-    () => projects.reduce((s, p) => s + p.approved, 0),
-    [projects],
-  );
-
-  // Trailing empty months are dropped before the month-over-month comparison —
-  // otherwise a silent February would read as a −100% collapse.
   const delta = useMemo(() => {
     const active = months.filter((m) => m.amount > 0);
     if (active.length < 2) return null;
@@ -257,123 +231,34 @@ export default function Dashboard() {
     );
   }
 
-  const unclaimed = projects.filter((p) => p.unclaimed).length;
-  const firstMonth = months[0]?.ym ?? '';
-  const lastMonth = months[months.length - 1]?.ym ?? '';
   const topObject = byObject[0];
-
-  /**
-   * ★ THE SCOPE CAN EMPTY THIS PAGE, AND THAT MUST BE SAID IN THE SCOPE'S NAME.
-   *
-   * Removing program 862 from the control beside the search box removes every line in the extract,
-   * because 862 is the only program it carries. Before the scope existed that state was
-   * unreachable, and the sentence below was written to describe a loaded extract: it stated the row
-   * count, the month range and the recency cut-off. With no lines it rendered `Orders run Invalid
-   * Date to Invalid Date, and the cut-off for “active” is .` — a broken string that also blames the
-   * extract for a filter the reader had just applied themselves.
-   *
-   * So the empty state names the scope and the count it removed, and offers the way back. The middle
-   * branch is the separate case of an extract that genuinely holds nothing, which is a different
-   * sentence and must not be merged with this one.
-   */
-  const scopeEmptied = (summary?.rows ?? 0) === 0 && scopeStats.all > 0;
 
   return (
     <div className="stack">
       <div>
         <div className="accent-rule" />
         {/*
-          ★ THE SENTENCE BELONGS UNDER THE TITLE, WHICH NEEDS THE TITLE AND THE SENTENCE TO BE
-          ONE ELEMENT.
+          ★ THE SUBTITLE AND THE KPI CARDS ARE GONE, ON STAFF'S INSTRUCTION.
 
-          `.page-head` is a wrapping flex row, so its DIRECT children are laid out side by side.
-          Written as siblings — as this page head was — the heading and its sentence become two flex
-          items, and the sentence renders to the right of the heading instead of beneath it, with
-          `.page-head__sub`'s own `margin-top: 6px` doing nothing. Measured: heading bottom 159,
-          sentence left 740 / top 101 — against 228 / 131 on every other page.
+          This head carried a long sentence — how many lines the figures were computed from, the
+          scope, the month range, the active cut-off, and which programs the document did not hold
+          — followed by four cards (committed, modelled approved, vendors, unnamed levels). The
+          request was to remove both: *"Staff is only interested in the data."*
 
-          The wrapper block is the convention the other fifteen page heads already use, so this is
-          the same shape rather than a new one. It is also why the gap here is the sentence's own
-          6px and not the container's 16px `gap`: a wrapper keeps the title and the sentence on ONE
-          flex line. (`flex-basis: 100%` on the heading achieves the same stacking, but it creates a
-          second flex line, which picks up the 16px row gap and pushes the sentence 22px down.)
+          The sentence was genuinely load-bearing once: it is where a reader learned that the
+          figures are a *subset* of the ledger, and that the approved total is a placeholder rather
+          than Oracle data. That disclosure is knowingly given up here. If a figure is ever
+          questioned, the answer is now the SQL trace (Settings → show the SQL) rather than a
+          sentence on the page.
+
+          The wrapper `<div>` around the heading stays: `.page-head` is a wrapping flex row, so its
+          direct children sit side by side — see the note that used to be here. With no sentence to
+          stack, the heading is the only child and the wrapper is now inert, but removing it would
+          be a second change to a layout that is not the thing being asked about.
         */}
         <div className="page-head">
           <div>
             <h1>Dashboard</h1>
-            <p className="page-head__sub">
-              {scopeEmptied ? (
-                <>
-                  Every figure below is computed from the purchase-order lines in scope — there is no
-                  stored summary table, so with {num(scopeStats.shown)} of {num(scopeStats.all)} lines
-                  in scope every figure here is zero.{' '}
-                  <strong>
-                    {num(scopeStats.excluded)} lines ({money0(scopeStats.excludedValue)}) are removed
-                    by {scopeLabel(scope, scopeTenant?.programs ?? [])}
-                  </strong>
-                  . The scope control beside the search box puts them back.
-                </>
-              ) : scopeStats.all === 0 ? (
-                <>The extract contains no purchase-order lines to summarise.</>
-              ) : (
-                <>
-                  Every figure below is computed from {num(summary?.rows ?? 0)} purchase-order lines
-                  in <strong>{servedScope.label}</strong> — there is no stored summary table. Orders
-                  run {monthLong(firstMonth)} to {monthLong(lastMonth)}, and the cut-off for
-                  &ldquo;active&rdquo; is {summary?.cutoff}.
-                  {servedScope.missing.length > 0 && (
-                    <>
-                      {' '}
-                      <strong>
-                        The account scope is {servedScope.askedLabel}, and this document holds no
-                        lines of {servedScope.missing.join(' or ')}.
-                      </strong>{' '}
-                      {extractSource?.kind === 'file'
-                        ? `It is the bundled snapshot — the live ledger could not be read${
-                            extractSource.fallbackReason
-                              ? ` (${extractSource.fallbackReason})`
-                              : ''
-                          }. `
-                        : ''}
-                      Every figure here is the part of the scope that could be read.
-                    </>
-                  )}
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="kpis">
-        <div className="kpi kpi--accent">
-          <div className="kpi__k">Committed to date</div>
-          <div className="kpi__v">{money0(summary?.committed ?? 0)}</div>
-          <div className="kpi__sub">
-            {num(summary?.rows ?? 0)} lines · {num(summary?.orders ?? 0)} orders ·{' '}
-            {num(summary?.projects ?? 0)} levels
-          </div>
-        </div>
-
-        <div className="kpi kpi--ok">
-          <div className="kpi__k">Approved (modelled)</div>
-          <div className="kpi__v">{money0(approvedTotal)}</div>
-          <div className="kpi__sub">
-            committed × 1.10 rounded up to the next $10,000 — a placeholder, not Oracle data
-          </div>
-        </div>
-
-        <div className="kpi kpi--info">
-          <div className="kpi__k">Vendors</div>
-          <div className="kpi__v">{num(summary?.vendors ?? 0)}</div>
-          <div className="kpi__sub">distinct VENDOR_NAME values on the extract</div>
-        </div>
-
-        <div className="kpi">
-          <div className="kpi__k">Levels with no name</div>
-          <div className="kpi__v">{num(unclaimed)}</div>
-          <div className="kpi__sub">
-            of {num(summary?.projects ?? 0)} · renamed by staff, not by Oracle
           </div>
         </div>
       </div>

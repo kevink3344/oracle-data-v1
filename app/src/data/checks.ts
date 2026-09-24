@@ -1,16 +1,19 @@
 /**
- * The AP checks extract — `data/oracle/checks.json`.
+ * The AP checks register — read live from the ledger at `/api/ap/checks`.
  *
- * One fiscal year of `AP_CHECKS`: 4,218 checks carrying 9,451 invoice links,
- * frozen to JSON by `server/scripts/pull-ap-extract.mjs`. The window is DERIVED
- * from `GL_PERIODS` on the way out, so the file carries the dates it covers and
- * this module reports them rather than the page assuming a range.
+ * One fiscal year of `AP_CHECKS`: 4,218 checks carrying 9,451 invoice links. The window is DERIVED
+ * from `GL_PERIODS` by the server, so the response carries the dates it covers and this module
+ * reports them rather than the page assuming a range.
+ *
+ * ★ IT USED TO READ `data/oracle/checks.json`, AND IT NO LONGER DOES. The frozen file was a
+ *   point-in-time snapshot — its window ends `2026-08-11` — so a page built on it described a
+ *   register the ledger had already moved past. The live route returns a byte-identical shape
+ *   (verified field by field), which is what made the swap a URL change rather than a rewrite.
  *
  * ── WHY IT IS FETCHED HERE AND NOT IN THE STORE ──────────────────────────────
  *
  * The purchase-order extract loads at start-up because every screen reads it.
- * Only this screen reads checks, and the file is ~2 MB, so it is fetched when
- * the page opens and lives in that page's own state. A reader who never opens
+ * Only this screen reads checks, and the payload is ~2 MB, so it is fetched when * the page opens and lives in that page's own state. A reader who never opens
  * Checks never pays for it.
  *
  * ── WHY THE TWO RESULT SETS ARE JOINED ONCE, AT LOAD ─────────────────────────
@@ -37,7 +40,10 @@
  * them as if it were the other.
  */
 
-/** A row as it lands in `checks.json` → `.body.ResultSets.Table1`. */
+import { readTrace, sqlUrl } from './sqlTrace';
+import type { SqlTrace } from '../components/SqlNote';
+
+/** A row as it lands in the checks response → `.body.ResultSets.Table1`. */
 interface RawCheck {
   CHECK_ID: number;
   CHECK_NUMBER: number | string;
@@ -152,9 +158,35 @@ export interface ChecksExtract {
    * count, and the two are labelled as such where they appear.
    */
   orders: { named: number; links: number };
+  /**
+   * Whether this register is the live ledger. Always `true` now — the file arm is gone.
+   *
+   * ★ IT IS KEPT AS A FIELD RATHER THAN DELETED SO A PAGE THAT ASKS "is this live?" DOES NOT HAVE
+   *   TO BE EDITED IN THE SAME BREATH. Nothing reads it today; it is the one field that would let a
+   *   future page distinguish a live read from a snapshot without re-deriving that from the URL.
+   */
+  live: true;
+  /**
+   * The statements the server ran, when the reader has the SQL trace switched on.
+   *
+   * ★ IT IS THE REAL TRACE, NOT A DESCRIPTION OF ONE. Now that this page reads a route rather than
+   *   a file there is a statement behind every figure, and it is the same text the database
+   *   received — the `GL_PERIODS` read that derives the window, then the checks-and-links query.
+   *   `null` with the toggle off, which is the ordinary case.
+   */
+  traces: SqlTrace | null;
 }
 
-const URL = '/oracle/checks.json';
+/**
+ * The live ledger route. There is no file fallback — see the note on `loadChecks`.
+ *
+ * ★ THE RESPONSE SHAPE IS BYTE-IDENTICAL TO THE FROZEN FILE IT REPLACES, which is what made this
+ *   repoint a URL change rather than a rewrite. Verified field by field against
+ *   `app/public/oracle/checks.json`: same `body.ResultSets.Table1` / `Table2`, same 12 keys in the
+ *   same order, same 4,218 checks and 9,451 links. The route was built as a drop-in for exactly
+ *   this swap.
+ */
+const URL = '/api/ap/checks';
 
 /**
  * A figure, or 0 — never `NaN`.
@@ -171,8 +203,29 @@ const figure = (v: unknown): number => {
 };
 
 export async function loadChecks(signal?: AbortSignal): Promise<ChecksExtract> {
-  const res = await fetch(URL, { signal });
-  if (!res.ok) throw new Error(`${URL} answered ${res.status} ${res.statusText}.`);
+  const res = await fetch(sqlUrl(URL), { signal });
+  if (!res.ok) {
+    /**
+     * ★ THE REFUSAL NAMES THE LEDGER, BECAUSE THAT IS NOW THE ONLY SOURCE.
+     *
+     *   This used to fall back to `checks.json`. That file is a snapshot: its window ends
+     *   2026-08-11 and the table has moved on, so a fallback would have shown a reader a
+     *   *different* register under a heading describing the live one. The user's instruction is
+     *   explicit — every entity reads Oracle, none reads a json file — and a failure that says so
+     *   is better than a page that quietly answers from a stale copy.
+     */
+    let detail = `HTTP ${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (body?.error?.message) detail = body.error.message;
+    } catch {
+      /* The status line stands. */
+    }
+    throw new Error(
+      `The checks register could not be read from the ledger (${detail}). This page reads Oracle ` +
+        `directly and has no snapshot to fall back to.`,
+    );
+  }
 
   const envelope = (await res.json()) as ChecksEnvelope;
   const table1 = envelope?.body?.ResultSets?.Table1;
@@ -237,5 +290,7 @@ export async function loadChecks(signal?: AbortSignal): Promise<ChecksExtract> {
     links: links.length,
     ordersMeasured,
     orders: { named, links: links.length },
+    live: true,
+    traces: readTrace(envelope),
   };
 }

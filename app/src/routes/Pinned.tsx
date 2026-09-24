@@ -21,7 +21,7 @@ export default function Pinned() {
 
   return (
     <div className="stack pinned-page">
-      <div><div className="accent-rule" /><div className="page-head"><div><h1>Pinned</h1><p className="page-head__sub">Your private shortcuts to projects, invoices, checks and purchase orders.</p></div></div></div>
+      <div><div className="accent-rule" /><div className="page-head"><div><h1>Pinned</h1></div></div></div>
       <section className="panel">
         <div className="panel__head"><div><h2 className="panel__title">Your pinned items</h2><p className="panel__sub">{ready ? `${num(pins.length)} ${pins.length === 1 ? 'item' : 'items'}` : 'Reading pins…'}</p></div><label className="pinned-sort">Sort by <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="category">Category</option><option value="newest">Newest pinned</option><option value="title">Title</option></select></label></div>
         {error ? <p className="notice notice--error">Could not load your pins: {error.message}</p> : null}

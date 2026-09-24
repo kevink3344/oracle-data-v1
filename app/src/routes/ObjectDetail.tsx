@@ -809,7 +809,6 @@ export default function ObjectDetail() {
   }
 
   const total = rows.reduce((s, r) => s + r.amount, 0);
-  const orders = new Set(rows.map((r) => r.orderNumber)).size;
   const label = objectLabel(object);
   // objectTitle() already prefixes the code ("527 · Construction, CMAR / GMP"),
   // so a labelled code reads as a name and an unlabelled one falls back to the
@@ -849,14 +848,6 @@ export default function ObjectDetail() {
               <span aria-current="page">Object code {object}</span>
             </nav>
             <h1>{heading}</h1>
-            <p className="page-head__sub">
-              Every purchase-order line in the extract whose <code>OBJECT_</code> segment is{' '}
-              <strong>{object}</strong> — across {pluralise(byLevel.length, 'project level')} and{' '}
-              {pluralise(byVendor.length, 'vendor')}.{' '}
-              {label
-                ? null
-                : 'Oracle supplies the code only; the name is maintained by staff and was never entered, so the app shows the bare number.'}
-            </p>
           </div>
           <div className="page-head__actions">
             <button type="button" className="btn btn--system" onClick={exportAll}>
@@ -874,40 +865,11 @@ export default function ObjectDetail() {
         </div>
       </div>
 
-      <div className="kpis">
-        <div className="kpi kpi--accent">
-          <div className="kpi__k">Committed</div>
-          <div className="kpi__v">{money0(total)}</div>
-          <div className="kpi__sub">
-            {pctSlim(share(total, summary?.committed ?? 0))} of the {money0(summary?.committed ?? 0)}{' '}
-            committed across the whole extract
-          </div>
-        </div>
-
-        <div className="kpi kpi--info">
-          <div className="kpi__k">Purchase-order lines</div>
-          <div className="kpi__v">{num(rows.length)}</div>
-          <div className="kpi__sub">{pluralise(orders, 'order')} raised against it</div>
-        </div>
-
-        <div className="kpi">
-          <div className="kpi__k">Vendors</div>
-          <div className="kpi__v">{num(byVendor.length)}</div>
-          <div className="kpi__sub">
-            {byVendor[0]
-              ? `Largest: ${money0(byVendor[0].amount)} to ${byVendor[0].key}`
-              : 'No vendor on these lines'}
-          </div>
-        </div>
-
-        <div className="kpi kpi--ok">
-          <div className="kpi__k">Project levels</div>
-          <div className="kpi__v">{num(byLevel.length)}</div>
-          <div className="kpi__sub">
-            of {num(summary?.projects ?? 0)} levels in the extract carry this object code
-          </div>
-        </div>
-      </div>
+      {/*
+        ★ THE FOUR KPI CARDS ARE GONE, ON STAFF'S INSTRUCTION. They read: committed, purchase-order
+        lines, vendors and project levels — all totals over the two tables below, which carry the
+        per-level and per-vendor rows they summed.
+      */}
 
       <div className="grid-2">
         <section className="panel">

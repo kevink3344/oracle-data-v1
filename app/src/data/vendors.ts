@@ -471,8 +471,6 @@ export function groupVendors(extract: {
   };
 }
 
-const INVOICES_URL = '/oracle/invoices.json';
-
 /**
  * The register, grouped into vendors.
  *
@@ -481,6 +479,12 @@ const INVOICES_URL = '/oracle/invoices.json';
  *   the two pages cannot end up disagreeing about how many invoices are in scope,
  *   what a check paid, or whether an invoice's accounts sum to its amount. A second
  *   parser here would be a second set of answers waiting to differ by one row.
+ *
+ * ★ AND IT IS WHY THIS PAGE NEEDED NO CHANGE WHEN THE REGISTER WENT LIVE. `loadInvoices` now reads
+ *   `/api/ap/invoices`; this function never knew which source it was reading, so the vendor
+ *   register followed the invoice register to the ledger for free. That is the delegation paying
+ *   for itself — a second fetch of `invoices.json` here would have been a second place to repoint,
+ *   and the one most likely to be missed.
  */
 export async function loadVendors(signal?: AbortSignal): Promise<VendorsExtract> {
   const register = await loadInvoices(signal);
@@ -524,8 +528,15 @@ export function applyCustomNames(
   return { ...extract, vendors };
 }
 
-/** Unused today, kept so `INVOICES_URL` documents where the rows come from. */
-export const VENDORS_SOURCE = INVOICES_URL;
+/**
+ * Where these rows come from, for anything that wants to name the source.
+ *
+ * ★ IT IS THE LIVE ROUTE, NOT A FILE. This used to point at `/oracle/invoices.json` — the frozen
+ *   extract — and the constant outlived the fetch, so it would have gone on naming a file the page
+ *   no longer reads. A source label that is wrong is worse than no label: it is the one string a
+ *   reader would quote when asking why a figure looks the way it does.
+ */
+export const VENDORS_SOURCE = '/api/ap/invoices';
 
 // ---------------------------------------------------------------------------
 // The master record, read live from Oracle.

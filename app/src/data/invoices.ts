@@ -150,7 +150,15 @@ interface RawInvoice {
   PO_COUNT?: number | string | null;
 }
 
-/** A row as it lands in `.body.ResultSets.Table2`. No money, by construction. */
+/**
+ * A row as it lands in `.body.ResultSets.Table2`.
+ *
+ * ★ THE CHECK'S OWN FIELDS ARE CARRIED, AND THEY ARE NOT REDUNDANT WITH `Table1`. A link states
+ *   *which* check settled an invoice; the panel then has to say *when* and *for how much*, and
+ *   those live on the check. The first draft of the live route returned only the two ids, which
+ *   would have rendered a panel of blanks — so the three fields are joined back from
+ *   `WCSEXP_AP_CHECKS` rather than dropped.
+ */
 interface RawInvoiceCheckLink {
   INVOICE_ID: number;
   CHECK_ID: number;
@@ -205,6 +213,9 @@ export interface RawInvoiceScope {
   accountsOffScopeInvoices?: number | string | null;
 }
 
+import { readTrace, sqlUrl } from './sqlTrace';
+import type { SqlTrace } from '../components/SqlNote';
+
 export interface InvoicesEnvelope {
   body: {
     ResultSets: {
@@ -214,7 +225,15 @@ export interface InvoicesEnvelope {
       Table3?: RawInvoiceAccount[];
     };
   };
-  window: { from: string; to: string; fiscalYear: number };
+  /**
+   * The window the register covers.
+   *
+   * ★ OPTIONAL NOW THAT THE ROUTE SERVES IT, BECAUSE THE ROUTE'S `to` IS EMPTY BY DESIGN. The live
+   *   read runs from the fiscal year's July start to the present, so there is no end date to state
+   *   — the loader takes `to` from the newest invoice it actually received. See the note at the
+   *   read site.
+   */
+  window?: { from: string; to: string; fiscalYear: number };
   /** Absent on an extract written before the register was narrowed. */
   scope?: RawInvoiceScope;
   /** Absent on an extract written before the purchase order was read. */
@@ -629,9 +648,31 @@ export interface InvoicesExtract {
    * rather than assume the worst of every order number it can see.
    */
   po: PoCoverage | null;
+  /**
+   * The statements the server ran, when the reader has the SQL trace switched on.
+   *
+   * ★ THE REGISTER IS READ LIVE, SO THERE IS A STATEMENT BEHIND EVERY FIGURE. Four of them: the
+   *   `GL_PERIODS` read that derives the window, the invoices query, the payment links, and the
+   *   account rows. `null` with the toggle off, which is the ordinary case.
+   */
+  traces: SqlTrace | null;
 }
 
-const URL = '/oracle/invoices.json';
+/**
+ * The live ledger route. There is no file fallback.
+ *
+ * ★ IT USED TO READ `/oracle/invoices.json`, and the swap needed a server change rather than a URL
+ *   change: the live route returned `Table2: []` **hard-coded**, and on this page `Table2` is the
+ *   payment links that the "checks that settled it" panel is built from. An empty array there is
+ *   not a neutral placeholder — the panel renders it as *"no check settles this invoice"*, which is
+ *   a claim about the ledger made from a constant. The route now runs the link query, scoped to the
+ *   invoice ids `Table1` returned, so the two result sets cannot describe different populations.
+ *
+ * ★ `IN_SCOPE` IS NOW DERIVED BY THE SERVER RATHER THAN STORED IN THE FILE. The frozen extract
+ *   carried it as a flag written by the pull script; the live route computes it from the same
+ *   predicate it filters by, which is what stops the flag and the filter from disagreeing.
+ */
+const URL = '/api/ap/invoices';
 
 /**
  * The register's order numbers, from the route that serves them.
@@ -790,11 +831,32 @@ async function loadOrderRegister(signal?: AbortSignal): Promise<OrderRegisterLoo
 
 export async function loadInvoices(signal?: AbortSignal): Promise<InvoicesExtract> {
   // ★ BOTH REQUESTS START TOGETHER, AND THE REGISTER'S FAILURE IS NOT THE PAGE'S.
-  //   The register list is ~60 KB against the extract's ~11 MB, so it is not a request
+  //   The register list is ~60 KB against the ledger payload's ~11 MB, so it is not a request
   //   worth serialising behind the other — and `loadOrderRegister` answers `null`
   //   instead of throwing, so a register that is down still renders the invoices.
-  const [res, lookup] = await Promise.all([fetch(URL, { signal }), loadOrderRegister(signal)]);
-  if (!res.ok) throw new Error(`${URL} answered ${res.status} ${res.statusText}.`);
+  const [res, lookup] = await Promise.all([fetch(sqlUrl(URL), { signal }), loadOrderRegister(signal)]);
+  if (!res.ok) {
+    /**
+     * ★ THE REFUSAL NAMES THE LEDGER, BECAUSE THAT IS NOW THE ONLY SOURCE.
+     *
+     *   This used to fall back to `invoices.json`. That file is a snapshot, so a fallback would
+     *   have shown a reader a *different* register under a heading describing the live one — and
+     *   on this page the difference is not cosmetic: the file's `Table2` carried 117 payment links
+     *   and the live route's now carries its own, so the two would disagree about which invoices
+     *   were ever paid. A failure that says so beats a page that quietly answers from a stale copy.
+     */
+    let detail = `HTTP ${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (body?.error?.message) detail = body.error.message;
+    } catch {
+      /* The status line stands. */
+    }
+    throw new Error(
+      `The invoice register could not be read from the ledger (${detail}). This page reads Oracle ` +
+        `directly and has no snapshot to fall back to.`,
+    );
+  }
 
   const envelope = (await res.json()) as InvoicesEnvelope;
   const table1 = envelope?.body?.ResultSets?.Table1;
@@ -813,10 +875,22 @@ export async function loadInvoices(signal?: AbortSignal): Promise<InvoicesExtrac
   const poRaw = envelope?.po;
   const poApplied = !!poRaw;
 
-  // Undefined would mean an extract written before the window moved onto the file.
-  // Falling back to a date no row can satisfy is worse than a wrong-looking badge,
-  // so an absent window simply marks nothing as out of window.
-  const window = envelope?.window ?? { from: '', to: '', fiscalYear: 0 };
+  // ★ THE WINDOW COMES FROM THE SERVER'S BLOCK, AND FALLS BACK TO THE ROWS THEMSELVES.
+  //
+  //   The frozen file declared its window; the live route declares `from` (the fiscal year's own
+  //   July start, derived from `GL_PERIODS`) and leaves `to` empty, because the window has no end
+  //   — it runs to the present. So `to` is taken from the newest invoice actually returned, which
+  //   is the same thing the page means by it and cannot disagree with the rows on screen.
+  //
+  //   An absent window marks nothing as out of window, which is the existing behaviour and the
+  //   safe direction: a badge that says "before the window" must never fire on a guess.
+  const rawWindow = envelope?.window ?? null;
+  const observedDates = table1.map((r) => text(r.INVOICE_DATE).slice(0, 10)).filter(Boolean).sort();
+  const window = {
+    from: rawWindow?.from || observedDates[0] || '',
+    to: rawWindow?.to || observedDates[observedDates.length - 1] || '',
+    fiscalYear: rawWindow?.fiscalYear ?? 0,
+  };
   const inside = (d: string) => !!window.from && d >= window.from && d <= window.to;
 
   // One pass to group the links, mirroring `checks.ts`: the panel opens per row,
@@ -1088,5 +1162,6 @@ export async function loadInvoices(signal?: AbortSignal): Promise<InvoicesExtrac
     accountsDiffer,
     scope,
     po,
+    traces: readTrace(envelope),
   };
 }

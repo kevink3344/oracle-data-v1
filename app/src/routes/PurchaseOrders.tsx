@@ -344,11 +344,6 @@ export default function PurchaseOrders() {
         <div className="page-head">
           <div>
             <h1>Purchase orders</h1>
-            <p className="page-head__sub">
-              Every order in the extract, with the project its account charges it to. The amount on a
-              row is the sum of its lines — the same figure the projects page reports, not the
-              distributions&rsquo;.
-            </p>
           </div>
         </div>
       </div>

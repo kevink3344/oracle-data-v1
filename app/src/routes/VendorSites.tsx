@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   addressLines,
@@ -344,16 +344,6 @@ function exportSites(rows: SiteRow[], tab: Tab, query: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-}
-
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div className="chkstat">
-      <div className="chkstat__k">{label}</div>
-      <div className="chkstat__v">{value}</div>
-      {note ? <div className="chkstat__n">{note}</div> : null}
-    </div>
-  );
 }
 
 /** One deprecation reason, as a chip. `retired` carries its date; the rest are phrases. */
@@ -701,20 +691,14 @@ export default function VendorSites() {
    *   distinguished them would be the only place on the page drawing the distinction. See
    *   the note on the box for what that costs.
    */
-  const subtitle = data
-    ? `The address level under a vendor company — one vendor, many sites, and a purchase ` +
-      `order names the site rather than the company. ${num(data.counts.sites)} sites ` +
-      `across ${num(data.counts.vendors)} vendors were named by an in-scope order: ` +
-      `${pluralise(data.counts.orders, 'order')} and ${num(data.counts.lines)} lines, ` +
-      `${money0(data.totals.amount)} committed. ${num(
-        data.counts.deprecatedSites,
-      )} of those sites carry a signal that says not to use them, and they are ` +
-      `${money0(data.totals.deprecatedAmount)} of that total.`
-    : unavailable
-      ? 'Every row on this page comes from the database, and the database is not answering.'
-      : error
-        ? 'The vendor site register could not be read on this load.'
-        : 'Reading the vendor site register…';
+  /*
+   * ★ THE HEAD'S SENTENCE IS GONE, ON STAFF'S INSTRUCTION, AND SO IS `subtitle`.
+   *
+   * It carried the register's eight figures — sites, vendors, orders, lines, committed, and the
+   * deprecated count and value — all of which the tabs, the table and the pager below already
+   * state. The unavailable/error/loading branches went with it: those states are drawn by the box
+   * below, which is where a reader looks when the page has nothing to show.
+   */
 
   return (
     <div className="stack">
@@ -723,7 +707,6 @@ export default function VendorSites() {
         <div className="page-head">
           <div>
             <h1>Vendor sites</h1>
-            <p className="page-head__sub">{subtitle}</p>
           </div>
         </div>
       </div>
@@ -837,44 +820,14 @@ export default function VendorSites() {
               : `${num(tabCount)} ${tab} sites.`}
           </p>
 
-          <div className="chkstats">
-            <Stat
-              label="Sites"
-              value={num(data.counts.sites)}
-              note={`named by ${pluralise(data.counts.orders, 'in-scope order')} across ${num(
-                data.counts.vendors,
-              )} vendors`}
-            />
-            <Stat
-              label="Committed"
-              value={money0(data.totals.amount)}
-              note={`${num(data.counts.lines)} order lines, ${money0(
-                data.totals.orderRowAmountTotal,
-              )} at the order grain`}
-            />
-            <Stat
-              label="Deprecated"
-              value={num(data.counts.deprecatedSites)}
-              note={`${pluralise(data.counts.deprecatedOrders, 'order')} · ${money0(
-                data.totals.deprecatedAmount,
-              )} — included in the total, not removed from it`}
-            />
-            {/* The register's own oddities, each measured rather than assumed — and
-                each one a row a reader can go and find. */}
-            <Stat
-              label="Orders with no in-scope money"
-              value={num(data.observed.ordersWithZeroAmount)}
-              note={`on ${pluralise(
-                data.observed.sitesWithZeroAmount,
-                'site',
-              )} that do carry orders — the lines were charged outside the scope`}
-            />
-            <Stat
-              label="Codes reused"
-              value={num(data.observed.sitesWithReusedCode)}
-              note="sites, not codes: 5 codes are drawn by two vendors each, so the code alone is not an identity"
-            />
-          </div>
+          {/*
+            ★ THE FIVE STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION. They read: sites, committed,
+            deprecated, orders-with-no-in-scope-money and codes-reused — all counts and totals over
+            the table below, which carries the per-site rows they summed.
+
+            The `Stat` component they used is deleted with them further down this file; nothing else
+            called it.
+          */}
 
           <section className="panel">
             <div className="panel__head">

@@ -372,10 +372,6 @@ export default function FundingSearch() {
         <div className="page-head">
           <div>
             <h1>Search combinations</h1>
-            <p className="page-head__sub">
-              Filter the extract on any of the seven segments and open a combination to read what
-              is booked to it. Read-only — nothing on this page binds a combination to a project.
-            </p>
           </div>
           <div className="page-head__actions">
             <Chip variant="info">

@@ -1015,10 +1015,6 @@ export default function ViewBuilder() {
         <div className="page-head">
           <div>
             <h1>View builder</h1>
-            <p className="page-head__sub">
-              Write a query, choose the columns, save it as a view. The SQL is authored, not generated —
-              the schema has no form that can express the first-funding question.
-            </p>
           </div>
           <div className="page-head__actions">
             <select

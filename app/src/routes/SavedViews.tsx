@@ -667,15 +667,13 @@ export default function SavedViews() {
     [refresh],
   );
 
-  /* --- the head's sentence -------------------------------------------- */
-
-  const changedCount = views.filter(changedSinceSubscribed).length;
-  const subline = !ready
-    ? 'Reading subscriptions…'
-    : views.length === 0
-      ? 'Saved queries you watch.'
-      : `Saved queries you watch. ${pluralise(views.length, 'view')} watched` +
-        (changedCount > 0 ? ` · ${num(changedCount)} changed since you subscribed.` : '.');
+  /*
+   * ★ THE HEAD'S SENTENCE IS GONE, ON STAFF'S INSTRUCTION, AND SO IS `changedCount`.
+   *
+   * It read *"Saved queries you watch. N views watched · M changed since you subscribed."* — a
+   * restatement of what the table below already shows per row. `changedSinceSubscribed` is kept:
+   * the table's own per-row "changed" marker calls it, so only the count and the sentence go.
+   */
 
   return (
     <div className="stack saved-views-page">
@@ -684,7 +682,6 @@ export default function SavedViews() {
         <div className="page-head">
           <div>
             <h1>Views</h1>
-            <p className="page-head__sub">{subline}</p>
           </div>
         </div>
       </div>

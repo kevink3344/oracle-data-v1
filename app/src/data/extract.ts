@@ -110,57 +110,47 @@ export interface ExtractLoad {
 }
 
 /**
- * What this module reports when *it* fell back, not the server.
+ * Read the document from the API. The ledger is the only source.
  *
- * `fallbackReason` is filled in with the fetch error, so the page can say which way the read failed —
- * `Failed to fetch` when the API is not running, `HTTP 503` when it answered but refused.
- */
-const BUNDLED_SOURCE: ExtractSource = {
-  kind: 'file',
-  dialect: 'static',
-  label: '/oracle/output.json',
-  generatedAt: '',
-  cached: false,
-  forced: true,
-  fallbackReason: null,
-};
-
-/**
- * Read the document from the API, falling back to the frozen file.
+ * ★★ THE FROZEN-FILE FALLBACK IS GONE, DELIBERATELY, AND IT WAS NOT A SAFETY NET.
  *
- * ★ THE FALLBACK IS NOT A SILENT ONE. If the live read fails the app still works
- *   — which is what keeps a Vite-only dev session and the smoke suite usable —
- *   but a count that quietly reverts to 2,781 would be indistinguishable from
- *   REQ-J never having shipped. So every fallback says so on the console, with
- *   the server's own `source.fallbackReason` when there is one.
+ *   The fallback read `/oracle/output.json` when the live read failed. Measured, that file is **not
+ *   a stale copy of the same dataset — it is a different, narrower one**: 2,782 rows against the
+ *   live 14,995, program `862` only against the live `861`+`862`, $430,569,026.92 against
+ *   $2,697,813,470.53, and a window opening in January 2025 rather than July 2022.
  *
- *   The 11 MiB payload is deliberately NOT cached in `localStorage` or in a
- *   module variable here: the server already caches it, and a second cache with a
- *   different lifetime is how a reader ends up looking at two different totals.
+ *   So a fallback did not *reduce* the figures, it **changed which programs were in them** — under a
+ *   page heading that still named `861/862`. A silent substitution that narrows the population while
+ *   the label stays put is worse than an outage: an outage is visible, and this was not. The user's
+ *   instruction settles it — *"they should all point to Oracle and none to a json file"* — and a
+ *   refusal that says why is the honest failure.
+ *
+ *   What survives is the `source` block: the server still reports whether the document it served is
+ *   the live ledger or its own cached copy, and every page that names the scope still reads it. Only
+ *   the *file* arm is removed.
  */
 async function readEnvelope(
   signal?: AbortSignal,
 ): Promise<{ envelope: ExtractEnvelope; source: ExtractSource | null }> {
-  try {
-    const res = await fetch('/api/extract/current', { signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const envelope = (await res.json()) as ExtractEnvelope & { source?: ExtractSource };
-    warnIfDegraded(envelope.source);
-    return { envelope, source: envelope.source ?? null };
-  } catch (err) {
-    if (signal?.aborted) throw err;
-    const reason = err instanceof Error ? err.message : String(err);
-    console.warn(
-      '[extract] the live ledger read failed, falling back to the frozen file:',
-      reason,
-    );
-    const res = await fetch('/oracle/output.json', { signal });
-    if (!res.ok) {
-      throw new Error(`Could not read the extract (HTTP ${res.status} ${res.statusText}).`);
+  const res = await fetch('/api/extract/current', { signal });
+  if (!res.ok) {
+    // Read the server's own reason when it gives one — a 503 carries a `details` block naming the
+    // object it could not read, and that is far more use than the status line alone.
+    let detail = `HTTP ${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (body?.error?.message) detail = body.error.message;
+    } catch {
+      /* The status line stands. */
     }
-    const envelope = (await res.json()) as ExtractEnvelope;
-    return { envelope, source: { ...BUNDLED_SOURCE, fallbackReason: reason } };
+    throw new Error(
+      `The ledger could not be read (${detail}). This app reads Oracle directly and has no ` +
+        `snapshot to fall back to, so there is nothing to show until the ledger answers.`,
+    );
   }
+  const envelope = (await res.json()) as ExtractEnvelope & { source?: ExtractSource };
+  warnIfDegraded(envelope.source);
+  return { envelope, source: envelope.source ?? null };
 }
 
 let degradedNotice: string | null = null;

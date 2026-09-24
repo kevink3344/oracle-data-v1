@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { loadInvoices, type Invoice, type InvoiceAccount, type InvoiceCheck, type InvoicesExtract, type PoCoverage } from '../data/invoices';
 import ErrorNotice from '../components/ErrorNotice';
 import PinButton from '../components/PinButton';
+import { SqlNote } from '../components/SqlNote';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
 import { SortableHead } from '../components/SortHeader';
-import { money, money0, num, pctSlim, pluralise, share } from '../data/format';
+import { money, num, pluralise } from '../data/format';
 import { SEGMENT_ORDER, SEGMENT_ROLE, accountTypeLabel } from '../data/taxonomy';
 import { useStore } from '../state/store';
 import { sameScope, scopeLabel, type Scope } from '../data/scope';
@@ -383,17 +384,6 @@ function exportChecks(invoice: Invoice) {
 const daysBetween = (a: string, b: string): number =>
   Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
-/** One labelled figure on the strip above the table. */
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div className="invstat">
-      <div className="invstat__k">{label}</div>
-      <div className="invstat__v">{value}</div>
-      {note ? <div className="invstat__n">{note}</div> : null}
-    </div>
-  );
-}
-
 export default function Invoices() {
   /**
    * ★ THE LIVE SCOPE, WHICH THIS PAGE MUST NOT CONFUSE WITH ITS OWN.
@@ -695,8 +685,6 @@ export default function Invoices() {
   // a fourth number that can quietly disagree with all of them. The scope label
   // is `''` when no scope was applied, which is what gates every sentence below.
   const scope = data?.scope;
-  const scopeValue = scope ? scope.keptValue + scope.excludedValue + scope.unanswerableValue : 0;
-
   /**
    * The file's scope as a `Scope`, for comparison against the live one.
    *
@@ -717,11 +705,6 @@ export default function Invoices() {
         <div className="page-head">
           <div>
             <h1>Invoices</h1>
-            <p className="page-head__sub">
-              {data
-                ? `One invoice per row, ${order} — ${num(data.invoices.length)} invoices dated between ${data.observed.from} and ${data.observed.to}, settled by ${num(data.links)} payment links.${scope?.applied ? ` This is the ${scope.label} register: that is ${num(scope.kept)} of the ${num(scope.windowInvoices)} invoices in the fiscal year, and ${money0(scope.keptValue)} of its ${money0(scopeValue)}.` : ''} Click an invoice to see the checks that paid it.`
-                : `One invoice per row, ${order}, with the checks that settled it.`}
-            </p>
           </div>
         </div>
       </div>
@@ -730,8 +713,7 @@ export default function Invoices() {
         <ErrorNotice
           error={error}
           reload={reload}
-          heading="The invoice extract could not be read."
-          hint={
+          heading="The invoice extract could not be read."          hint={
             <>
               <p>
                 The app fetches <code>oracle/invoices.json</code> from the dev server. Run{' '}
@@ -747,72 +729,24 @@ export default function Invoices() {
         />
       ) : null}
 
-      {data && totals ? (
-        <div className="invstats">
-          <Stat
-            label="Invoices"
-            value={num(data.invoices.length)}
-            note={
-              scope?.applied
-                ? `of ${num(scope.windowInvoices)} in the fiscal year — ${scope.label}`
-                : pluralise(data.links, 'payment link')
-            }
-          />
-          <Stat label="Value" value={money0(totals.value)} note="sum of the invoices themselves" />
-          <Stat
-            label="Credit notes"
-            value={num(data.credits)}
-            note={`${money0(data.creditTotal)} — the only credit signal this view carries`}
-          />
-          <Stat
-            label="GL accounts"
-            value={num(data.combinations)}
-            note={
-              scope?.applied
-                ? `${pluralise(data.accountRows, 'distribution row')} over ${num(data.invoices.length)} invoices — ${num(data.combinationsInScope)} of the ${num(data.combinations)} combinations sit inside the scope`
-                : `${pluralise(data.accountRows, 'distribution row')} across ${num(data.invoices.length)} invoices`
-            }
-          />
-          <Stat
-            label="No check at all"
-            value={num(data.unpaid)}
-            note={`${pctSlim(share(data.unpaid, data.invoices.length))} of the window`}
-          />
-          <Stat
-            label="Largest single invoice"
-            value={money0(totals.biggest.amount)}
-            note={`${totals.biggest.number} from ${totals.biggest.vendor}`}
-          />
-        </div>
-      ) : null}
+      {/*
+        ★ THE STAT CARDS AND THE SCOPE DISCLOSURE ARE GONE, ON STAFF'S INSTRUCTION.
 
-      {/* ★ What the register is a slice OF, and what the slice cost.
-          This is the one paragraph on the page that exists purely to stop a reader
-          drawing the wrong conclusion from a small number, so it names the
-          denominator, the money, and — separately, because it is a different
-          sentence — the invoices the scope could not judge at all. Subtracting the
-          kept count from the window count would file those under "excluded" and
-          would bury the only two real-money invoices in the window with them. */}
-      {data && scope?.applied ? (
-        <p className="chart-note" style={{ padding: '0 16px' }}>
-          <strong>{scope.label}.</strong> This register is restricted to that fund and those
-          programs, so it holds {num(scope.kept)} of the {num(scope.windowInvoices)} invoices
-          raised in this fiscal year — {money0(scope.keptValue)} of {money0(scopeValue)}.{' '}
-          <strong>{num(scope.excluded)}</strong> invoices are excluded for being booked
-          elsewhere: they have distributions, and none of them is in scope — {money0(scope.excludedValue)}{' '}
-          of work that this page does not show.{' '}
-          {scope.unanswerable > 0 ? (
-            <>
-              A further <strong>{num(scope.unanswerable)}</strong> invoices (
-              {money0(scope.unanswerableValue)}) are <em>not</em> counted as excluded, because
-              they carry no distribution at all — no fund and no program to test — so the
-              register cannot say whether they belong. The only two real-money invoices in the
-              whole window are in that group. They are left off the table rather than shown with
-              a blank account, and they are not quietly added to the exclusions above.
-            </>
-          ) : null}
-        </p>
-      ) : null}
+          The six cards read: invoices, value, credit notes, GL accounts, no-check-at-all and the
+          largest single invoice — all totals or extremes over the table below.
+
+          The paragraph that followed them was the most load-bearing sentence on the page: it named
+          the denominator (126 of 3,743 invoices in the fiscal year), the money, and — separately —
+          the 26 invoices with no distribution at all, which the register cannot judge. Its own
+          comment said it existed "purely to stop a reader drawing the wrong conclusion from a small
+          number". That protection is knowingly given up here; the SQL trace below prints the
+          statement, and therefore the scope predicate, for a reader who wants to check.
+      */}
+      <SqlNote trace={data?.traces ?? null} label="the invoice register, as the ledger received it" />
+
+      {/* ★ What the register is a slice OF, and what the slice cost — REMOVED with the stat cards
+          above, on staff's instruction. It named the denominator, the money and the invoices the
+          scope could not judge at all. */}
 
       {/*
         ★ THE TWO SCOPES DISAGREE, AND THIS IS THE ONLY PLACE THAT CAN BE SAID.

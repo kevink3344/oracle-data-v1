@@ -309,16 +309,6 @@ function exportVendor(vendor: Vendor) {
   URL.revokeObjectURL(url);
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div className="chkstat">
-      <div className="chkstat__k">{label}</div>
-      <div className="chkstat__v">{value}</div>
-      {note ? <div className="chkstat__n">{note}</div> : null}
-    </div>
-  );
-}
-
 export default function VendorCompanies() {
   /**
    * ★ THE EXTRACT AND WHAT THE PAGE PRINTS ARE TWO DIFFERENT VALUES.
@@ -484,7 +474,6 @@ export default function VendorCompanies() {
   };
 
   const scope = data?.scope;
-  const scopeValue = scope ? scope.keptValue + scope.excludedValue + scope.unanswerableValue : 0;
 
   /**
    * The file's scope as a `Scope`, for comparison against the live one.
@@ -526,54 +515,18 @@ export default function VendorCompanies() {
         <div className="page-head">
           <div>
             <h1>Vendor companies</h1>
-            <p className="page-head__sub">
-              {data
-                ? `Every company paid out of the ${
-                    scope?.label ?? 'scoped'
-                  } register — ${num(data.vendors.length)} vendors across ${num(
-                    data.invoices,
-                  )} invoices, ${money0(data.settled)} in all. ${num(
-                    data.linked,
-                  )} of those invoices were settled by ${num(data.checks)} checks and ${num(
-                    data.invoices - data.linked,
-                  )} were not: a row whose company holds any of them says so under its Paid figure.`
-                : 'Reading the payment register…'}
-            </p>
           </div>
         </div>
       </div>
 
-      {scope?.applied ? (
-        <p className="scopenote" role="note">
-          <span className="scopenote__flag">Scoped</span>
-          <span className="scopenote__text">
-            <strong>{scope.label}.</strong> The register behind this page is restricted to that fund
-            and those programs, applied to each invoice&rsquo;s <em>distributions</em> rather than its
-            header — so it holds {num(scope.kept)} of the {num(scope.windowInvoices)} invoices raised
-            in this fiscal year, {money0(scope.keptValue)} of {money0(scopeValue)}.{' '}
-            <strong>
-              {num(scope.excluded)} invoices ({money0(scope.excludedValue)})
-            </strong>{' '}
-            are excluded for being booked elsewhere — they have distributions and none is in scope.
-            {scope.unanswerable > 0 ? (
-              <>
-                {' '}
-                A further <strong>{num(scope.unanswerable)}</strong> (
-                {money0(scope.unanswerableValue)}) are <em>not</em> counted as excluded: they carry
-                no distribution at all, so there is no fund and no program to test.
-              </>
-            ) : null}{' '}
-            {data ? (
-              <>
-                Read off the rows themselves, the accounts here are{' '}
-                <strong>{data.observedScope.join(', ')}</strong> across{' '}
-                {pluralise(data.accountRows, 'distribution row')} — the request above is what the
-                pull asked for, this is what the invoices actually carry.
-              </>
-            ) : null}
-          </span>
-        </p>
-      ) : null}
+      {/*
+        ★ THE SUBTITLE, THE SCOPE NOTE AND THE STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION.
+
+          The scope note named the denominator (126 of 3,743 invoices) and split the exclusions into
+          "booked elsewhere" and "no distribution to test" — the distinction the page's own comment
+          called out as load-bearing, because subtracting one from the other would file 26 invoices
+          under the wrong heading. That is knowingly given up here.
+      */}
 
       {data && scopeMoved && fileScope ? (
         <p className="scopenote" role="note">
@@ -611,42 +564,14 @@ export default function VendorCompanies() {
               ? `${num(matches.length)} of ${num(data.vendors.length)} vendors match "${query}".`
               : ''}
           </p>
-          <div className="chkstats">
-            <Stat
-              label="Vendors paid"
-              value={num(data.vendors.length)}
-              note={`out of the register's ${num(data.invoices)} in-scope invoices`}
-            />
-            <Stat
-              label="Settled"
-              value={money0(data.settled)}
-              note="the invoices' amounts, which is what the panel totals"
-            />
-            <Stat
-              label="Checks issued"
-              value={money0(data.issued)}
-              note={`${num(data.checks)} distinct checks — a check can settle several vendors`}
-            />
-            <Stat
-              label="Largest payee"
-              value={data.vendors[0] ? money0(data.vendors[0].settled) : money(0)}
-              note={data.vendors[0]?.name ?? ''}
-            />
-            {/*
-              The register-wide half of the row marker. It sits last on purpose: the
-              four figures before it are the page's answer, and this is the exception
-              to it — ending on the exception is how it gets read.
-            */}
-            <Stat
-              label="No check recorded"
-              value={num(data.invoices - data.linked)}
-              note={`of the ${num(data.invoices)} invoices — ${money(data.unpaidValue)}, on ${pluralise(
-                unpaidVendors.length,
-                'company',
-                'companies',
-              )}`}
-            />
-          </div>
+          {/*
+            ★ THE FIVE STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION. They read: vendors paid,
+            settled, checks issued, largest payee, and no-check-recorded — all totals over the
+            table below, which carries the per-vendor rows they summed.
+
+            The `Stat` component they used is deleted with them: nothing else on this page called
+            it, so leaving it would have been dead code.
+          */}
 
           <section className="panel">
             <div className="panel__head">

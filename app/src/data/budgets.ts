@@ -48,10 +48,21 @@
  * letting a reader conclude the rest is missing.
  */
 
+import { readTrace, sqlUrl } from './sqlTrace';
+import type { SqlTrace } from '../components/SqlNote';
+
 /** The page envelope the API wraps every list in. */
 interface Envelope<T> {
   data: T[];
   page: { limit: number; offset: number; total: number; returned: number };
+  /**
+   * The statements this request ran — present only while the reader has the SQL trace switched on.
+   *
+   * ★ OPTIONAL, AND THAT IS THE CONTRACT. With the toggle off the server never sends it, so every
+   *   reader of this envelope has to tolerate its absence; making it required would be a lie the
+   *   compiler would then force a placeholder into.
+   */
+  sql?: SqlTrace | null;
 }
 
 /** One budgeted account, for one version, for one posting period. */
@@ -183,6 +194,21 @@ export interface BudgetsData {
    *   be trusted.
    */
   truncated: string[];
+  /**
+   * The statements behind each list, when the reader has the SQL trace switched on.
+   *
+   * ★ ONE ENTRY PER LIST SO THE PAGE CAN PUT THE RIGHT STATEMENT BESIDE THE RIGHT PANEL. The five
+   *   requests run concurrently and each runs its own count-then-page pair, so a flat list would
+   *   interleave ten statements with no way to say which panel they explain. Every value is `null`
+   *   with the toggle off, which is the ordinary case.
+   */
+  traces: {
+    budgets: SqlTrace | null;
+    positions: SqlTrace | null;
+    versions: SqlTrace | null;
+    types: SqlTrace | null;
+    assignments: SqlTrace | null;
+  };
 }
 
 /**
@@ -280,7 +306,7 @@ export function byPeriod(a: BudgetRow, b: BudgetRow): number {
 
 /** One request, unwrapped, with a refusal that names its own status. */
 async function getList<T>(path: string, signal?: AbortSignal): Promise<Envelope<T>> {
-  const res = await fetch(path, { signal });
+  const res = await fetch(sqlUrl(path), { signal });
   if (!res.ok) {
     let detail = `HTTP ${res.status} ${res.statusText}`;
     try {
@@ -295,7 +321,12 @@ async function getList<T>(path: string, signal?: AbortSignal): Promise<Envelope<
   if (!Array.isArray(body?.data) || !body.page) {
     throw new Error(`The response from ${path} did not contain a list.`);
   }
-  return body;
+  /*
+   * ★ THE TRACE RIDES ON THE ENVELOPE SO THE CALLER CAN SHOW IT. It is attached here rather than
+   *   read by the page, because this function is the only place that holds the parsed body — and
+   *   `readTrace` returns null when the toggle is off, so nothing downstream has to branch.
+   */
+  return { ...body, sql: readTrace(body) };
 }
 
 /**
@@ -391,6 +422,20 @@ export async function loadBudgets(signal?: AbortSignal): Promise<BudgetsData> {
     types: identifiableTypes,
     assignments: assignments.data,
     truncated,
+    /**
+     * ★ THE TRACES ARE KEPT PER LIST, NOT CONCATENATED, BECAUSE EACH ONE ANSWERS A DIFFERENT
+     *   QUESTION ON THE PAGE. A reader checking the version count wants the two statements behind
+     *   *that* list — the count and the page — not all ten the page ran, in an order that does not
+     *   match the panels. The page renders the relevant one beside the panel it belongs to and the
+     *   whole set once at the foot.
+     */
+    traces: {
+      budgets: budgets.sql ?? null,
+      positions: positions.sql ?? null,
+      versions: versions.sql ?? null,
+      types: types.sql ?? null,
+      assignments: assignments.sql ?? null,
+    },
   };
 }
 

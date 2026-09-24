@@ -1087,14 +1087,6 @@ export default function Activity() {
         <div className="page-head">
           <div>
             <h1>Activity</h1>
-            <p className="page-head__sub">
-              Every object in this database, listed A–Z, with the number of rows recorded in it. A
-              count is a <em>reading</em> taken when someone pressed “Record counts now”, not a live
-              figure, so each row carries the date it was read and how it moved since the reading
-              before. Counts are narrowed to the register's own account scope wherever an object
-              carries an account, and an object that cannot be counted says so rather than reading
-              zero.
-            </p>
           </div>
           <div className="page-head__actions">
             {summary ? (

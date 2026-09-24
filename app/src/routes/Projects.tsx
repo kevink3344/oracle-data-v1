@@ -40,15 +40,6 @@ export default function Projects() {
         <div className="page-head">
           <div>
             <h1>Projects</h1>
-            <p className="page-head__sub">
-              One row per Oracle account level.{' '}
-              {query
-                ? `${num(searched.length)} ${searched.length === 1 ? 'level matches' : 'levels match'} “${query}”`
-                : `The extract carries ${num(searched.length)} in scope`}
-              ; {named === 1 ? 'one has' : ` ${num(named)} have`} a project record in this app, and the
-              rest are named from their own purchase-order lines where those lines name anything at
-              all.
-            </p>
           </div>
           <div className="page-head__actions">
             {/* Navigation, not an action — so it is a link styled as a button, and the

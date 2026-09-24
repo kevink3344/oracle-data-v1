@@ -160,7 +160,6 @@ function differs(cap: ReadCap, draft: Draft): boolean {
 export default function ReadCaps() {
   const [list, setList] = useState<ReadCapList | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState('');
 
@@ -169,7 +168,6 @@ export default function ReadCaps() {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     setProblem(null);
     loadReadCaps()
       .then((next) => {
@@ -179,9 +177,6 @@ export default function ReadCaps() {
       .catch((err: unknown) => {
         if (!alive) return;
         setProblem(err instanceof Error ? err.message : 'The read caps could not be read.');
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
       });
     return () => {
       alive = false;
@@ -212,8 +207,6 @@ export default function ReadCaps() {
     const matched = term === '' ? rows : rows.filter((r) => r.tableName.toLowerCase().includes(term));
     return matched;
   }, [rows, filter]);
-
-  const cappedCount = useMemo(() => rows.filter((r) => r.capped).length, [rows]);
 
   const open = editing !== null;
   const editingCap = useMemo(
@@ -267,14 +260,6 @@ export default function ReadCaps() {
       <div className="page-head">
         <div>
           <h1 className="page-head__title">Read caps</h1>
-          <p className="page-head__sub">
-            {list === null
-              ? loading
-                ? 'Reading the caps…'
-                : 'The read caps could not be read.'
-              : `${cappedCount} of ${rows.length} ledger objects are bounded. ` +
-                'An object with no cap is read whole — which is only safe while the table is small.'}
-          </p>
         </div>
       </div>
 

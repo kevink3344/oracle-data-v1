@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   byCommitment,
@@ -18,7 +17,7 @@ import { ordersForAccountHref, ordersForLevelHref } from '../data/purchaseOrders
 import { scopeLabel } from '../data/scope';
 import { useStore } from '../state/store';
 import ErrorNotice from '../components/ErrorNotice';
-import { money, money0, num, pctSlim, pluralise, share } from '../data/format';
+import { money, money0, num, pluralise } from '../data/format';
 
 /**
  * Encumbrances — what is committed, against two sources that do not agree.
@@ -61,21 +60,6 @@ import { money, money0, num, pctSlim, pluralise, share } from '../data/format';
  *   * Seven combinations resolve to no project and total **$11,511.12** — which is
  *     exactly the difference between this table and the line-level extract.
  */
-
-/**
- * One labelled figure. Same reading as `.chkstat`, `.budstat` and `.kpi`: key,
- * number, caveat — because a total on this page without its population beside it
- * is the thing the page exists to prevent.
- */
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div className="encstat">
-      <div className="encstat__k">{label}</div>
-      <div className="encstat__v">{value}</div>
-      {note ? <div className="encstat__n">{note}</div> : null}
-    </div>
-  );
-}
 
 /**
  * A money cell, with the blank/zero rule applied in exactly one place.
@@ -234,9 +218,6 @@ export default function Encumbrances() {
           <div className="page-head">
             <div>
               <h1>Encumbrances</h1>
-              <p className="page-head__sub">
-                What has been committed but not yet spent, against both sources that answer for it.
-              </p>
             </div>
           </div>
         </div>
@@ -272,7 +253,6 @@ export default function Encumbrances() {
           <div className="page-head">
             <div>
               <h1>Encumbrances</h1>
-              <p className="page-head__sub">Reading the purchasing and ledger sides…</p>
             </div>
           </div>
         </div>
@@ -281,7 +261,6 @@ export default function Encumbrances() {
   }
 
   const { counts, totals, po, unresolved, notes } = data;
-  const glShareOfPo = share(totals.GL_ENCUMBRANCE, totals.PO_ENCUMBERED);
   const showing = levelFilter || q;
 
   return (
@@ -291,12 +270,6 @@ export default function Encumbrances() {
         <div className="page-head">
           <div>
             <h1>Encumbrances</h1>
-            <p className="page-head__sub">
-              Money promised and not yet spent, read from both sources that answer for it —{' '}
-              {pluralise(counts.ACCOUNTS, 'account combination')} from the purchasing extract
-              against {pluralise(counts.GL_ACCOUNTS, 'account')} the report publishes. They are
-              different populations, so they are shown side by side and never summed.
-            </p>
           </div>
         </div>
       </div>
@@ -354,34 +327,16 @@ export default function Encumbrances() {
         </div>
       ) : null}
 
-      <div className="encstats">
-        <Stat
-          label="Committed, purchasing side"
-          value={money0(totals.PO_ENCUMBERED)}
-          note={`${num(counts.ACCOUNTS)} combinations, ${num(po.ROWS)} distributions`}
-        />
-        <Stat
-          label="Committed, GL side"
-          value={money0(totals.GL_ENCUMBRANCE)}
-          note={`${num(counts.GL_ACCOUNTS)} accounts the report publishes — ${pctSlim(glShareOfPo)} of the purchasing total`}
-        />
-        <Stat
-          label="Agreement"
-          value={`${num(counts.IN_BOTH)} of ${num(counts.ACCOUNTS)}`}
-          note={
-            <>
-              accounts appear in both. Across those, the GL side is{' '}
-              {money0(Math.abs(totals.OVERLAP_DELTA))} {totals.OVERLAP_DELTA < 0 ? 'above' : 'below'}{' '}
-              the purchasing side.
-            </>
-          }
-        />
-        <Stat
-          label="Unresolved"
-          value={money0(unresolved.AMOUNT)}
-          note={`${num(unresolved.ACCOUNTS)} combinations naming no project, held out of the roll-up`}
-        />
-      </div>
+      {/*
+        ★ THE FOUR STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION. They read: committed on the
+        purchasing side, committed on the GL side, agreement between the two, and the unresolved
+        total — all totals over the tables below, which carry the per-account rows they summed.
+
+        ★ THE PANEL BELOW IS KEPT, AND IT IS NOT THE SAME KIND OF THING. It is not a summary of the
+        figures; it is the statement that the purchasing column is *the ordered amount under another
+        name* — a fact about what the column means that no row in the table carries. Removing it
+        would leave a reader comparing two columns that look like two measurements and are not.
+      */}
 
       {/* ── ★ THE DISCLOSURE THAT MAKES THE NUMBERS HONEST. ─────────────────
           Driven by `po.encumbranceMirrorsOrdered`, which the server derives from

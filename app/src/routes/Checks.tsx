@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { loadChecks, type Check, type CheckInvoice, type ChecksExtract } from '../data/checks';
 import { loadInvoices, type InvoiceAccount } from '../data/invoices';
@@ -12,11 +12,11 @@ import {
 } from '../data/assistant';
 import ErrorNotice from '../components/ErrorNotice';
 import PinButton from '../components/PinButton';
-import { ScopeApplied } from '../components/ScopeNote';
+import { SqlNote } from '../components/SqlNote';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
 import { SortableHead } from '../components/SortHeader';
 import ZoomImage from '../components/ZoomImage';
-import { money, money0, num, pctSlim, pluralise, share } from '../data/format';
+import { money, num, pctSlim, pluralise, share } from '../data/format';
 import { inScope } from '../data/scope';
 import { useStore } from '../state/store';
 import {
@@ -461,17 +461,6 @@ function AssistantAnswerBlock({
   );
 }
 
-/** One labelled figure on the strip above the table. */
-function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div className="chkstat">
-      <div className="chkstat__k">{label}</div>
-      <div className="chkstat__v">{value}</div>
-      {note ? <div className="chkstat__n">{note}</div> : null}
-    </div>
-  );
-}
-
 export default function Checks() {
   const { scope, scopeTenant } = useStore();
   const [data, setData] = useState<ChecksPageData | null>(null);
@@ -746,16 +735,19 @@ export default function Checks() {
         <div className="page-head">
           <div>
             <h1>Checks</h1>
-            <p className="page-head__sub">
-              {data
-                ? `One payment document per row, ${order} — ${num(scopedChecks.length)} checks issued between ${data.window.from} and ${data.window.to}. Click a check to see the invoices it paid.`
-                : `One payment document per row, ${order}, with the invoices each check paid.`}
-            </p>
           </div>
         </div>
       </div>
 
-      <ScopeApplied register="The checks register" shown={scopedChecks.length} total={data?.checks.length ?? 0} />
+      {/*
+        ★ THE SUBTITLE AND THE SCOPE NOTE ARE GONE, ON STAFF'S INSTRUCTION.
+
+          The scope note said *"Showing 65 of 4,218 checks"* — the one place a reader learned that
+          this register is a slice of the ledger rather than all of it. That is knowingly given up.
+          The row count and the window are still derivable from the table and its pager, and the SQL
+          trace below prints the statement and therefore the scope predicate.
+      */}
+      <SqlNote trace={data?.traces ?? null} label="the checks register, as the ledger received it" />
 
       {/*
         ★ A LINK FROM AN INVOICE ARRIVED WITH A CHECK THAT IS NOT IN THIS WINDOW.
@@ -798,31 +790,11 @@ export default function Checks() {
         />
       ) : null}
 
-      {data && totals ? (
-        <div className="chkstats">
-          <Stat
-            label="Checks issued"
-            value={num(scopedChecks.length)}
-            note={pluralise(scopedChecks.reduce((n, check) => n + check.invoices.length, 0), 'invoice')}
-          />
-          <Stat label="Value" value={money0(totals.value)} note="sum of the checks themselves" />
-          <Stat
-            label="Reconciled by their invoices"
-            value={pctSlim(share(scopedChecks.filter((check) => Math.abs(check.invoiced - check.amount) < 0.005).length, scopedChecks.length))}
-            note={`${num(scopedChecks.filter((check) => Math.abs(check.invoiced - check.amount) < 0.005).length)} of ${num(scopedChecks.length)} to the cent`}
-          />
-          <Stat
-            label="Paying more than one invoice"
-            value={num(totals.multi)}
-            note={`largest is ${num(totals.widest.invoices.length)}`}
-          />
-          <Stat
-            label="Largest single check"
-            value={money0(totals.biggest.amount)}
-            note={`check ${totals.biggest.number} to ${totals.biggest.vendor}`}
-          />
-        </div>
-      ) : null}
+      {/*
+        ★ THE FIVE STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION. They read: checks issued, value,
+        reconciled-by-invoices, paying more than one invoice, and the largest single check — every
+        one a total or an extreme over the table directly below, which carries the rows themselves.
+      */}
 
       <section className="panel">
         <div className="panel__head">
