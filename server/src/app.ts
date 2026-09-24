@@ -4,6 +4,7 @@ import { config } from './config/env.js';
 import { docsJsonHandler, docsUiHandlers } from './http/docs.js';
 import { errorHandler, notFoundHandler, writesGuard } from './http/middleware.js';
 import { resetOpenApiCache } from './http/openapi.js';
+import { withSqlTrace } from './http/sql-trace.js';
 import { apiRouter } from './routes/index.js';
 
 /**
@@ -13,11 +14,14 @@ import { apiRouter } from './routes/index.js';
  *
  *   1. CORS          — so a browser preflight is answered before anything else.
  *   2. body parser   — the only place a limit is set.
- *   3. writes guard  — refuses mutations before they reach a router or the database.
- *   4. /api/docs*    — before the API routers, so `docs.json` is not shadowed.
- *   5. /api routers
- *   6. 404
- *   7. error handler — last, always.
+ *   3. SQL trace     — binds a per-request collector, so any statement a handler runs is attributed
+ *                      to the request that caused it. Above the writes guard so a refused write
+ *                      still reports what ran before the refusal.
+ *   4. writes guard  — refuses mutations before they reach a router or the database.
+ *   5. /api/docs*    — before the API routers, so `docs.json` is not shadowed.
+ *   6. /api routers
+ *   7. 404
+ *   8. error handler — last, always.
  *
  * ★ `apiRouter()` is called before the docs are mounted, and the document cache is
  *   cleared in between. `buildOpenApiDocument()` memoises, and the Swagger UI
@@ -46,6 +50,19 @@ export function createApp(): Express {
   // A JSON API only. `1mb` is generous for a single row and small enough that a
   // runaway client cannot exhaust memory before the handler runs.
   app.use(express.json({ limit: '1mb' }));
+
+  /**
+   * ★ THE SQL TRACE IS BOUND HERE, BEFORE ANY ROUTE RUNS, AND IT WRAPS `next()`.
+   *
+   *   `withSqlTrace` opens an `AsyncLocalStorage` scope for the whole request, so a statement run
+   *   anywhere inside a handler — however deep the call chain — is recorded against this request
+   *   without a single query helper being told about it. Mounted above `/api` so it also covers the
+   *   docs routes, which costs nothing: a request that runs no statement records nothing.
+   *
+   *   It is deliberately above the writes guard: a refused write should still show the statements
+   *   that ran before the refusal, which is often the whole question when a save fails.
+   */
+  app.use((_req, _res, next) => withSqlTrace(next));
 
   app.use('/api', writesGuard);
 

@@ -122,12 +122,24 @@ function literal(value: string): string {
  *     they are unbounded. A probe measured `PERIOD_YEAR >= 2023` to be equivalent to
  *     `fiscalFloor(2023)` = `2022-07-01` — the fiscal year's own July start — so there
  *     is **no off-by-one-year** in comparing a `PERIOD_YEAR` to a `startFy`.
+ *
+ *     ★ THE ORGANIZATION ROW WINS THIS ONE, AND `.env` IS ONLY THE FALLBACK. It used
+ *       to be the other way round, and the effect was that the SQL showed a fiscal
+ *       floor no screen could explain: `.env` carried `START_YEAR=2021` while the
+ *       Organization screen read `startFy = 2026`, so every budget statement filtered
+ *       `PERIOD_YEAR >= 2021` — four years of rows the tenant had not asked for — and
+ *       changing the year in Settings moved nothing. The fund and the programs already
+ *       take the row as their authority (`.env` overrides those only when it declares
+ *       them), so a floor that behaved differently was the odd one out rather than a
+ *       second policy. `START_YEAR` still applies where no organization row exists,
+ *       which is what keeps a bare deployment readable.
  */
 function periodFloor(scope: LedgerScope): string {
-  // ★ The declared floor wins when `.env` states one. `LEDGER_START_YEAR` is
-  //   scanned as a fiscal year for the reason in the note above: it is compared
-  //   against `PERIOD_YEAR`, which is the year a period ENDS in.
-  const year = config.ledgerScope.startYear ?? scope.startFy;
+  // ★ The organization's fiscal year is the floor; `.env`'s `START_YEAR` is used only
+  //   when the tenant has not stated one. Scanned as a fiscal year for the reason in
+  //   the note above: it is compared against `PERIOD_YEAR`, which is the year a period
+  //   ENDS in.
+  const year = scope.startFy ?? config.ledgerScope.startYear;
   return `gb.${q('PERIOD_YEAR')} >= ${Number(year)}`;
 }
 
@@ -196,7 +208,11 @@ export function resolvedScope(scope: LedgerScope): ResolvedScope {
   return {
     funds: declared.funds ?? [scope.fund],
     programs: declared.programs ?? scope.programs,
-    startFy: declared.startYear ?? scope.startFy,
+    // ★ THE ROW WINS, `.env` IS THE FALLBACK — see the note on `periodFloor`, which has
+    //   to agree with this or the SQL and the reported scope would describe two
+    //   different floors. `scope.startFy` is typed non-nullable, so the fallback is
+    //   reached only by a caller that deliberately passes an empty scope.
+    startFy: scope.startFy ?? declared.startYear,
   };
 }
 
@@ -235,7 +251,9 @@ export function scopeDivergence(tenant: LedgerScope): string | null {
   }
 
   if (declared.startYear !== undefined && declared.startYear !== tenant.startFy) {
-    parts.push(`startFy .env=${declared.startYear} row=${tenant.startFy}`);
+    parts.push(
+      `startFy row=${tenant.startFy} .env=${declared.startYear} (the row wins; START_YEAR applies only where no organization row states one)`,
+    );
   }
 
   return parts.length === 0 ? null : parts.join('; ');

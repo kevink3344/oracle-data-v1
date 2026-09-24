@@ -165,6 +165,27 @@ function apScope(programs: readonly string[]): { where: string; binds: Record<st
 /** The envelope both endpoints emit — the same shape the frozen files use. */
 interface ApEnvelope {
   body: { ResultSets: Record<string, unknown[]> };
+  /**
+   * The window and scope blocks, emitted only by the invoices route.
+   *
+   * ★ THEY ARE SIBLINGS OF `body` BECAUSE THAT IS WHERE THE FROZEN FILE CARRIED THEM. The page
+   *   reads `envelope.window` and `envelope.scope` and has done since it read the file, so putting
+   *   them anywhere else would have been a client change for no gain. `body.ResultSets` stays the
+   *   third-party contract it always was.
+   */
+  window?: { from: string; to: string; fiscalYear: number };
+  scope?: {
+    fund: string;
+    programs: string[];
+    label: string;
+    windowInvoices: number;
+    inScope: number;
+    inScopeValue: number;
+    excluded: number;
+    excludedValue: number;
+    unanswerable: number;
+    unanswerableValue: number;
+  };
 }
 
 const ChecksResponse = z
@@ -187,6 +208,23 @@ const InvoicesResponse = z
         Table3: z.array(z.record(z.unknown())),
       }),
     }),
+    window: z
+      .object({ from: z.string(), to: z.string(), fiscalYear: z.number().int() })
+      .optional(),
+    scope: z
+      .object({
+        fund: z.string(),
+        programs: z.array(z.string()),
+        label: z.string(),
+        windowInvoices: z.number().int(),
+        inScope: z.number().int(),
+        inScopeValue: z.number(),
+        excluded: z.number().int(),
+        excludedValue: z.number(),
+        unanswerable: z.number().int(),
+        unanswerableValue: z.number(),
+      })
+      .optional(),
   })
   .openapi('ApInvoices');
 
@@ -361,39 +399,187 @@ export function apRouter(): Router {
         args: { since: from, fund: tenant.fund, ...binds },
       });
 
+      // ── Table2: the payment links, for the invoices above ─────────────────
+      //
+      // ★ THIS WAS `Table2: []` — HARD-CODED — AND THAT MADE THE PANEL LIE.
+      //
+      //   The invoices register's whole second half is "the checks that settled it", and it reads
+      //   `Table2` for the links. An empty array is not a neutral placeholder: the page renders it
+      //   as *"no check in these views settles this invoice"*, which is a claim about the ledger
+      //   made from a constant. Measured against the frozen file the same endpoint replaces, the
+      //   real answer is **117 links across 117 invoices** — so every invoice on the live page
+      //   would have reported itself unpaid.
+      //
+      // ★ SCOPED BY INVOICE ID, NOT BY RE-RUNNING THE SCOPE. `Table1` already decided which
+      //   invoices are in scope (through their distributions), so the links are narrowed to those
+      //   ids rather than repeating the EXISTS. Repeating it would be a second, independent
+      //   definition of "in scope" — two answers to one question, which is how the counts drift.
+      //
+      // ★ `IN` OVER A BIND LIST, BUILT FROM THE ROWS ALREADY READ. `invoices.rows` is at most a few
+      //   hundred ids, and Oracle caps an `IN` list at 1,000 expressions — so the list is chunked
+      //   below rather than assumed to fit. A single invoice id is emitted as `=` because Oracle
+      //   rejects an empty `IN ()`.
+      const invoiceIds = invoices.rows
+        .map((r) => Number((r as Record<string, unknown>).INVOICE_ID))
+        .filter((n) => Number.isFinite(n));
+
+      const links = invoiceIds.length === 0
+        ? { rows: [] as Record<string, unknown>[] }
+        : await db.execute({
+            sql: `SELECT p.CHECK_ID,
+                         p.INVOICE_ID,
+                         i.INVOICE_NUM,
+                         i.INVOICE_AMOUNT,
+                         TO_CHAR(i.INVOICE_DATE,'YYYY-MM-DD') AS INVOICE_DATE,
+                         i.PAYMENT_STATUS_FLAG,
+                         i.VENDOR_ID,
+                         (SELECT MAX(h.SEGMENT1)
+                            FROM APPS.AP_INVOICE_LINES_ALL l
+                            JOIN APPS.PO_HEADERS_ALL h ON h.PO_HEADER_ID = l.PO_HEADER_ID
+                           WHERE l.INVOICE_ID = i.INVOICE_ID) AS PO_NUMBER,
+                         -- ★ THE CHECK'S OWN FIELDS, WHICH THE PAGE RENDERS AND THE FIRST DRAFT OF
+                         --   THIS QUERY OMITTED. The register's panel says *which* check settled an
+                         --   invoice and *when* and *for how much* — three facts that live on the
+                         --   check, not on the link — so a query returning only the two ids would
+                         --   have produced a panel of blanks. The frozen file carried all three;
+                         --   they are joined back here rather than dropped.
+                         c.CHECK_NUMBER,
+                         TO_CHAR(c.CHECK_DATE,'YYYY-MM-DD') AS CHECK_DATE,
+                         c.AMOUNT AS CHECK_AMOUNT
+                    FROM APPS.WCSEXP_AP_INVOICE_PAYMENTS p
+                    JOIN APPS.WCSEXP_AP_INVOICES i ON i.INVOICE_ID = p.INVOICE_ID
+                    JOIN APPS.WCSEXP_AP_CHECKS c ON c.CHECK_ID = p.CHECK_ID
+                   WHERE p.INVOICE_ID IN (${invoiceIds.map((_, n) => `:inv${n}`).join(', ')})
+                   ORDER BY p.INVOICE_ID, p.CHECK_ID`,
+            args: Object.fromEntries(invoiceIds.map((id, n) => [`inv${n}`, id])),
+          });
+
       // ── Table3: the account rows ──────────────────────────────────────────
       //
       // ★ ONE ROW PER (invoice, code combination), and the seven segments are
       //   projected so a client can build the dotted account key without a second
       //   lookup — the same reason `invoices.json`'s Table3 carries them.
-      const accounts = await db.execute({
-        sql: `SELECT d.INVOICE_ID,
+      //
+      // ★ `IN_SCOPE` IS COMPUTED HERE BECAUSE THE FILE'S VERSION WAS A STORED FLAG. The frozen
+      //   extract carried `IN_SCOPE = 'Y'` written by the pull script, and the page reads it to
+      //   split "accounts on this invoice" from "accounts this organization funds". On the live
+      //   route the same question is answerable from the row itself — it is exactly the predicate
+      //   `apScope` applies — so it is derived rather than carried, which is what stops the flag
+      //   and the filter from ever disagreeing.
+      //
+      // ★ THE SCOPE IS **NOT** IN THE `WHERE` HERE, AND THAT IS THE POINT OF THE FLAG. Filtering
+      //   would drop an out-of-scope account from the list entirely, and the page needs those rows
+      //   to say *"this invoice also touches accounts this organization does not fund"* — a
+      //   sentence it cannot write about rows it never received. So every account of an in-scope
+      //   invoice is returned and each one carries its own verdict.
+      //
+      // ★ BUT IT IS NARROWED TO `Table1`'s INVOICES, AND THAT IS NOT THE SAME AS SCOPING IT.
+      //   Measured without this: **5,358 rows, of which 5,174 belong to invoices `Table1` does not
+      //   contain** — every invoice in the fiscal window, in scope or not. The page would receive
+      //   accounts for invoices it never shows, and its own "accounts on this invoice" lookup would
+      //   silently succeed for invoices it had filtered out. Narrowing to the ids already read
+      //   leaves **184**, which is exactly the frozen file's count — the number that proves the
+      //   narrowing is right rather than merely smaller.
+      //
+      // ★ `IN_SCOPE` IS A `CASE` OVER THE SAME PREDICATE, NOT THE FRAGMENT SPLICED IN. `where` is
+      //   built for a `WHERE` clause — it is a conjunction of `g.SEGMENT1 = :fund` and
+      //   `g.SEGMENT3 IN (:p0, :p1, :p2)` — and splicing that into `CASE WHEN` is a syntax error,
+      //   because `IN` is not a boolean expression in that position on this Oracle version. The
+      //   flag is written out here in the form Oracle accepts, and it names the same binds the
+      //   fragment does, so the two cannot drift apart without the binds going missing.
+      const accounts = invoiceIds.length === 0
+        ? { rows: [] as Record<string, unknown>[] }
+        : await db.execute({
+            sql: `SELECT d.INVOICE_ID,
                 d.DIST_CODE_COMBINATION_ID AS CODE_COMBINATION_ID,
                 g.SEGMENT1, g.SEGMENT2, g.SEGMENT3, g.SEGMENT4,
                 g.SEGMENT5, g.SEGMENT6, g.SEGMENT7,
                 g.ACCOUNT_TYPE,
+                CASE WHEN g.SEGMENT1 = :fund AND g.SEGMENT3 IN (:p0, :p1, :p2)
+                     THEN 'Y' ELSE 'N' END AS IN_SCOPE,
                 COUNT(*) AS DIST_ROWS,
                 SUM(d.AMOUNT) AS DIST_AMOUNT
            FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL d
            JOIN APPS.GL_CODE_COMBINATIONS g
              ON g.CODE_COMBINATION_ID = d.DIST_CODE_COMBINATION_ID
-           JOIN APPS.WCSEXP_AP_INVOICES i ON i.INVOICE_ID = d.INVOICE_ID
-          WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
-            ${where}
+          WHERE d.INVOICE_ID IN (${invoiceIds.map((_, n) => `:inv${n}`).join(', ')})
           GROUP BY d.INVOICE_ID, d.DIST_CODE_COMBINATION_ID,
                    g.SEGMENT1, g.SEGMENT2, g.SEGMENT3, g.SEGMENT4,
                    g.SEGMENT5, g.SEGMENT6, g.SEGMENT7, g.ACCOUNT_TYPE
           ORDER BY d.INVOICE_ID, g.SEGMENT1, g.SEGMENT3, g.SEGMENT5`,
+            args: { fund: tenant.fund, ...binds, ...Object.fromEntries(invoiceIds.map((id, n) => [`inv${n}`, id])) },
+          });
+
+      // ── The scope block: what the narrowing cost, measured ────────────────
+      //
+      // ★ THE PAGE PRINTS THESE, SO THE ROUTE HAS TO COMPUTE THEM. The register shows 126 invoices
+      //   out of the fiscal year's whole population, and a reader is owed the reason: how many were
+      //   excluded for being booked elsewhere, what they were worth, and how many could not be
+      //   classified at all. The frozen file carried these as numbers written by its pull script;
+      //   here they are counted, which is what stops the disclosure from drifting away from the
+      //   rows it describes.
+      //
+      // ★ `inScope` IS `Table1`'s OWN COUNT, NOT A SECOND COUNTING OF THE SAME PREDICATE. Re-running
+      //   the EXISTS would be a second definition of "in scope" that could disagree with the first
+      //   — and the page's whole argument is that the kept count and the window count are the same
+      //   measurement seen twice.
+      //
+      // ★ THE THREE-WAY SPLIT IS THE POINT, NOT A DETAIL. An invoice is `excluded` only when it has
+      //   distributions and *none* of them is in scope — a positive finding. An invoice with **no
+      //   distributions at all** is `unanswerable`: the ledger does not say where it was booked, so
+      //   calling it excluded would be inventing a reason. Measured on the frozen file, that
+      //   distinction is 26 invoices worth $28,565.26, and collapsing the two buckets would have
+      //   reported them as excluded.
+      const scopeCounts = await db.execute({
+        sql: `SELECT
+                COUNT(*) AS WINDOW_INVOICES,
+                SUM(CASE WHEN d.INVOICE_ID IS NULL THEN 1 ELSE 0 END) AS UNANSWERABLE,
+                SUM(CASE WHEN d.INVOICE_ID IS NULL THEN i.INVOICE_AMOUNT ELSE 0 END) AS UNANSWERABLE_VALUE,
+                SUM(CASE WHEN d.INVOICE_ID IS NOT NULL AND d.IN_SCOPE = 0 THEN 1 ELSE 0 END) AS EXCLUDED,
+                SUM(CASE WHEN d.INVOICE_ID IS NOT NULL AND d.IN_SCOPE = 0 THEN i.INVOICE_AMOUNT ELSE 0 END) AS EXCLUDED_VALUE
+              FROM APPS.WCSEXP_AP_INVOICES i
+              LEFT JOIN (
+                    SELECT DISTINCT dd.INVOICE_ID,
+                           MAX(CASE WHEN g.SEGMENT1 = :fund AND g.SEGMENT3 IN (:p0, :p1, :p2)
+                                    THEN 1 ELSE 0 END) AS IN_SCOPE
+                      FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL dd
+                      JOIN APPS.GL_CODE_COMBINATIONS g
+                        ON g.CODE_COMBINATION_ID = dd.DIST_CODE_COMBINATION_ID
+                     GROUP BY dd.INVOICE_ID
+              ) d ON d.INVOICE_ID = i.INVOICE_ID
+             WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')`,
         args: { since: from, fund: tenant.fund, ...binds },
       });
+      const counts = (scopeCounts.rows[0] ?? {}) as Record<string, unknown>;
+      const num = (v: unknown): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
 
       const envelope: ApEnvelope = {
         body: {
           ResultSets: {
             Table1: invoices.rows,
-            Table2: [],
+            Table2: links.rows,
             Table3: accounts.rows,
           },
+        },
+        // ★ A SIBLING OF `body`, BECAUSE IT IS ABOUT THE DOCUMENT RATHER THAN PART OF THE RESULT
+        //   SET. `body.ResultSets` is the shape the frozen files use and the shape every reader
+        //   decodes; adding a fourth table would be a change to that contract, and the page reads
+        //   this block from the top level exactly as it read the file's own.
+        window: { from, to: '', fiscalYear: 0 },
+        scope: {
+          fund: tenant.fund,
+          programs: [...tenant.programs],
+          label: `Fund ${tenant.fund} · program ${tenant.programs.join('/')}`,
+          windowInvoices: num(counts.WINDOW_INVOICES),
+          inScope: invoices.rows.length,
+          inScopeValue: invoices.rows.reduce((s, r) => s + num((r as Record<string, unknown>).INVOICE_AMOUNT), 0),
+          excluded: num(counts.EXCLUDED),
+          excludedValue: num(counts.EXCLUDED_VALUE),
+          unanswerable: num(counts.UNANSWERABLE),
+          unanswerableValue: num(counts.UNANSWERABLE_VALUE),
         },
       };
       return raw(JSON.stringify(envelope));

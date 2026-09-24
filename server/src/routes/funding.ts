@@ -6,6 +6,7 @@ import { findRow, listRows, queryFor, registerResource, type ResourceDescriptor,
 import { bindable, columnNumber, one, quoteIdent, rows } from '../db/sql.js';
 import { defaultTenant } from '../auth/session.js';
 import { derivedPlan } from '../db/derived.js';
+import { ledgerPlan } from '../db/ledger-shape.js';
 import { storeDriver } from '../db/client.js';
 import { date, flag, int, intReq, real, realReq, rowObject, text, textReq, writeObject } from '../schemas/columns.js';
 
@@ -112,7 +113,6 @@ const BUDGET_ASSIGNMENT_COLUMNS = [
   'RANGE_TO',
   'BUDGET_ENTITY_ID',
 ] as const;
-
 const JE_HEADER_COLUMNS = [
   'JE_HEADER_ID',
   'LEDGER_ID',
@@ -749,6 +749,12 @@ function registerBudgetVersionDetail(api: Api): void {
           .openapi('FundingLedgerRef'),
         assignments: z.array(budgetAssignmentRow),
         assignmentCount: z.number().int().openapi({ description: 'Length of `assignments`.' }),
+        assignmentsScopedByVersion: z.boolean().openapi({
+          description:
+            'Whether the assignments could be narrowed to this version at all. `false` means this ' +
+            'deployment has no version key on the assignment table, so `assignments` is empty because ' +
+            'the question cannot be asked here — not because the version covers nothing.',
+        }),
       })
       .openapi('BudgetVersionDetail'),
     errors: [400, 404, 500],
@@ -756,14 +762,43 @@ function registerBudgetVersionDetail(api: Api): void {
       const id = bindable(ctx.params.id);
       const version = await findRow(BUDGET_VERSION, ctx.params.id);
 
-      // LEFT JOIN semantics via separate lookups: the foreign keys exist, so a
-      // missing parent is a broken database rather than a state worth 404-ing on,
-      // but returning null is still better than a 500 on a detail page.
-      const budgetType = await one(
-        `SELECT ${BUDGET_TYPE_COLUMNS.map(quoteIdent).join(', ')} FROM ${quoteIdent('GL_BUDGET_TYPES')} ` +
-          `WHERE ${quoteIdent('BUDGET_TYPE_ID')} = :id`,
-        { id: bindable((version as Record<string, unknown>).BUDGET_TYPE_ID) },
-      );
+      /**
+       * ★ THIS ROUTE USED TO 500, AND THE REASON IS THE WHOLE POINT OF THE FIX.
+       *
+       * It named `GL_BUDGET_TYPES.BUDGET_TYPE_ID` directly. On the bundled sample
+       * that column exists; on the live ledger the object is keyed on `BUDGET_TYPE`
+       * (a VARCHAR) and has no `BUDGET_TYPE_ID` at all, so the statement raised
+       * `ORA-00942` — against the **table**, because a missing column on a
+       * table-backed synonym is reported that way. A hand-written statement
+       * bypasses `ledgerPlan`, which is the seam that exists to absorb exactly this
+       * divergence, so the fix is to read through it rather than to name columns.
+       *
+       * ★ THE JOIN IS ON `BUDGET_TYPE_CODE`, NOT `BUDGET_TYPE_ID`, AND THAT IS NOT
+       *   ARBITRARY. `BUDGET_TYPE_ID` is the sample's key and is **null** on the
+       *   ledger (measured: the resolver reports it unavailable), so joining on it
+       *   compares `UPPER(NULL)` and matches nothing — a lookup that returns no row
+       *   and looks like a missing type rather than a wrong key. `BUDGET_TYPE_CODE`
+       *   is declared on both arms and carries the real key on each: the sample's
+       *   `APPROP`/`CAPITAL` codes, and the ledger's `STANDARD`. The version side is
+       *   matched on `BUDGET_TYPE_ID` for the same reason in reverse — that is the
+       *   column the *version* declares, and `DIVERGENCES` maps it to `BUDGET_TYPE`
+       *   on the ledger, so both sides resolve to the same real column.
+       *
+       * ★ THE CASE DIFFERENCE IS REAL AND MEASURED — a version stores `'standard'`
+       *   while the type table stores `'STANDARD'` — so the comparison is
+       *   `UPPER()`ed on both sides. Without it the detail page would show no budget
+       *   type at all, silently.
+       */
+      const typePlan = await ledgerPlan({ table: 'GL_BUDGET_TYPES', columns: BUDGET_TYPE_COLUMNS });
+      const versionTypeKey = (version as Record<string, unknown>).BUDGET_TYPE_ID;
+      const budgetType = typePlan.ok
+        ? await one(
+            `SELECT * FROM ${typePlan.from} ` +
+              `WHERE UPPER(${quoteIdent('BUDGET_TYPE_CODE')}) = UPPER(:id)`,
+            { id: bindable(versionTypeKey) },
+          )
+        : null;
+
       const ledger = await one(
         `SELECT ${quoteIdent('LEDGER_ID')}, ${quoteIdent('NAME')}, ${quoteIdent('SHORT_NAME')}, ` +
           `${quoteIdent('CURRENCY_CODE')}, ${quoteIdent('PERIOD_SET_NAME')}, ${quoteIdent('LEDGER_CATEGORY_CODE')} ` +
@@ -771,16 +806,41 @@ function registerBudgetVersionDetail(api: Api): void {
         { ledger: bindable((version as Record<string, unknown>).LEDGER_ID) },
       );
 
-      const assignments = await rows(
-        `SELECT ${BUDGET_ASSIGNMENT_COLUMNS.map(quoteIdent).join(', ')} FROM ${quoteIdent('GL_BUDGET_ASSIGNMENTS')} ` +
-          `WHERE ${quoteIdent('BUDGET_VERSION_ID')} = :id ` +
-          `ORDER BY ${quoteIdent('RANGE_FROM')} ASC, ${quoteIdent('RANGE_TO')} ASC`,
-        { id },
-      );
+      /**
+       * ★ THE ASSIGNMENTS ARE SCOPED BY A COLUMN THAT DOES NOT EXIST ON THE LEDGER,
+       *   SO THE ANSWER IS "NONE", NOT A FABRICATED LIST.
+       *
+       * The declared key is `BUDGET_VERSION_ID`. On the ledger that column is
+       * absent — the nearest is `FUNDING_BUDGET_VERSION_ID`, which is **NULL on all
+       * 234,074 rows** (measured). Substituting it would return zero rows and look
+       * like a working filter; returning the whole 234,074-row table would be worse.
+       * So when the plan reports the key unavailable, the route says so and returns
+       * an empty list, and `assignmentCount` stays the length of that list.
+       */
+      const assignmentPlan = await ledgerPlan({
+        table: 'GL_BUDGET_ASSIGNMENTS',
+        columns: BUDGET_ASSIGNMENT_COLUMNS,
+      });
+      const versionKeyReadable = assignmentPlan.ok && !assignmentPlan.unavailable.includes('BUDGET_VERSION_ID');
+      const assignments = versionKeyReadable
+        ? await rows(
+            `SELECT * FROM ${assignmentPlan.ok ? assignmentPlan.from : quoteIdent('GL_BUDGET_ASSIGNMENTS')} ` +
+              `WHERE ${quoteIdent('BUDGET_VERSION_ID')} = :id ` +
+              `ORDER BY ${quoteIdent('RANGE_FROM')} ASC, ${quoteIdent('RANGE_TO')} ASC`,
+            { id },
+          )
+        : [];
 
       // Not a separate COUNT — this is the length of the array actually returned,
       // so the two can never disagree.
-      return { version, budgetType, ledger, assignments, assignmentCount: assignments.length };
+      return {
+        version,
+        budgetType,
+        ledger,
+        assignments,
+        assignmentCount: assignments.length,
+        assignmentsScopedByVersion: versionKeyReadable,
+      };
     },
   });
 }

@@ -5,6 +5,7 @@ import { columnNumber, execute, one, quoteIdent, rows, type Binds } from '../db/
 import { requireAppSchema } from '../db/app-schema.js';
 import { intReq, textReq } from '../schemas/columns.js';
 import { requireSuperAdmin } from '../auth/guard.js';
+import { forgetDerivedPlans } from '../db/ledger-shape.js';
 import { TENANT_COLUMNS, tenantFromRow, type OrganizationRow, type Tenant } from '../auth/session.js';
 import { slugFor } from '../lib/slug.js';
 
@@ -638,6 +639,27 @@ export function registerOrganizations(api: Api): void {
       sets.push("updated_at = datetime('now')");
 
       await execute(`UPDATE organization SET ${sets.join(', ')} WHERE slug = :slug`, args);
+
+      /**
+       * ★ THE LEDGER'S COMPOSED VIEWS BAKE THE SCOPE IN AS LITERALS, SO A SAVED ROW HAS
+       *   TO PURGE THEM OR THE CHANGE REACHES NOTHING.
+       *
+       *   `GL_BUDGET_VERSIONS`, `V_BUDGET_BY_ACCOUNT_PERIOD` and `V_ACCOUNT_POSITION`
+       *   are composed on Oracle from the tenant's fund, programs and `start_fy` —
+       *   `PERIOD_YEAR >= <start_fy>` is a literal in the fragment. Those fragments are
+       *   cached per table, so without this line the Settings screen would report the
+       *   new year while every budget statement kept filtering on the old one, for the
+       *   life of the process. Measured before the fix: the row read `startFy = 2025`
+       *   and `/api/funding/positions` still composed `PERIOD_YEAR >= 2026`.
+       *
+       *   Called after the write succeeds and before the read-back, so the response the
+       *   screen renders is the one the next ledger read will agree with. It is a
+       *   three-entry `Map.clear()` — cheap enough to do unconditionally rather than
+       *   only when the scope fields changed, which would be a second place for the
+       *   list of "fields that matter" to drift.
+       */
+      forgetDerivedPlans();
+
       return readBack(slug);
     },
   });

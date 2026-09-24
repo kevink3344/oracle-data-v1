@@ -185,12 +185,21 @@ export interface Config {
  *     a field declared HERE  wins;
  *     a field blank or absent HERE defers to the `organization` row.
  *
- *   Per field, not per source — so an operator can pin the fiscal floor without
- *   also taking the fund away from the Organization screen. `db/derived.ts` reports
- *   every disagreement once at startup (`scopeDivergence`), and `src/index.ts`
- *   prints it. That disclosure is the whole point: the failure it prevents is a
- *   screen whose figures depend on which of the two sources a code path happened
- *   to consult, and that is invisible from outside.
+ *   Per field, not per source — so an operator can pin the fund without also taking
+ *   the programs away from the Organization screen. `db/derived.ts` reports every
+ *   disagreement once at startup (`scopeDivergence`), and `src/index.ts` prints it.
+ *   That disclosure is the whole point: the failure it prevents is a screen whose
+ *   figures depend on which of the two sources a code path happened to consult, and
+ *   that is invisible from outside.
+ *
+ *   ★ `START_YEAR` IS THE ONE FIELD THAT INVERTS THAT RULE, AND IT DOES SO ON
+ *     PURPOSE. The organization row's `start_fy` is authoritative and `.env` is only
+ *     the fallback, because the floor is the one field a reader can see the effect of
+ *     on screen: the SQL shown beside a budget figure prints `PERIOD_YEAR >= <year>`,
+ *     so a `.env` value that outranked the row would put a year on the page that no
+ *     screen in the app can explain or change. The fund and the programs have no such
+ *     surface — they are invisible in the rendered SQL — so they keep the declared
+ *     precedence above.
  *
  * ★ `undefined` vs `[]` is load-bearing for `programs`:
  *     `undefined` — this file says nothing; the tenant row decides;
@@ -209,10 +218,14 @@ export interface LedgerScopeConfig {
   /** `SEGMENT3` values. `undefined` = defer; `[]` = no program filter. */
   programs: string[] | undefined;
   /**
-   * Earliest `GL_BALANCES.PERIOD_YEAR`.
+   * Earliest `GL_BALANCES.PERIOD_YEAR` — a FALLBACK, not an override.
    *
    * ★ A FISCAL year, and `PERIOD_YEAR` is the year a period ENDS in, so
    *   `startYear: 2021` admits from `2020-07-01`.
+   *
+   * ★ THE ORGANIZATION ROW WINS THIS FIELD. See the note on the interface: the floor
+   *   is visible in the SQL the app now shows, so it has to be the value the
+   *   Organization screen can change. This applies only where no row states one.
    */
   startYear: number | undefined;
   /** Ceiling on `GL_BALANCES` rows one statement may read. */

@@ -186,6 +186,102 @@ const DIVERGENCES: Readonly<Record<string, Divergence>> = {
       FLEX_VALUE: `v.${q('FLEX_VALUE')}`,
     },
   },
+
+  /**
+   * ★★ THE FOUR BUDGET SETUP TABLES: THE SAMPLE AND THE LEDGER ARE NOT SUPERSETS
+   *    OF ONE ANOTHER, SO THIS IS A DIVERGENCE AND NOT A RENAME.
+   *
+   * The bundled sample (`data/sql/turso/00-schema.sql:231–283`) was authored to the
+   * *extract's* vocabulary — `BUDGET_TYPE_ID`, `BUDGET_TYPE_CODE`, `STATUS_CODE`,
+   * `LATEST_FLAG`, `FIRST_PERIOD_NAME`, `BUDGET_ENTITY_NAME`, `RANGE_FROM`/`RANGE_TO`
+   * — and the sample's own reporting views join on those names (`:688–702`). The
+   * live ledger keeps EBS's real shape instead: `GL_BUDGET_TYPES` is keyed on
+   * `BUDGET_TYPE` (a VARCHAR) and has no `BUDGET_TYPE_ID` at all; a version carries
+   * `BUDGET_TYPE`, `VERSION_NUM`, `STATUS`, `DATE_OPENED`; an entity's name is `NAME`.
+   *
+   * Measured with `ledgerPlan` on both arms — the sample reports `unavailable: []`
+   * for all four while the ledger reports **4 of 5**, **8 of 11**, **3 of 4** and
+   * **3 of 4** respectively. So neither store holds the other's columns, and the
+   * descriptor cannot be renamed to suit one without breaking the other.
+   *
+   * ★ WHY THE EXISTING GUARD DID NOT CATCH THIS. `resolve` refuses an object that
+   *   supplies *none* of the declared columns (the "different shape" 503). Every one
+   *   of these four keeps one to three declared columns, so the guard is not reached
+   *   and the endpoints answered **200 with the missing fields null** — a defect no
+   *   status-code check can see.
+   *
+   * ★ THE MAPPING IS BY MEANING, NOT BY RESEMBLANCE. `BUDGET_TYPE_CODE` and
+   *   `BUDGET_TYPE` are the same key; `STATUS_CODE` and `STATUS` are the same column
+   *   under two names; `BUDGET_ENTITY_NAME` is `NAME`. Two are *not* renames and are
+   *   deliberately left absent rather than guessed:
+   *     - `ENABLED_FLAG` has no counterpart on any of the three objects. EBS encodes
+   *       "not in use" as `STATUS_CODE` on an *entity*, and a type has no such
+   *       column — so an entity's status is exposed through its own `STATUS_CODE`
+   *       (see `GL_BUDGET_ENTITIES` below) and a type's `ENABLED_FLAG` stays null.
+   *     - `LATEST_FLAG` genuinely does not exist on the ledger. It is not `'N'`; it
+   *       is absent, and the UI must say so rather than label every version
+   *       superseded. Leaving it out of `at` is what keeps that honest.
+   *
+   * ★ CASE DIFFERS BETWEEN TWO OF THEM AND THE JOIN DEPENDS ON IT. A version stores
+   *   `BUDGET_TYPE = 'standard'` (lowercase) while the type table stores
+   *   `'STANDARD'`. Any join between the two needs `UPPER()` on both sides or it
+   *   silently matches nothing — see the detail route in `routes/funding.ts`.
+   */
+  GL_BUDGET_TYPES: {
+    object: 'GL_BUDGET_TYPES',
+    alias: '',
+    from: q('GL_BUDGET_TYPES'),
+    at: {
+      BUDGET_TYPE_CODE: q('BUDGET_TYPE'),
+      BUDGET_NAME: q('BUDGET_TYPE'),
+    },
+  },
+
+  GL_BUDGET_VERSIONS: {
+    object: 'GL_BUDGET_VERSIONS',
+    alias: '',
+    from: q('GL_BUDGET_VERSIONS'),
+    at: {
+      BUDGET_TYPE_ID: q('BUDGET_TYPE'),
+      STATUS_CODE: q('STATUS'),
+      FIRST_PERIOD_NAME: q('DATE_OPENED'),
+    },
+  },
+
+  GL_BUDGET_ENTITIES: {
+    object: 'GL_BUDGET_ENTITIES',
+    alias: '',
+    from: q('GL_BUDGET_ENTITIES'),
+    at: {
+      BUDGET_ENTITY_NAME: q('NAME'),
+      ENABLED_FLAG: q('STATUS_CODE'),
+    },
+  },
+
+  /**
+   * ★ `GL_BUDGET_ASSIGNMENTS` IS THE ONE THAT CANNOT BE MAPPED, AND SAYING SO IS
+   *   THE ANSWER.
+   *
+   * The sample keys a range row on `(BUDGET_VERSION_ID, RANGE_FROM, RANGE_TO)`. The
+   * ledger has **no `BUDGET_VERSION_ID`** — it has `FUNDING_BUDGET_VERSION_ID`,
+   * which is **NULL on all 234,074 rows** (measured), plus `CODE_COMBINATION_ID`,
+   * `RANGE_ID` and `ORDERING_VALUE`. So on this deployment an assignment is a
+   * per-account-combination row that no version can be joined to, and the honest
+   * mapping is: expose the entity and the combination, and leave the version key
+   * null rather than substituting a column that is empty everywhere.
+   *
+   * `RANGE_FROM`/`RANGE_TO` are left absent for the same reason — `ORDERING_VALUE`
+   * is a single segment value (e.g. `5110`), not an end of a concatenated key, and
+   * calling it `RANGE_FROM` would invent a range that does not exist.
+   */
+  GL_BUDGET_ASSIGNMENTS: {
+    object: 'GL_BUDGET_ASSIGNMENTS',
+    alias: '',
+    from: q('GL_BUDGET_ASSIGNMENTS'),
+    at: {
+      CODE_COMBINATION_ID: q('CODE_COMBINATION_ID'),
+    },
+  },
 };
 
 /**
@@ -489,6 +585,25 @@ export function ledgerPlan(d: LedgerShapeRequest): Promise<LedgerResolution> {
    *   registry decision in another module. Composing first makes it independent.
    */
   if (d.filter === undefined) {
+    /**
+     * ★ THE CACHE KEY CARRIES THE SCOPE, BECAUSE THE FRAGMENT IS A FUNCTION OF IT.
+     *
+     *   This used to be keyed by table alone, on the stated premise that "a derived
+     *   fragment is a string composed from the organization row and never goes stale
+     *   within a process". **That premise is false**, and it produced a defect a reader
+     *   could see: the organization row is editable at runtime — that is what the
+     *   Settings screen is for — so changing `start_fy` left every budget statement
+     *   filtering on the OLD year for the life of the process. Measured: the row read
+     *   `startFy = 2025` while `/api/funding/positions` still composed
+     *   `PERIOD_YEAR >= 2026`.
+     *
+     *   `derivedPlan` is async (it awaits the tenant), so the key cannot be built
+     *   here without awaiting it first. Instead the cache is keyed by table and
+     *   **invalidated on write** (`forgetDerivedPlans`, called by the organizations
+     *   route), which is the same pattern `forgetReadCap` uses for the cap registry
+     *   and for the same reason: a stored setting that a screen can change has to be
+     *   able to invalidate what was derived from it.
+     */
     const derived = planCacheDerived.get(d.table);
     if (derived) return derived;
 
@@ -569,16 +684,38 @@ export function ledgerPlan(d: LedgerShapeRequest): Promise<LedgerResolution> {
 /**
  * The derived-view plans, cached separately from `planCache`.
  *
- * Same reason in both cases — one resolution per table — but a different lifetime:
- * a derived fragment is a string composed from the organization row and never goes
- * stale within a process, whereas the entries in `planCache` describe grants. Keeping
- * them apart means `resetLedgerPlans()` can clear the grant cache without also
- * purging a fragment that is correct.
+ * Same reason in both cases — one resolution per table — but a different lifetime: a
+ * derived fragment is composed from the organization row, while the entries in
+ * `planCache` describe grants. Keeping them apart means `resetLedgerPlans()` can clear
+ * the grant cache without also purging a fragment that is still correct.
+ *
+ * ★ IT IS NOT PERMANENT, AND THE FIRST VERSION OF THIS COMMENT CLAIMED IT WAS. It said
+ *   the fragment "never goes stale within a process" — which is true of a grant and
+ *   false of a tenant setting. `forgetDerivedPlans` is what the organizations write
+ *   path calls, and the note at the lookup above records the measured defect that made
+ *   it necessary.
  */
 const planCacheDerived = new Map<string, Promise<LedgerResolution>>();
+
+/**
+ * Drop the composed-view plans, so the next read re-derives them from the tenant.
+ *
+ * ★ CALLED BY THE ORGANIZATIONS WRITE PATH, AND IT IS NOT OPTIONAL. Every field of the
+ *   scope — the fund, the programs and `start_fy` — is baked into these fragments as a
+ *   literal, so a saved organization row that does not purge this cache changes what
+ *   the Settings screen displays and nothing about what the ledger reads. That is the
+ *   worst shape of bug: the screen agrees with itself and the data does not.
+ *
+ * Cheap by construction — three tables, one string each — so it is called on every
+ * successful write rather than being made clever.
+ */
+export function forgetDerivedPlans(): void {
+  planCacheDerived.clear();
+}
 
 /** Drop the caches. Test seam only — the grants behind them do not change at runtime. */
 export function resetLedgerPlans(): void {
   probeCache.clear();
   planCache.clear();
+  forgetDerivedPlans();
 }
