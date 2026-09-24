@@ -133,14 +133,24 @@ console.log('\n=== GATES ===');
   record('G1  row counts match build-manifest.json', bad.length === 0, bad.join(', ') || `${Object.keys(expected).length} tables`);
 }
 
-// G2 — account identity is clean. 520 accounts, every CCID distinct.
+// G2 — account identity is clean. Every CCID distinct, every segment key distinct.
+//
+// ★ THE COUNT IS READ FROM THE MANIFEST, NOT WRITTEN HERE. It was the literal 520
+//   until the FY2027 first-fundings slice added accounts, at which point this gate
+//   failed for the right reason (the count moved) but with a message naming a
+//   number nobody had agreed to. The invariant this gate is actually about is
+//   IDENTITY — 1:1 between row, CCID and segment key — and that is what it now
+//   asserts; the total is reported, not pinned. Pinning it here would mean every
+//   sample addition needs an edit to a verification script, which is the same
+//   hand-copied-allowlist defect this file's G13a exists to prevent.
 {
   const total = num(await one('SELECT COUNT(*) n FROM GL_CODE_COMBINATIONS'));
   const distinct = num(await one('SELECT COUNT(DISTINCT CODE_COMBINATION_ID) n FROM GL_CODE_COMBINATIONS'));
   const keys = num(await one("SELECT COUNT(DISTINCT SEGMENT1||'.'||SEGMENT2||'.'||SEGMENT3||'.'||SEGMENT4||'.'||SEGMENT5||'.'||SEGMENT6||'.'||SEGMENT7) n FROM GL_CODE_COMBINATIONS"));
-  record('G2  COA: 520 accounts, CCID and segment key both 1:1',
-    total === 520 && distinct === total && keys === total,
-    `${total} rows, ${distinct} distinct CCID, ${keys} distinct segment key`);
+  const expected = manifest.coaTotal;
+  record('G2  COA: every CCID and segment key 1:1, count matches the manifest',
+    total === expected && distinct === total && keys === total,
+    `${total} rows (manifest ${expected}), ${distinct} distinct CCID, ${keys} distinct segment key`);
 }
 
 // G3 — the report grid reproduces exactly. This is the single most important
@@ -273,11 +283,16 @@ console.log('\n=== GATES ===');
 
 // G11 — the compat objects exist and return something, so a Mode A consumer
 // (local node:sqlite, where shims can be registered) has a surface to work with.
+//
+// ★ THE KEY VIEW MUST AGREE WITH THE COA TABLE, which is the real invariant: it is
+//   a projection of GL_CODE_COMBINATIONS, so a mismatch means the view is stale or
+//   filtered. Asserting a literal (520) tested the sample's size instead.
 {
   const dual = await one('SELECT COUNT(*) n FROM DUAL');
   const cck = num(await one('SELECT COUNT(*) n FROM V_CODE_COMBINATION_KEY'));
-  record('G11 DUAL and V_CODE_COMBINATION_KEY are usable', num(dual) === 1 && cck === 520,
-    `DUAL ${num(dual)} row, key view ${cck} rows`);
+  const coa = num(await one('SELECT COUNT(*) n FROM GL_CODE_COMBINATIONS'));
+  record('G11 DUAL and V_CODE_COMBINATION_KEY are usable', num(dual) === 1 && cck === coa,
+    `DUAL ${num(dual)} row, key view ${cck} rows, COA ${coa} rows`);
 }
 
 // G12 — nothing is stored as a blank or zero-date string. SQLite treats '' as a

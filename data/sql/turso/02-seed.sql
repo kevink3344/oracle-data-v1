@@ -3,12 +3,12 @@
 -- Money is REAL dollars (measured safe at these magnitudes — see 03-notes.sql).
 -- Every row's origin is recorded in SAMPLE_DATA_PROVENANCE.
 --
---   COA rows         520  (380 extract + 4 transcribed + 127 derived + 9 synthetic)
+--   COA rows         536  (380 extract + 4 transcribed + 127 derived + 25 synthetic)
 --   PO headers       749
 --   PO lines        2805
 --   distributions   2802
---   GL balances       31
---   provenance       559
+--   GL balances       53
+--   provenance       576
 
 BEGIN;
 INSERT INTO GL_LEDGERS (LEDGER_ID, NAME, SHORT_NAME, CHART_OF_ACCOUNTS_ID, CURRENCY_CODE, PERIOD_SET_NAME, LEDGER_CATEGORY_CODE, DESCRIPTION) VALUES
@@ -666,7 +666,23 @@ INSERT INTO GL_CODE_COMBINATIONS (CODE_COMBINATION_ID, CHART_OF_ACCOUNTS_ID, ACC
   (9626366, 101, 'E', 'Y', 'N', '00', '0000', '000', '000', 'UNRESOLVED', '0000', '9626366', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segment key unique; it is not a cost centre. Do not report against this row.', NULL),
   (9692973, 101, 'E', 'Y', 'N', '00', '0000', '000', '000', 'UNRESOLVED', '0000', '9692973', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segment key unique; it is not a cost centre. Do not report against this row.', NULL),
   (9168314, 101, 'E', 'Y', 'N', '00', '0000', '000', '000', 'UNRESOLVED', '0000', '9168314', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segment key unique; it is not a cost centre. Do not report against this row.', NULL),
-  (1750527, 101, 'E', 'Y', 'N', '00', '0000', '000', '000', 'UNRESOLVED', '0000', '1750527', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segment key unique; it is not a cost centre. Do not report against this row.', NULL);
+  (1750527, 101, 'E', 'Y', 'N', '00', '0000', '000', '000', 'UNRESOLVED', '0000', '1750527', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segment key unique; it is not a cost centre. Do not report against this row.', NULL),
+  (9920001, 101, 'E', 'Y', 'N', '04', '6570', '862', '526', '0513', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920002, 101, 'E', 'Y', 'N', '04', '6570', '862', '527', '0514', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 527). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920003, 101, 'E', 'Y', 'N', '04', '6570', '862', '529', '0516', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 529). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920004, 101, 'E', 'Y', 'N', '04', '6570', '862', '532', '0521', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 532). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920005, 101, 'E', 'Y', 'N', '04', '6570', '862', '526', '0724', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920006, 101, 'E', 'Y', 'N', '04', '6570', '862', '541', '0746', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920007, 101, 'E', 'Y', 'N', '04', '6570', '862', '524', '0832', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 524). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920008, 101, 'E', 'Y', 'N', '04', '6570', '862', '523', '1420', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 523). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920009, 101, 'E', 'Y', 'N', '04', '6570', '862', '511', '0453', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 511). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920010, 101, 'E', 'Y', 'N', '04', '6570', '862', '393', '0454', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 393). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920011, 101, 'E', 'Y', 'N', '04', '6570', '862', '541', '0451', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920012, 101, 'E', 'Y', 'N', '04', '6570', '862', '526', '0524', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920013, 101, 'E', 'Y', 'N', '04', '6570', '862', '527', '0527', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 527). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920014, 101, 'E', 'Y', 'N', '04', '6570', '862', '541', '0528', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920015, 101, 'E', 'Y', 'N', '04', '6570', '862', '529', '0529', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 529). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL),
+  (9920016, 101, 'E', 'Y', 'N', '04', '6570', '862', '532', '0530', '0840', '000', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 532). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.', NULL);
 
 INSERT INTO GL_BUDGET_TYPES (BUDGET_TYPE_ID, BUDGET_TYPE_CODE, BUDGET_NAME, DESCRIPTION, ENABLED_FLAG) VALUES
   (1, 'APPROP',  'Appropriation',            'Funding authorised for the project. The report calls this column Allocations/Reimb.', 'Y'),
@@ -677,7 +693,20 @@ INSERT INTO GL_BUDGET_VERSIONS (BUDGET_VERSION_ID, LEDGER_ID, BUDGET_TYPE_ID, BU
   (501, 1001, 1, 'FY23 Original Appropriation',        'JUL-22', 'JUN-23', 'JUL-22', 'FROZEN',  'N', 'OPEN',   '2022-07-01 00:00:00'),
   (502, 1001, 1, 'FY24 Revised Appropriation',         'JUL-23', 'JUN-24', 'JUL-23', 'FROZEN',  'N', 'OPEN',   '2023-07-01 00:00:00'),
   (503, 1001, 2, 'Approved Capital Budget',            'JUL-22', 'JUN-28', 'JUL-26', 'OPEN',    'Y', 'OPEN',   '2022-07-01 00:00:00'),
-  (504, 1001, 1, 'FY25-FY28 Appropriations and Reallocations', 'JUL-24', 'JUN-28', 'JUL-26', 'CURRENT', 'Y', 'OPEN', '2024-07-01 00:00:00');
+  (504, 1001, 1, 'FY25-FY28 Appropriations and Reallocations', 'JUL-24', 'JUN-28', 'JUL-26', 'CURRENT', 'Y', 'OPEN', '2024-07-01 00:00:00'),
+  -- ★ 505 IS CAPITAL (type 2), WHICH IS WHAT KEEPS THE REPORT'S FIGURES INTACT.
+  --   The FY2027 first-fundings slice hangs off this version. Had it used 504
+  --   (APPROP), those rows would have landed in V_ACCOUNT_POSITION's
+  --   ALLOCATIONS_REIMB column and moved the total gate G5 pins to
+  --   reportBudgetTotal + reportAllocTotal. CAPITAL keeps them out of it.
+  --
+  --   It is a SEPARATE version rather than 503 because 503 is the version G5's
+  --   SUMMARY_FLAG trap measures (the 97,790,333.00 delta) — reusing it would
+  --   have moved that figure instead. A new version is aggregated by no gate.
+  --
+  --   Its spans are FY2027 only, so it adds no second-version ambiguity in the
+  --   periods 501 and 503 already overlap (which gate 9 asserts is detectable).
+  (505, 1001, 2, 'FY27 Capital Appropriations (sample slice)', 'JUL-26', 'JUN-27', 'JUL-26', 'OPEN', 'N', 'OPEN', '2026-07-01 00:00:00');
 
 INSERT INTO GL_BUDGET_ENTITIES (BUDGET_ENTITY_ID, BUDGET_TYPE_ID, BUDGET_ENTITY_NAME, ENABLED_FLAG) VALUES
   (1, 1, 'WCPSS Appropriations', 'Y'), (2, 2, 'WCPSS Capital Projects', 'Y');
@@ -722,6 +751,28 @@ INSERT INTO GL_BALANCES (LEDGER_ID, CODE_COMBINATION_ID, PERIOD_NAME, PERIOD_YEA
   (1001, 9900003, 'SEP-26', 2027, 3, 'Month', 'A', NULL, NULL, 'USD', 'N', 214749.07, 0, 0, 0, 0, 0),
   (1001, 9900004, 'SEP-26', 2027, 3, 'Month', 'E', NULL, 1, 'USD', 'N', 149072.93, 0, 0, 0, 0, 0),
   (1001, 9900004, 'SEP-26', 2027, 3, 'Month', 'A', NULL, NULL, 'USD', 'N', 25000, 0, 0, 0, 0, 0),
+  (1001, 9920001, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 1240500, 0, 0, 0, 0, 0),
+  (1001, 9920002, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 3880250, 0, 0, 0, 0, 0),
+  (1001, 9920003, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 615775, 0, 0, 0, 0, 0),
+  (1001, 9920004, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 288400, 0, 0, 0, 0, 0),
+  (1001, 9315739, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 1905320, 0, 0, 0, 0, 0),
+  (1001, 9562640, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 742610, 0, 0, 0, 0, 0),
+  (1001, 9910031, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 133900, 0, 0, 0, 0, 0),
+  (1001, 9019062, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 96450, 0, 0, 0, 0, 0),
+  (1001, 9055885, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 1150000, 0, 0, 0, 0, 0),
+  (1001, 9920005, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 2015775, 0, 0, 0, 0, 0),
+  (1001, 9920006, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 468925, 0, 0, 0, 0, 0),
+  (1001, 9920007, 'JUL-26', 2027, 1, 'Month', 'B', 505, NULL, 'USD', 'N', 77300, 0, 0, 0, 0, 0),
+  (1001, 9920008, 'AUG-26', 2027, 2, 'Month', 'B', 505, NULL, 'USD', 'N', 512640, 0, 0, 0, 0, 0),
+  (1001, 9640797, 'AUG-26', 2027, 2, 'Month', 'B', 505, NULL, 'USD', 'N', 1338200, 0, 0, 0, 0, 0),
+  (1001, 9920009, 'AUG-26', 2027, 2, 'Month', 'B', 505, NULL, 'USD', 'N', 402115, 0, 0, 0, 0, 0),
+  (1001, 9920010, 'AUG-26', 2027, 2, 'Month', 'B', 505, NULL, 'USD', 'N', 88750, 0, 0, 0, 0, 0),
+  (1001, 9920011, 'AUG-26', 2027, 2, 'Month', 'B', 505, NULL, 'USD', 'N', 1640000, 0, 0, 0, 0, 0),
+  (1001, 9920012, 'SEP-26', 2027, 3, 'Month', 'B', 505, NULL, 'USD', 'N', 2470000, 0, 0, 0, 0, 0),
+  (1001, 9920013, 'SEP-26', 2027, 3, 'Month', 'B', 505, NULL, 'USD', 'N', 5120880, 0, 0, 0, 0, 0),
+  (1001, 9920014, 'SEP-26', 2027, 3, 'Month', 'B', 505, NULL, 'USD', 'N', 3015450, 0, 0, 0, 0, 0),
+  (1001, 9920015, 'SEP-26', 2027, 3, 'Month', 'B', 505, NULL, 'USD', 'N', 1844325, 0, 0, 0, 0, 0),
+  (1001, 9920016, 'SEP-26', 2027, 3, 'Month', 'B', 505, NULL, 'USD', 'N', 655900, 0, 0, 0, 0, 0),
   (1001, 3000001, 'JUL-22', 2023, 1, 'Month', 'B', 503, NULL, 'USD', 'N', 97790333, 0, 0, 0, 0, 0),
   (1001, 3000002, 'JUL-22', 2023, 1, 'Month', 'B', 503, NULL, 'USD', 'N', 1000000, 0, 0, 0, 0, 0),
   (2002, 9900001, 'JUL-22', 2023, 1, 'Month', 'B', 503, NULL, 'USD', 'N', 6738830, 0, 0, 0, 0, 0),
@@ -16768,12 +16819,29 @@ INSERT INTO SAMPLE_DATA_PROVENANCE (TABLE_NAME, ROW_KEY, DATA_ORIGIN, SOURCE_FIL
   ('GL_CODE_COMBINATIONS', '9692973', 'synthetic', 'inv-distributions.json', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segmen'),
   ('GL_CODE_COMBINATIONS', '9168314', 'synthetic', 'inv-distributions.json', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segmen'),
   ('GL_CODE_COMBINATIONS', '1750527', 'synthetic', 'inv-distributions.json', 'UNRESOLVED ACCOUNT — referenced by inv-distributions.json but absent from the COA extract, so its segments are unknown. Placeholder segments, real CCID. SEGMENT7 holds the CCID only to keep the segmen'),
-  ('GL_BALANCES', '*', 'derived', 'report-findings.md section 3 + authored traps', 'ALL 31 rows: the four report accounts plus five filter traps. Per-row detail follows under ROW_KEY ''report:<ccid>''; every remaining row is a trap covered by ''traps''.'),
+  ('GL_CODE_COMBINATIONS', '9920001', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920002', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 527). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920003', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 529). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920004', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 532). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920005', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920006', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920007', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 524). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920008', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 523). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920009', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 511). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920010', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 393). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920011', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920012', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 526). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920013', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 527). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920014', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 541). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920015', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 529). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_CODE_COMBINATIONS', '9920016', 'synthetic', 'authored', 'FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object 532). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost no'),
+  ('GL_BALANCES', '*', 'derived', 'report-findings.md section 3 + authored traps + FY2027 slice', 'ALL 53 rows: 31 transcribed/trap rows (the four report accounts, their period splits, and five filter traps) plus 22 synthetic FY2027 first-funding rows. Per-row detail follows under ROW_KEY ''report:<ccid>'' and ''fy27-first-funding''; every remaining row is a trap covered by ''traps''.'),
   ('GL_BALANCES', 'report:9900001', 'transcribed', 'report-findings.md section 3', 'Object 526: budget 6738830, allocations 6738830, encumbrances 2329280.4, expenditures 4409549.6'),
   ('GL_BALANCES', 'report:9900002', 'transcribed', 'report-findings.md section 3', 'Object 527: budget 89828010, allocations 87448714, encumbrances 2570739.39, expenditures 576844.86'),
   ('GL_BALANCES', 'report:9900003', 'transcribed', 'report-findings.md section 3', 'Object 529: budget 936025, allocations 626290, encumbrances 149072.93, expenditures 214749.07'),
   ('GL_BALANCES', 'report:9900004', 'transcribed', 'report-findings.md section 3', 'Object 532: budget 287468, allocations 541624.93, encumbrances 149072.93, expenditures 25000'),
   ('GL_BALANCES', 'traps', 'synthetic', 'authored', 'Rows excluded by exactly one of the five non-optional filters: LEDGER_ID=2002, TRANSLATED_FLAG=Y/EUR, ENCUMBRANCE_TYPE_ID=1 under ACTUAL_FLAG=B, plus the SUMMARY_FLAG=Y and ENABLED_FLAG=N accounts.'),
+  ('GL_BALANCES', 'fy27-first-funding', 'synthetic', 'authored', '22 budget rows (ACTUAL_FLAG=B, version 505, fund 04, program 862) spread across JUL-26/AUG-26/SEP-26. They exist so a "latest 20 fund-04 first fundings" view has a multi-period population to preview against — the transcribed report block holds almost none in FY2027. NOT derived from the report and NOT expected to reconcile with any report figure.'),
   ('GL_LEDGERS', '*', 'derived', 'json-output.json (CHART_OF_ACCOUNTS_ID only)', 'ALL 2 rows. Only CHART_OF_ACCOUNTS_ID=101 is real; LEDGER_ID (1001 primary, 2002 secondary), names and categories are assigned. Ledger 2002 exists solely to carry the LEDGER_ID filter trap.'),
   ('FND_CURRENCIES', '*', 'synthetic', 'authored', 'ALL 2 rows. USD is implied by the ledger; EUR exists solely as a filter trap.'),
   ('GL_PERIODS', '*', 'synthetic', 'authored', 'ALL 96 rows. Fiscal year starts 1 July. FY23 = JUL-22..JUN-23, confirmed by the FY23 appropriation BOE date of 7/13/2022.'),
@@ -16782,7 +16850,7 @@ INSERT INTO SAMPLE_DATA_PROVENANCE (TABLE_NAME, ROW_KEY, DATA_ORIGIN, SOURCE_FIL
   ('FND_FLEX_VALUES', '*', 'transcribed', 'report-findings.md section 3', 'ALL 1 rows. Only level 0450 is named, because the report names only one project.'),
   ('FND_FLEX_VALUES_TL', '*', 'transcribed', 'report-findings.md section 3', 'ALL 1 rows. Mirrors FND_FLEX_VALUES. The extract carries no language rows, so no second language exists and none is invented.'),
   ('GL_BUDGET_TYPES', '*', 'synthetic', 'authored', 'ALL 3 rows. APPROP/CAPITAL split is this build''s reading of the report''s two budget columns - see the V_ACCOUNT_POSITION comment.'),
-  ('GL_BUDGET_VERSIONS', '*', 'derived', 'report-findings.md section 2', 'ALL 4 rows. Version spans follow the BOE dates of the funding lines.'),
+  ('GL_BUDGET_VERSIONS', '*', 'derived', 'report-findings.md section 2 + FY2027 slice', 'ALL 5 rows. Versions 501-504 follow the BOE dates of the funding lines. Version 505 is SYNTHETIC and exists only to carry the FY2027 first-fundings slice; it is CAPITAL-typed so it does not enter V_ACCOUNT_POSITION''s ALLOCATIONS_REIMB column.'),
   ('GL_BUDGET_ENTITIES', '*', 'synthetic', 'authored', 'ALL 2 rows. One entity per budget type. Authored so GL_BUDGET_ASSIGNMENTS has a referent.'),
   ('GL_BUDGET_ASSIGNMENTS', '*', 'synthetic', 'authored', 'ALL 4 rows. Ranges covering segment prefix 04.6570.862.'),
   ('GL_LOOKUPS', '*', 'synthetic', 'authored', 'ALL 5 rows. YES_NO plus the three BUDGET_STATUS values used by GL_BUDGET_VERSIONS.STATUS_CODE.'),

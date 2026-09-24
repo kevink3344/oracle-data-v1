@@ -478,6 +478,101 @@ ins('FND_FLEX_VALUES_TL', ['FLEX_VALUE_SET_ID', 'FLEX_VALUE', 'LANGUAGE', 'DESCR
   [[num(10105), lit(LEVEL), lit('US'), lit('Athens Drive High School')]]);
 
 // ---------------------------------------------------------------------------
+// 2a. FISCAL 2027 FIRST-FUNDINGS SLICE — a wide fund-04 population
+//
+// ★ WHY THIS EXISTS. The transcribed block further down is a faithful
+//   reproduction of the report, and it is deliberately narrow: it holds a handful
+//   of fund-04 combinations, and almost none in fiscal 2027 with a budget flag
+//   (measured: period_year=2027 held exactly 1 `B` row, in JUL-26). A view asking
+//   for "the latest 20 fund-04 first fundings" therefore returned 1 row against
+//   the sample while returning 20 against the live ledger — the sample, not the
+//   SQL, was the limit.
+//
+//   This block is SYNTHETIC and labelled as such in SAMPLE_DATA_PROVENANCE. It
+//   does not touch the transcribed rows and does not change any report figure: it
+//   adds a separate population in periods the report never covers, so the View
+//   Builder has something representative to preview against.
+//
+// ★ IT SPANS SEVERAL PERIODS ON PURPOSE. The `first fundings` view ranks each
+//   combination's EARLIEST allocation and then takes the newest 20 by period. A
+//   single-period population would make that ordering a tie and prove nothing, so
+//   the allocations are spread across three FY2027 periods with a deliberate shape:
+//
+//     - most combinations first funded in JUL-26 (pn 1)
+//     - a smaller group in AUG-26 (pn 2)
+//     - a few in SEP-26 (pn 3), so the "latest" ordering has a real head
+//
+//   The amounts are not round numbers and are not derived from the report, so a
+//   reader cannot mistake them for a transcribed figure.
+//
+// ★★ TWO CONSTRAINTS THIS BLOCK MUST RESPECT, AND BOTH ARE GATE-ENFORCED.
+//   These are ordinary `GL_BALANCES` rows, so every aggregate over that table sees
+//   them. Two existing gates would have broken, and both would have been RIGHT to
+//   break — the fix is to choose levels and versions that stay out of the
+//   aggregates those gates pin, not to loosen the gates.
+//
+//     1. LEVEL MUST NOT BE '0450'. `V_ACCOUNT_POSITION` filters
+//        `LEVEL_CODE = '0450'`, and G3 asserts that view returns EXACTLY the four
+//        report accounts. A new 0450 account would appear as a fifth row and fail
+//        G3 — correctly, because the report's grid really is four accounts.
+//        Every level below is therefore one the report never names.
+//
+//     2. BUDGET_VERSION_ID MUST BE A 'CAPITAL' VERSION, NOT AN 'APPROP' ONE.
+//        `V_ACCOUNT_POSITION` splits its two budget columns by BUDGET_TYPE_CODE:
+//        APPROP feeds ALLOCATIONS_REIMB, CAPITAL feeds WCPSS_BUDGET. G5 asserts
+//        the filtered fund-04 total equals reportBudgetTotal + reportAllocTotal,
+//        so a new APPROP row would inflate ALLOCATIONS_REIMB and fail G5.
+//        Version 503 is CAPITAL — but it is also the version G5's SUMMARY_FLAG
+//        trap measures (the 97,790,333.00 delta), so reusing it would move that
+//        figure instead. A NEW CAPITAL version (505) is added below, which no
+//        gate aggregates.
+//
+// ★★ WHY THIS IS DEFINED *HERE*, ABOVE THE COA INSERT, AND NOT WITH THE BALANCES.
+//   `coaAll` is snapshotted into the GL_CODE_COMBINATIONS INSERT a few lines
+//   below. An `ensureAccount` call placed after that point allocates a CCID the
+//   COA insert has already been emitted without, and the balance rows then fail
+//   with `SQLITE_CONSTRAINT_FOREIGNKEY` — a message that names no account, so it
+//   reads like a broken balance row rather than a row emitted out of order. The
+//   account ids are therefore resolved in this loop, and the `balRow` calls that
+//   use them live with the other balances further down.
+// ---------------------------------------------------------------------------
+const FY27_VERSION_ID = 505;
+const FY27_FIRST_FUNDING = [
+  // [period, object, level, cost centre, amount, ccid]  — fund 04, program 862
+  ['2026-07', '526', '0513', '0840', 1_240_500.00],
+  ['2026-07', '527', '0514', '0840', 3_880_250.00],
+  ['2026-07', '529', '0516', '0840', 615_775.00],
+  ['2026-07', '532', '0521', '0840', 288_400.00],
+  ['2026-07', '541', '0523', '0840', 1_905_320.00],
+  ['2026-07', '541', '0526', '0840', 742_610.00],
+  ['2026-07', '526', '0700', '0840', 133_900.00],
+  ['2026-07', '529', '0710', '0840', 96_450.00],
+  ['2026-07', '541', '0720', '0840', 1_150_000.00],
+  ['2026-07', '526', '0724', '0840', 2_015_775.00],
+  ['2026-07', '541', '0746', '0840', 468_925.00],
+  ['2026-07', '524', '0832', '0840', 77_300.00],
+  ['2026-08', '523', '1420', '0840', 512_640.00],
+  ['2026-08', '529', '2594', '0840', 1_338_200.00],
+  ['2026-08', '511', '0453', '0840', 402_115.00],
+  ['2026-08', '393', '0454', '0840', 88_750.00],
+  ['2026-08', '541', '0451', '0840', 1_640_000.00],
+  ['2026-09', '526', '0524', '0840', 2_470_000.00],
+  ['2026-09', '527', '0527', '0840', 5_120_880.00],
+  ['2026-09', '541', '0528', '0840', 3_015_450.00],
+  ['2026-09', '529', '0529', '0840', 1_844_325.00],
+  ['2026-09', '532', '0530', '0840', 655_900.00],
+];
+for (const row of FY27_FIRST_FUNDING) {
+  const [obj, level, cc] = [row[1], row[2], row[3]];
+  row[5] = ensureAccount(
+    ['04', '6570', '862', obj, level, cc, '000'],
+    SYNTHETIC,
+    `FISCAL 2027 FIRST-FUNDINGS SLICE (fund 04, program 862, object ${obj}). Authored so the View Builder has a multi-period fund-04 population to preview against; the transcribed report block holds almost none in FY2027.`,
+    'authored',
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 2. GL_CODE_COMBINATIONS — every real account, plus every labelled orphan
 // ---------------------------------------------------------------------------
 const coaAll = [...coaById.values(), ...coaNew];
@@ -499,7 +594,20 @@ push(`INSERT INTO GL_BUDGET_VERSIONS (BUDGET_VERSION_ID, LEDGER_ID, BUDGET_TYPE_
   (501, 1001, 1, 'FY23 Original Appropriation',        'JUL-22', 'JUN-23', 'JUL-22', 'FROZEN',  'N', 'OPEN',   '2022-07-01 00:00:00'),
   (502, 1001, 1, 'FY24 Revised Appropriation',         'JUL-23', 'JUN-24', 'JUL-23', 'FROZEN',  'N', 'OPEN',   '2023-07-01 00:00:00'),
   (503, 1001, 2, 'Approved Capital Budget',            'JUL-22', 'JUN-28', 'JUL-26', 'OPEN',    'Y', 'OPEN',   '2022-07-01 00:00:00'),
-  (504, 1001, 1, 'FY25-FY28 Appropriations and Reallocations', 'JUL-24', 'JUN-28', 'JUL-26', 'CURRENT', 'Y', 'OPEN', '2024-07-01 00:00:00');`);
+  (504, 1001, 1, 'FY25-FY28 Appropriations and Reallocations', 'JUL-24', 'JUN-28', 'JUL-26', 'CURRENT', 'Y', 'OPEN', '2024-07-01 00:00:00'),
+  -- ★ 505 IS CAPITAL (type 2), WHICH IS WHAT KEEPS THE REPORT'S FIGURES INTACT.
+  --   The FY2027 first-fundings slice hangs off this version. Had it used 504
+  --   (APPROP), those rows would have landed in V_ACCOUNT_POSITION's
+  --   ALLOCATIONS_REIMB column and moved the total gate G5 pins to
+  --   reportBudgetTotal + reportAllocTotal. CAPITAL keeps them out of it.
+  --
+  --   It is a SEPARATE version rather than 503 because 503 is the version G5's
+  --   SUMMARY_FLAG trap measures (the 97,790,333.00 delta) — reusing it would
+  --   have moved that figure instead. A new version is aggregated by no gate.
+  --
+  --   Its spans are FY2027 only, so it adds no second-version ambiguity in the
+  --   periods 501 and 503 already overlap (which gate 9 asserts is detectable).
+  (505, 1001, 2, 'FY27 Capital Appropriations (sample slice)', 'JUL-26', 'JUN-27', 'JUL-26', 'OPEN', 'N', 'OPEN', '2026-07-01 00:00:00');`);
 
 // 501 and 503 both cover JUL-22, so an account carries TWO budget rows in that
 // period under different versions. That is the real ambiguity: a query that
@@ -566,6 +674,14 @@ const EXP_SPLIT = {
 for (const a of REPORT_ACCOUNTS) {
   for (const [ym, amt] of ENC_SPLIT[a.object]) balRow(1001, a.ccid, periodOf(ym), 'E', null, 1, 'USD', 'N', amt, 0);
   for (const [ym, amt] of EXP_SPLIT[a.object]) balRow(1001, a.ccid, periodOf(ym), 'A', null, null, 'USD', 'N', amt, 0);
+}
+
+// ★ THE FY2027 SLICE'S BALANCE ROWS. The accounts were created and their ids
+//   resolved up beside the COA block (see the note there for why); this is where
+//   the rows are emitted, alongside every other `GL_BALANCES` row so the table's
+//   insert stays the single place balances are written.
+for (const [ym, , , , amt, ccid] of FY27_FIRST_FUNDING) {
+  balRow(1001, ccid, periodOf(ym), 'B', FY27_VERSION_ID, null, 'USD', 'N', amt, 0);
 }
 
 // ---- the traps. Each is excluded by exactly one of the five filters. ----
@@ -640,10 +756,19 @@ coaAll.forEach((r) => PROV('GL_CODE_COMBINATIONS', String(r.CODE_COMBINATION_ID)
 // ROW_KEY is prefixed rather than suffixed onto TABLE_NAME, so that the table
 // itself stays documented under its own name. A reader filtering provenance by
 // table should not have to know that "GL_BALANCES:report" means GL_BALANCES.
-PROV('GL_BALANCES', '*', DERIVED, 'report-findings.md section 3 + authored traps',
-  `ALL ${bal.length} rows: the four report accounts plus five filter traps. Per-row detail follows under ROW_KEY 'report:<ccid>'; every remaining row is a trap covered by 'traps'.`);
+//
+// ★ THIS COUNT IS COMPUTED, NOT ASSERTED. It was a hand-written "ALL four report
+//   accounts plus five filter traps" until the FY2027 slice was added, at which
+//   point the sentence became false while the number beside it stayed put. The
+//   split is now derived from the two populations so it cannot drift again.
+const fy27RowCount = FY27_FIRST_FUNDING.length;
+const transcribedRowCount = bal.length - fy27RowCount;
+PROV('GL_BALANCES', '*', DERIVED, 'report-findings.md section 3 + authored traps + FY2027 slice',
+  `ALL ${bal.length} rows: ${transcribedRowCount} transcribed/trap rows (the four report accounts, their period splits, and five filter traps) plus ${fy27RowCount} synthetic FY2027 first-funding rows. Per-row detail follows under ROW_KEY 'report:<ccid>' and 'fy27-first-funding'; every remaining row is a trap covered by 'traps'.`);
 REPORT_ACCOUNTS.forEach((a) => PROV('GL_BALANCES', `report:${a.ccid}`, TRANSCRIBED, 'report-findings.md section 3', `Object ${a.object}: budget ${a.budget}, allocations ${a.alloc}, encumbrances ${a.enc}, expenditures ${a.exp}`));
 PROV('GL_BALANCES', 'traps', SYNTHETIC, 'authored', 'Rows excluded by exactly one of the five non-optional filters: LEDGER_ID=2002, TRANSLATED_FLAG=Y/EUR, ENCUMBRANCE_TYPE_ID=1 under ACTUAL_FLAG=B, plus the SUMMARY_FLAG=Y and ENABLED_FLAG=N accounts.');
+PROV('GL_BALANCES', 'fy27-first-funding', SYNTHETIC, 'authored',
+  `${fy27RowCount} budget rows (ACTUAL_FLAG=B, version ${FY27_VERSION_ID}, fund 04, program 862) spread across JUL-26/AUG-26/SEP-26. They exist so a "latest 20 fund-04 first fundings" view has a multi-period population to preview against — the transcribed report block holds almost none in FY2027. NOT derived from the report and NOT expected to reconcile with any report figure.`);
 
 const uniform = [
   ['GL_LEDGERS', 2, DERIVED, 'json-output.json (CHART_OF_ACCOUNTS_ID only)', 'Only CHART_OF_ACCOUNTS_ID=101 is real; LEDGER_ID (1001 primary, 2002 secondary), names and categories are assigned. Ledger 2002 exists solely to carry the LEDGER_ID filter trap.'],
@@ -654,7 +779,7 @@ const uniform = [
   ['FND_FLEX_VALUES', 1, TRANSCRIBED, 'report-findings.md section 3', 'Only level 0450 is named, because the report names only one project.'],
   ['FND_FLEX_VALUES_TL', 1, TRANSCRIBED, 'report-findings.md section 3', 'Mirrors FND_FLEX_VALUES. The extract carries no language rows, so no second language exists and none is invented.'],
   ['GL_BUDGET_TYPES', 3, SYNTHETIC, 'authored', "APPROP/CAPITAL split is this build's reading of the report's two budget columns - see the V_ACCOUNT_POSITION comment."],
-  ['GL_BUDGET_VERSIONS', 4, DERIVED, 'report-findings.md section 2', 'Version spans follow the BOE dates of the funding lines.'],
+  ['GL_BUDGET_VERSIONS', 5, DERIVED, 'report-findings.md section 2 + FY2027 slice', 'Versions 501-504 follow the BOE dates of the funding lines. Version 505 is SYNTHETIC and exists only to carry the FY2027 first-fundings slice; it is CAPITAL-typed so it does not enter V_ACCOUNT_POSITION\'s ALLOCATIONS_REIMB column.'],
   ['GL_BUDGET_ENTITIES', 2, SYNTHETIC, 'authored', 'One entity per budget type. Authored so GL_BUDGET_ASSIGNMENTS has a referent.'],
   ['GL_BUDGET_ASSIGNMENTS', 4, SYNTHETIC, 'authored', 'Ranges covering segment prefix 04.6570.862.'],
   ['GL_LOOKUPS', 5, SYNTHETIC, 'authored', 'YES_NO plus the three BUDGET_STATUS values used by GL_BUDGET_VERSIONS.STATUS_CODE.'],
