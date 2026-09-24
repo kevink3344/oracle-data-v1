@@ -20,6 +20,7 @@
         "npm --prefix server": true,
         "npm --prefix app": true,
         "npm run copy:oracle:dry": true,
-        "Get-Process": true
+        "Get-Process": true,
+        "npm run dev": true
     }
 }
