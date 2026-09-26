@@ -2,6 +2,7 @@ import { config, type DbConfig } from '../config/env.js';
 import { createLibsqlDriver, type SqlDriver } from './driver.js';
 import { createRoutedDriver, type RoutedDriver, type StoreId } from './hybrid.js';
 import { createOracleDriver, oracleClientVersion } from './oracle.js';
+import { createSqlServerDriver } from './sqlserver.js';
 import { storeForTable } from './store.js';
 import { noteStatement } from '../http/sql-trace.js';
 
@@ -44,13 +45,22 @@ import { noteStatement } from '../http/sql-trace.js';
  */
 
 const ledger: SqlDriver =
-  config.db.mode === 'oracle' ? createOracleDriver() : createLibsqlDriver();
+  config.db.mode === 'oracle'
+    ? createOracleDriver()
+    : config.db.mode === 'sqlserver'
+      ? createSqlServerDriver()
+      : createLibsqlDriver();
 
 /**
  * The app store's driver. The same object as `ledger` when they are one database,
  * which is what `shared` buys: one connection, one probe, one close.
  */
-const app: SqlDriver = config.appDb.shared ? ledger : createLibsqlDriver(config.appDb);
+const app: SqlDriver =
+  config.appDb.shared
+    ? ledger
+    : config.appDb.sqlserver !== undefined
+      ? createSqlServerDriver()
+      : createLibsqlDriver(config.appDb);
 
 /**
  * ★ THE SQL TRACE IS RECORDED AT THE DRIVER, AND THAT IS THE ONLY PLACE THAT CATCHES EVERYTHING.

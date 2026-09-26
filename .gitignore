@@ -60,3 +60,28 @@ app/ping.txt
 # wanted, so it is named explicitly rather than matched with `*.bak` — which would
 # also hide a genuine backup somebody meant to commit.
 data/oracle/checks.json.bak
+
+# The app-store backup taken from the remote Turso database before the SQL Server
+# migration (2026-09-25, 1,724 rows).
+#
+# ★ IGNORED FOR TWO REASONS, AND THE SECOND IS THE IMPORTANT ONE.
+#
+#   1. It holds real vendor names, addresses and coordinates — the 800 geocoded
+#      pins and 622 stored routes. Committing it would put that data in the
+#      repository's history permanently, where it cannot be withdrawn.
+#
+#   2. ★ A BACKUP THAT LIVES ONLY INSIDE THE REPOSITORY IT BACKS UP IS NOT A
+#      BACKUP. If the repo is lost, cloned badly, or reset, the backup goes with
+#      it. The files in `data/backup/` are a working copy for the migration; the
+#      copy that matters is the one kept outside this directory.
+#
+# ★ AND THE DATA IS NOT RECOVERABLE FROM ELSEWHERE. `vendor_site_route` holds 622
+#   routes computed while the Mapbox token still carried routing scope; the token
+#   on this deployment is geocoding-only (measured: `directions/v5` returns 401),
+#   so those routes cannot be regenerated. `saved_view_subscription` records who
+#   watched what and exists nowhere else at all.
+#
+#   So this ignore rule is a decision about WHERE the backup lives, not a
+#   statement that it is unimportant. `data/backup/_manifest.json` records the
+#   source, the timestamp and the reason, for whoever finds these files next.
+data/backup/

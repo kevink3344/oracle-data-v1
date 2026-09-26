@@ -1,5 +1,5 @@
 import type { Transaction } from '@libsql/client';
-import { db } from './client.js';
+import { db, storeDriver } from './client.js';
 import type { Args, Bind, Row } from './driver.js';
 import { AppError } from '../http/errors.js';
 
@@ -173,6 +173,52 @@ export function bindable(value: unknown): Bind {
 
 export function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * ★★ THE ONE CONCATENATION OPERATOR, SPELLED PER DIALECT — AND WHY IT IS NOT IN
+ *    THE DRIVER.
+ *
+ * The seven Oracle segments are joined into one dotted account key in three
+ * queries (`coa.ts`, `spend.ts` and the funding SQL file). SQLite and Oracle
+ * both spell that `||`; **T-SQL spells it `+`** and has no `||` at all.
+ *
+ * ★ THE DRIVER CANNOT REWRITE THIS, AND THAT IS THE POINT OF IT LIVING HERE.
+ *   `sqlserver.ts` rewrites `LIMIT`, `IFNULL` and `?`, and it deliberately does
+ *   NOT touch `||` — because `+` is *also* numeric addition, and `'a' || 'b'`
+ *   and `1 + 2` are the same three tokens to any scanner. A blanket rewrite
+ *   would have to guess the operand types, and guessing wrong turns a
+ *   concatenation into arithmetic **silently**: `SEGMENT1 + SEGMENT2` on two
+ *   numeric segment values returns their sum, not their concatenation, and the
+ *   account key is then a plausible-looking wrong number rather than an error.
+ *
+ *   So the operator is chosen where the intent is visible — at the query — and
+ *   this helper is what makes that a one-word change per site instead of a
+ *   dialect branch in each of them.
+ *
+ * ★ `CONCAT` IS THE TEMPTING PORTABLE ANSWER AND IT IS NOT USED. SQL Server's
+ *   `CONCAT` exists and Oracle's does too, but SQLite's does not (it is a
+ *   compile-time option), so it would move the problem rather than solve it —
+ *   and `CONCAT` in SQL Server treats `NULL` as an empty string where `||`
+ *   propagates it, so the three dialects would disagree about a null segment.
+ *   `||` and `+` at least agree: both propagate `NULL`, which is the correct
+ *   answer for an account key with a missing segment.
+ */
+export function concatOp(): '||' | '+' {
+  return storeDriver('ledger').dialect === 'sqlserver' ? '+' : '||';
+}
+
+/**
+ * Join expressions into one string, in the dialect of the ledger.
+ *
+ * `separator` is the literal placed between them — `'.'` for the account key —
+ * and it is quoted here rather than at the call site so the escaping lives in
+ * one place.
+ */
+export function concatExpr(parts: readonly string[], separator?: string): string {
+  const op = concatOp();
+  const pieces = separator === undefined ? [...parts] : parts.flatMap((p, i) => (i === 0 ? [p] : [`'${separator.replace(/'/g, "''")}'`, p]));
+  return pieces.join(` ${op} `);
 }
 
 /**

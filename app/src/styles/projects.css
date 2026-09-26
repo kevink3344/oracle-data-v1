@@ -235,15 +235,13 @@ table.data tbody tr:last-child td {
   background: var(--surface-hover);
 }
 
-.prow.is-selected td,
+/* ★ `.prow.is-selected` IS GONE, AND SO IS THE STATE IT PAINTED. The row used to carry a
+   selection because it opened a panel *over the table* and the reader needed to see which row the
+   panel described. The row navigates to a page now, so there is no panel to relate it to and no
+   selection to paint — the URL is the selection. `:focus-within` stays: it is the keyboard
+   affordance for the name's link, which is the row's real anchor. */
 .prow:focus-within td {
   background: var(--surface-active);
-}
-
-/* An inset shadow on the first cell, never a border — a border would change
-   the cell's box and shift every column by 3px on selection. */
-.prow.is-selected td:first-child {
-  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 .prow:focus-within td:first-child {

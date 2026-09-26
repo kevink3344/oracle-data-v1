@@ -95,11 +95,30 @@ export const ViewDisplaySchema = z
         key: z.string().min(1).max(128),
         dir: z.enum(['asc', 'desc']).default('asc'),
       })
+      // ★★ `null` IS ACCEPTED AND MEANS "NO SORT", WHICH IS NOT THE SAME AS ABSENT.
+      //
+      //    `.optional()` alone accepts `undefined` and REJECTS `null`. A client that
+      //    clears the sort by writing `sort: null` — the natural JSON spelling of
+      //    "this field is empty" — therefore failed validation, and because
+      //    `parseJsonObject` treats a failed parse as "treat as empty", the WHOLE
+      //    display config was discarded: every column un-hidden, every label and
+      //    format lost, and the only trace a `console.warn`.
+      //
+      //    ★ THE FAILURE IS SILENT AND LOOKS LIKE SOMETHING ELSE. The symptom was
+      //      "the columns I hid came back", which reads as a bug in the `hidden`
+      //      handling — the actual cause was three fields away.
+      //
+      //    `.nullable()` makes null a legal, explicit "no sort" rather than a shape
+      //    error. `reconcileDisplay` and `sortRows` both already test
+      //    `if (!display.sort)`, so they treat null and undefined identically, which
+      //    is what makes this safe.
+      .nullable()
       .optional()
       .openapi({
         description:
           'Initial grid sort. Applied to the returned rows, not pushed into the SQL — the ' +
-          'statement is the author’s and is not rewritten.',
+          'statement is the author’s and is not rewritten. `null` means no display sort, ' +
+          'which lets the statement’s own `ORDER BY` decide.',
       }),
     fingerprint: z
       .object({

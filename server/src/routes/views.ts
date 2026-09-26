@@ -369,6 +369,31 @@ function normaliseRow(row: Record<string, unknown>, columns: string[]): (string 
   return columns.map((c) => toCell(row[c]));
 }
 
+/**
+ * ★★ A `Date` MUST BECOME AN ISO STRING, NOT `String(date)`.
+ *
+ * This function's `default` branch is `String(value)`, and for a `Date` that produces
+ * **`Date.prototype.toString()`** — `"Mon Jul 20 2026 20:00:00 GMT-0400 (Eastern
+ * Daylight Time)"`. That is not a bug in the *value*; it is a bug in the *shape*,
+ * and it is invisible until something tries to parse it.
+ *
+ * ★ MEASURED, AND THE SYMPTOM WAS A DATE COLUMN RENDERING AS `"Mon Jul 20"`. The
+ *   client's `isoDay` is `String(value).slice(0, 10)`, which assumes an ISO string —
+ *   so slicing `Date.toString()` yields the first ten characters of the *weekday*.
+ *   The column showed a day name and a month name and no year, and the cause was
+ *   three layers away from the display.
+ *
+ * ★ AND IT SHIFTS THE DAY. `Date.toString()` renders in the SERVER'S local zone, so
+ *   a stored `2026-07-21` (midnight UTC) prints as `Jul 20 20:00 EDT` — the date
+ *   moves back a day. `toISOString()` is UTC and does not.
+ *
+ * ★ A `Date` IS THE ONE TYPE THAT DID *NOT* NEED CONVERTING FOR SERIALISATION.
+ *   `JSON.stringify(new Date())` already produces `"2026-07-21T00:00:00.000Z"`, so
+ *   passing it through would have been correct — the `default` branch was actively
+ *   breaking a value that would otherwise have survived. This case exists to undo
+ *   that, and it is written first among the object cases so no later branch can
+ *   reach it.
+ */
 function toCell(value: unknown): string | number | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' || typeof value === 'number') return value;
@@ -378,6 +403,11 @@ function toCell(value: unknown): string | number | null {
     return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
   }
   if (value instanceof Uint8Array) return `<${value.byteLength} byte blob>`;
+  // ★ AN INVALID DATE IS NOT A DATE. `new Date('nonsense').toISOString()` THROWS
+  //   `RangeError: Invalid time value`, which would turn a successful query into a
+  //   500 — the same class of failure the bigint case above exists to prevent. A
+  //   null is the honest answer for a value that is not a usable date.
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   return String(value);
 }
 
@@ -886,14 +916,49 @@ function parseJsonArray(raw: string, slug: string): ViewParam[] {
   return [];
 }
 
+/**
+ * The stored display config, parsed — or `{}` when it cannot be.
+ *
+ * ★★ A FAILED PARSE DISCARDS THE WHOLE CONFIG, SO IT MUST SAY WHY.
+ *
+ *   Returning `{}` means every column is drawn un-hidden, every label and format
+ *   is lost, and no display sort applies. That is the correct *fallback* — a grid
+ *   that draws the raw result is better than one that refuses — but it is a
+ *   destructive fallback, and the first version reported it with nothing but
+ *   `console.warn('did not match the declared shape')`.
+ *
+ *   ★ THE COST OF THAT SILENCE, MEASURED. A `sort: null` written by a client
+ *     (the natural JSON spelling of "no sort") failed `.optional()` — which accepts
+ *     `undefined` and rejects `null` — so the entire config was thrown away. The
+ *     symptom was "the columns I hid came back", which reads as a bug in the
+ *     `hidden` handling, three fields away from the cause. Finding it needed the
+ *     server log, and the log named the shape but not the field.
+ *
+ *   ★ SO THE WARNING NAMES THE PATHS. `error.issues` carries `path` and `message`
+ *     per problem, which turns "did not match the declared shape" into
+ *     `sort: Expected object, received null` — the sentence that ends the search.
+ *     The value is NOT logged: a display config holds no secrets, but a habit of
+ *     echoing stored JSON into logs is how something that does gets logged later.
+ */
 function parseJsonObject(raw: string, slug: string): ViewDisplay {
+  let parsedJson: unknown;
   try {
-    const parsed = ViewDisplaySchema.safeParse(JSON.parse(raw));
-    if (parsed.success) return parsed.data;
-    console.warn(`[views] ${slug}: display_json did not match the declared shape — treating as empty.`);
+    parsedJson = JSON.parse(raw);
   } catch {
     console.warn(`[views] ${slug}: display_json is not JSON — treating as empty.`);
+    return {};
   }
+
+  const parsed = ViewDisplaySchema.safeParse(parsedJson);
+  if (parsed.success) return parsed.data;
+
+  const issues = parsed.error.issues
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : '(root)'}: ${issue.message}`)
+    .join('; ');
+  console.warn(
+    `[views] ${slug}: display_json did not match the declared shape — treating as empty. ` +
+      `The whole config is discarded, so every column will be drawn un-hidden. Problems: ${issues}`,
+  );
   return {};
 }
 

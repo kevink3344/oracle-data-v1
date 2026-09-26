@@ -70,7 +70,7 @@
  */
 
 import { config } from '../config/env.js';
-import { quoteIdent as q } from './sql.js';
+import { concatOp, quoteIdent as q } from './sql.js';
 import { defaultTenant, type Tenant } from '../auth/session.js';
 import type { LedgerResolution } from './ledger-shape.js';
 
@@ -346,11 +346,16 @@ export function positionFragment(scope: LedgerScope, filter: SegmentFilter = {})
   const b = q('ACTUAL_FLAG');
   const dr = q('PERIOD_NET_DR');
   const cr = q('PERIOD_NET_CR');
+  // ★ THE CONCATENATION OPERATOR IS DIALECT-SPELLED (`||` on SQLite/Oracle, `+` on
+  //   T-SQL) — see `concatOp` in `db/sql.ts` for why this cannot be rewritten in the
+  //   driver: `+` is also numeric addition, so a blanket rewrite would turn a
+  //   concatenation into arithmetic *silently*.
+  const OP = ` ${concatOp()} `;
   const sum = (flag: string) =>
     `SUM(CASE WHEN gb.${b} = '${flag}' THEN gb.${dr} - gb.${cr} ELSE 0 END)`;
   const key =
-    `cc.${q('SEGMENT1')}||'.'||cc.${q('SEGMENT2')}||'.'||cc.${q('SEGMENT3')}||'.'||` +
-    `cc.${q('SEGMENT4')}||'.'||cc.${q('SEGMENT5')}||'.'||cc.${q('SEGMENT6')}||'.'||` +
+    `cc.${q('SEGMENT1')}${OP}'.'${OP}cc.${q('SEGMENT2')}${OP}'.'${OP}cc.${q('SEGMENT3')}${OP}'.'${OP}` +
+    `cc.${q('SEGMENT4')}${OP}'.'${OP}cc.${q('SEGMENT5')}${OP}'.'${OP}cc.${q('SEGMENT6')}${OP}'.'${OP}` +
     `cc.${q('SEGMENT7')}`;
 
   return (
@@ -555,7 +560,26 @@ export function derivedPlan(
   scope?: LedgerScope,
   filter: SegmentFilter = {},
 ): Promise<LedgerResolution> | null {
-  if (config.db.mode !== 'oracle') return null;
+  // ★★ THE TEST IS "IS THE LEDGER libSQL", NOT "IS IT ORACLE".
+  //
+  //   It was `mode !== 'oracle'` while Oracle was the only non-libSQL backend, and
+  //   that read as equivalent. It is not: under `DB_MODE=sqlserver` this returned
+  //   `null`, so the app sent `V_ACCOUNT_POSITION` to the server as a plain table
+  //   name — and measured, SQL Server answered
+  //   `Invalid object name 'V_ACCOUNT_POSITION'` on `/api/spend/encumbrances` and
+  //   `/api/funding/positions`.
+  //
+  //   ★ AND THE REASON THESE FRAGMENTS EXIST APPLIES TO SQL SERVER EXACTLY AS IT
+  //     DOES TO ORACLE. They are not an Oracle workaround; they are what makes these
+  //     three names readable at all, because the seeded bodies join columns the real
+  //     instance does not have (`GL_BUDGET_TYPES.BUDGET_TYPE_ID`, `BUDGET_TYPE_CODE`,
+  //     `FND_FLEX_VALUES.DESCRIPTION`). A SQL Server copy of the same base tables has
+  //     the same gap, so it needs the same composition.
+  //
+  //   The libSQL test is the honest one: under `local`/`turso` the real views exist in
+  //   the store and resolve to the plain quoted name, so this module must stay out of
+  //   the way and the emitted SQL stays byte-identical to before.
+  if (config.db.mode === 'local' || config.db.mode === 'turso') return null;
 
   const compose = DERIVED[table.toUpperCase()];
   if (compose === undefined) return null;

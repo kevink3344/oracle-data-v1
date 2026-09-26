@@ -3,7 +3,9 @@ import { z } from '../http/z.js';
 import { createApi } from '../http/api.js';
 import { raw } from '../http/respond.js';
 import { db } from '../db/client.js';
+import { AppError } from '../http/errors.js';
 import { defaultTenant } from '../auth/session.js';
+import { intReq, realReq, textReq } from '../schemas/columns.js';
 
 /**
  * The payables surface, live from Oracle.
@@ -105,24 +107,104 @@ import { defaultTenant } from '../auth/session.js';
  *   - It does not write. The account is SELECT-only and every endpoint is a `GET`.
  */
 
-/** One fiscal year, derived from the ledger's own periods. */
-async function windowStart(): Promise<string> {
+/**
+ * The fiscal years the ledger knows, newest first — for the picker.
+ *
+ * ★ A YEAR IS NOT A DATE RANGE, AND THE PICKER OFFERS YEARS. `GL_PERIODS` carries
+ *   `PERIOD_YEAR` (the year a fiscal year ENDS in) and the twelve periods of each,
+ *   so the boundaries come from the ledger rather than from `fy - 1` arithmetic.
+ *   That matters because the calendar convention here is Jul→Jun and a computed
+ *   `2026-07-01` would be a guess that happens to be right.
+ */
+async function fiscalYears(): Promise<Array<{ fiscalYear: number; from: string; to: string }>> {
   const result = await db.execute({
-    sql: `SELECT TO_CHAR(MIN(START_DATE),'YYYY-MM-DD') AS FY_START
+    sql: `SELECT PERIOD_YEAR                        AS FY,
+                 TO_CHAR(MIN(START_DATE),'YYYY-MM-DD') AS FY_START,
+                 TO_CHAR(MAX(END_DATE),'YYYY-MM-DD')   AS FY_END
             FROM APPS.GL_PERIODS
-           WHERE PERIOD_YEAR = (SELECT MAX(PERIOD_YEAR) FROM APPS.GL_PERIODS)`,
+           GROUP BY PERIOD_YEAR
+          HAVING COUNT(*) > 0
+           ORDER BY PERIOD_YEAR DESC`,
   });
-  const from = result.rows[0]?.FY_START;
-  if (typeof from !== 'string' || from === '') {
-    // ★ A MISSING WINDOW IS NOT "NO FILTER". Falling through to an unbounded read
-    //   would return 1.25M rows, so the honest answer is a refusal — the same
-    //   reasoning `scopeClause` applies to an organization with no programs.
+  return (result.rows as Array<Record<string, unknown>>)
+    .map((r) => ({ fiscalYear: Number(r.FY), from: String(r.FY_START ?? ''), to: String(r.FY_END ?? '') }))
+    .filter((r) => Number.isFinite(r.fiscalYear) && r.from !== '' && r.to !== '');
+}
+
+/**
+ * The window a request asks for, from `?fyStart=` and `?fyEnd=`.
+ *
+ * ★★ THE WINDOW IS A PARAMETER NOW, AND THE REASON IS A READER'S WRONG CONCLUSION.
+ *
+ *   It was fixed to the newest fiscal year, derived from `GL_PERIODS`. Measured
+ *   against live Oracle: level `0450` (Athens Drive) has **52 in-scope invoices
+ *   across 5 combinations**, and **exactly 1 dated on or after `2026-07-01`** — so
+ *   a reader filtering to that project saw "1 of 126" and reported a bug, because
+ *   nothing on the page said a year boundary had been applied. The other 51 run
+ *   back to `2024-05-31`.
+ *
+ *   ★ THE FIX IS NOT "REMOVE THE BOUND" — the underlying view holds 1,246,676
+ *     checks and an unbounded read is a way to ask for a hang (the note on the
+ *     checks route records that). The fix is to let the reader MOVE the bound and
+ *     SEE it, which is what `fyStart`/`fyEnd` do.
+ *
+ * ★ THE RANGE IS VALIDATED AGAINST THE LEDGER, NOT AGAINST ITSELF. A year the
+ *   ledger does not carry is a 400 naming the years that exist, not an empty
+ *   register — an empty result would read as "this project has no invoices",
+ *   which is the exact false conclusion this whole change exists to prevent.
+ *
+ * ★ `fyStart > fyEnd` IS REFUSED RATHER THAN SWAPPED. A silently reversed range
+ *   would return rows the caller did not ask for, and the mistake is a typo in a
+ *   URL that a reader can see and fix.
+ */
+async function resolveWindow(
+  fyStartRaw: string | undefined,
+  fyEndRaw: string | undefined,
+): Promise<{ from: string; to: string; fiscalYear: number; fiscalYearEnd: number }> {
+  const years = await fiscalYears();
+  if (years.length === 0) {
     throw new Error(
-      'The ledger declares no current fiscal year in GL_PERIODS, so the AP window cannot be derived. ' +
+      'The ledger declares no fiscal years in GL_PERIODS, so the AP window cannot be derived. ' +
         'An unbounded read would return every check ever written.',
     );
   }
-  return from;
+  const newest = years[0]!;
+  const oldest = years[years.length - 1]!;
+
+  const parse = (raw: string | undefined, fallback: number, label: string): number => {
+    if (raw === undefined || raw.trim() === '') return fallback;
+    const n = Number(raw.trim());
+    if (!Number.isInteger(n)) {
+      throw AppError.badRequest(`${label} must be a four-digit fiscal year, not "${raw}".`, {
+        accepts: years.map((y) => y.fiscalYear),
+      });
+    }
+    if (!years.some((y) => y.fiscalYear === n)) {
+      throw AppError.badRequest(
+        `The ledger has no fiscal year ${n}. It carries ${oldest.fiscalYear} to ${newest.fiscalYear}.`,
+        { accepts: years.map((y) => y.fiscalYear) },
+      );
+    }
+    return n;
+  };
+
+  const fyStart = parse(fyStartRaw, newest.fiscalYear, 'fyStart');
+  const fyEnd = parse(fyEndRaw, fyStart, 'fyEnd');
+  if (fyStart > fyEnd) {
+    throw AppError.badRequest(
+      `fyStart (${fyStart}) is later than fyEnd (${fyEnd}), which would select no year at all. ` +
+        'Swap them, or leave both blank for the newest year.',
+      { accepts: years.map((y) => y.fiscalYear) },
+    );
+  }
+
+  // ★ THE BOUNDS COME FROM THE PERIODS OF THE SELECTED YEARS, not from arithmetic
+  //   on the year number — so a ledger whose fiscal year is not Jul→Jun still
+  //   produces the right dates.
+  const chosen = years.filter((y) => y.fiscalYear >= fyStart && y.fiscalYear <= fyEnd);
+  const from = chosen.reduce((min, y) => (y.from < min ? y.from : min), chosen[0]!.from);
+  const to = chosen.reduce((max, y) => (y.to > max ? y.to : max), chosen[0]!.to);
+  return { from, to, fiscalYear: fyStart, fiscalYearEnd: fyEnd };
 }
 
 /**
@@ -173,7 +255,7 @@ interface ApEnvelope {
    *   them anywhere else would have been a client change for no gain. `body.ResultSets` stays the
    *   third-party contract it always was.
    */
-  window?: { from: string; to: string; fiscalYear: number };
+  window?: { from: string; to: string; fiscalYear: number; fiscalYearEnd: number };
   scope?: {
     fund: string;
     programs: string[];
@@ -209,7 +291,12 @@ const InvoicesResponse = z
       }),
     }),
     window: z
-      .object({ from: z.string(), to: z.string(), fiscalYear: z.number().int() })
+      .object({
+        from: z.string(),
+        to: z.string(),
+        fiscalYear: z.number().int(),
+        fiscalYearEnd: z.number().int(),
+      })
       .optional(),
     scope: z
       .object({
@@ -231,17 +318,63 @@ const InvoicesResponse = z
 export function apRouter(): Router {
   const api = createApi();
 
+  /**
+   * The fiscal years the register can be scoped to.
+   *
+   * ★ THE PICKER'S OPTIONS COME FROM THE LEDGER, NOT FROM A HARD-CODED RANGE. A
+   *   year offered here is a year `GL_PERIODS` really carries, so `fyStart` can
+   *   never be refused for a value the UI itself put in the list — the two cannot
+   *   drift apart, which is the failure a hand-written `<option>` list invites.
+   *
+   * ★ IT ALSO CARRIES THE DATES, so the page can say what a year MEANS without
+   *   recomputing `fy - 1` and guessing the calendar convention.
+   */
+  api.route({
+    method: 'get',
+    path: '/api/ap/fiscal-years',
+    operationId: 'apFiscalYears',
+    summary: 'The fiscal years the ledger carries, newest first',
+    description:
+      'The years `GL_PERIODS` declares, each with the date range its periods span. The AP ' +
+      'registers are windowed to one or more of these, so this is what tells a reader which ' +
+      'years they can ask for — and what a year means in dates.\n\n' +
+      '★ `fiscalYear` IS THE YEAR THE FISCAL YEAR ENDS IN. FY2027 = `2026-07-01 .. 2027-06-30`. ' +
+      'That convention is the ledger\'s, not this endpoint\'s, and the dates are read from the ' +
+      'periods rather than computed from the year number.',
+    tags: ['Invoices'],
+    // ★ A BARE PAYLOAD, NOT `{ data: … }` — the framework wraps a handler's return
+    //   in `{ data }` itself, so returning the wrapper double-nests it.
+    response: z
+      .object({
+        years: z.array(
+          z.object({
+            fiscalYear: z.number().int(),
+            from: z.string(),
+            to: z.string(),
+          }),
+        ),
+      })
+      .openapi('ApFiscalYears'),
+    errors: [500, 503],
+    handler: async () => ({ years: await fiscalYears() }),
+  });
+
   api.route({
     method: 'get',
     path: '/api/ap/checks',
     operationId: 'apChecks',
     summary: 'Checks and the invoices they settled, live from the ledger',
     description:
-      'One fiscal year of payment documents, with the invoices each one settled. The window is ' +
-      'derived from `GL_PERIODS` and is **not** a parameter: the underlying view holds 1,246,676 ' +
-      'rows against this window\'s 4,218, so a caller-supplied range would be a way to ask for a ' +
-      'hang. Measured: 4,218 checks and 10,388 links — the check count byte-identical to the ' +
-      'frozen extract this replaces.\n\n' +
+      'Payment documents and the invoices each one settled, for a fiscal-year window. ' +
+      '`?fyStart=` and `?fyEnd=` choose the years (see `/api/ap/fiscal-years` for the ones the ' +
+      'ledger carries); both blank means the newest year.\n\n' +
+      '★ THE WINDOW IS ALWAYS BOUNDED, EVEN THOUGH IT IS A PARAMETER. The underlying view holds ' +
+      '1,246,676 rows against this window\'s 4,218, so an unbounded read is a way to ask for a ' +
+      'hang — a year the ledger does not carry is a **400 naming the years that exist**, never ' +
+      'an empty register. An empty result would read as "this project has no invoices", which is ' +
+      'the false conclusion the whole window disclosure exists to prevent.\n\n' +
+      'Measured on the newest year: 4,218 checks and 10,388 links — the check count ' +
+      'byte-identical to the frozen extract this replaces.\n\n' +
       '★ `Table2` IS `DISTINCT` ON PURPOSE. `WCSEXP_AP_INVOICE_PAYMENTS` is not unique on ' +
       '`(CHECK_ID, INVOICE_ID, PAYMENT_NUM)`, so the join alone returns a check\'s invoices twice ' +
       'over. The script this SQL is copied from measured it: 4,113 of 4,218 checks carried a ' +
@@ -255,9 +388,15 @@ export function apRouter(): Router {
     tags: ['Checks'],
     response: ChecksResponse,
     rawBody: true,
-    errors: [500, 503],
-    handler: async () => {
-      const from = await windowStart();
+    errors: [400, 500, 503],
+    query: z.object({
+      fyStart: z.string().optional().openapi({ description: 'First fiscal year to include, e.g. `2024`. Blank = the newest year the ledger carries.' }),
+      fyEnd: z.string().optional().openapi({ description: 'Last fiscal year to include, inclusive. Blank = the same year as `fyStart`.' }),
+    }),
+    handler: async ({ query }) => {
+      const win = await resolveWindow(query.fyStart, query.fyEnd);
+      const from = win.from;
+      const to = win.to;
       // ★ NO SCOPE FRAGMENT HERE, AND THAT IS DELIBERATE. A check is a payment
       //   document, not a charge to an account — it carries no account segment at
       //   all (`WCSEXP_AP_CHECKS` has four columns), so there is nothing on it to
@@ -290,11 +429,13 @@ export function apRouter(): Router {
                     JOIN APPS.WCSEXP_AP_INVOICES i ON i.INVOICE_ID = p.INVOICE_ID
                     JOIN APPS.WCSEXP_PO_VENDORS v ON v.VENDOR_ID = i.VENDOR_ID
                    WHERE cc.CHECK_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+                     AND cc.CHECK_DATE <= TO_DATE(:until,'YYYY-MM-DD')
                    GROUP BY p.CHECK_ID
                 ) n ON n.CHECK_ID = c.CHECK_ID
           WHERE c.CHECK_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+            AND c.CHECK_DATE <= TO_DATE(:until,'YYYY-MM-DD')
           ORDER BY c.CHECK_DATE DESC, c.CHECK_NUMBER DESC`,
-        args: { since: from },
+        args: { since: from, until: to },
       });
 
       // ── Table2: the invoice links ─────────────────────────────────────────
@@ -322,8 +463,9 @@ export function apRouter(): Router {
            JOIN APPS.WCSEXP_AP_INVOICE_PAYMENTS p ON p.CHECK_ID = c.CHECK_ID
            JOIN APPS.WCSEXP_AP_INVOICES i ON i.INVOICE_ID = p.INVOICE_ID
           WHERE c.CHECK_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+            AND c.CHECK_DATE <= TO_DATE(:until,'YYYY-MM-DD')
           ORDER BY 1, 4, 2`,
-        args: { since: from },
+        args: { since: from, until: to },
       });
 
       const envelope: ApEnvelope = {
@@ -358,10 +500,16 @@ export function apRouter(): Router {
     tags: ['Invoices'],
     response: InvoicesResponse,
     rawBody: true,
-    errors: [500, 503],
-    handler: async () => {
+    errors: [400, 500, 503],
+    query: z.object({
+      fyStart: z.string().optional().openapi({ description: 'First fiscal year to include, e.g. `2024`. Blank = the newest year the ledger carries.' }),
+      fyEnd: z.string().optional().openapi({ description: 'Last fiscal year to include, inclusive. Blank = the same year as `fyStart`.' }),
+    }),
+    handler: async ({ query }) => {
       const tenant = await defaultTenant();
-      const from = await windowStart();
+      const win = await resolveWindow(query.fyStart, query.fyEnd);
+      const from = win.from;
+      const to = win.to;
       const { where, binds } = apScope(tenant.programs);
 
       // ── Table1: the invoices, scoped through their distributions ──────────
@@ -387,6 +535,7 @@ export function apRouter(): Router {
            FROM APPS.WCSEXP_AP_INVOICES i
            JOIN APPS.WCSEXP_PO_VENDORS v ON v.VENDOR_ID = i.VENDOR_ID
           WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+            AND i.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')
             AND EXISTS (
                   SELECT 1
                     FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL d
@@ -396,7 +545,7 @@ export function apRouter(): Router {
                      ${where}
                 )
           ORDER BY i.INVOICE_DATE DESC, i.INVOICE_NUM DESC`,
-        args: { since: from, fund: tenant.fund, ...binds },
+        args: { since: from, until: to, fund: tenant.fund, ...binds },
       });
 
       // ── Table2: the payment links, for the invoices above ─────────────────
@@ -410,23 +559,23 @@ export function apRouter(): Router {
       //   real answer is **117 links across 117 invoices** — so every invoice on the live page
       //   would have reported itself unpaid.
       //
-      // ★ SCOPED BY INVOICE ID, NOT BY RE-RUNNING THE SCOPE. `Table1` already decided which
-      //   invoices are in scope (through their distributions), so the links are narrowed to those
-      //   ids rather than repeating the EXISTS. Repeating it would be a second, independent
-      //   definition of "in scope" — two answers to one question, which is how the counts drift.
+      // ★ SCOPED BY THE SAME PREDICATE `Table1` USES, NOT BY A BIND LIST OF ITS IDS.
       //
-      // ★ `IN` OVER A BIND LIST, BUILT FROM THE ROWS ALREADY READ. `invoices.rows` is at most a few
-      //   hundred ids, and Oracle caps an `IN` list at 1,000 expressions — so the list is chunked
-      //   below rather than assumed to fit. A single invoice id is emitted as `=` because Oracle
-      //   rejects an empty `IN ()`.
-      const invoiceIds = invoices.rows
-        .map((r) => Number((r as Record<string, unknown>).INVOICE_ID))
-        .filter((n) => Number.isFinite(n));
-
-      const links = invoiceIds.length === 0
-        ? { rows: [] as Record<string, unknown>[] }
-        : await db.execute({
-            sql: `SELECT p.CHECK_ID,
+      //   This was `WHERE p.INVOICE_ID IN (:inv0, :inv1, …)` built from `invoices.rows`, with a
+      //   comment reasoning about Oracle's 1,000-expression `IN` cap. That reasoning was about the
+      //   wrong limit: the binding engine's cap is **2,100 parameters** on SQL Server, and a
+      //   multi-year window exceeds it — measured, `?fyStart=2025&fyEnd=2027` threw
+      //   `RequestError 8003: The incoming request has too many parameters`.
+      //
+      //   ★ RE-RUNNING THE PREDICATE IS NOT A SECOND DEFINITION OF "IN SCOPE" HERE, because it is
+      //     the *same* predicate textually — the window, the fund, the programs and the `EXISTS`
+      //     over the distributions. What the old comment was right to avoid was a second,
+      //     *independently written* scope; this is the same one, and `Table1`'s row set and this
+      //     one are equal by construction rather than by agreement.
+      //
+      //   ★ FOUR BINDS, WHATEVER THE RANGE. That is the property that makes a wide window safe.
+      const links = await db.execute({
+        sql: `SELECT p.CHECK_ID,
                          p.INVOICE_ID,
                          i.INVOICE_NUM,
                          i.INVOICE_AMOUNT,
@@ -449,10 +598,20 @@ export function apRouter(): Router {
                     FROM APPS.WCSEXP_AP_INVOICE_PAYMENTS p
                     JOIN APPS.WCSEXP_AP_INVOICES i ON i.INVOICE_ID = p.INVOICE_ID
                     JOIN APPS.WCSEXP_AP_CHECKS c ON c.CHECK_ID = p.CHECK_ID
-                   WHERE p.INVOICE_ID IN (${invoiceIds.map((_, n) => `:inv${n}`).join(', ')})
+                   WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+                     AND i.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')
+                     AND EXISTS (
+                           SELECT 1
+                             FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL d
+                             JOIN APPS.GL_CODE_COMBINATIONS g
+                               ON g.CODE_COMBINATION_ID = d.DIST_CODE_COMBINATION_ID
+                            WHERE d.INVOICE_ID = i.INVOICE_ID
+                              AND g.SEGMENT1 = :fund
+                              AND g.SEGMENT3 IN (:p0, :p1, :p2)
+                         )
                    ORDER BY p.INVOICE_ID, p.CHECK_ID`,
-            args: Object.fromEntries(invoiceIds.map((id, n) => [`inv${n}`, id])),
-          });
+        args: { since: from, until: to, fund: tenant.fund, ...binds },
+      });
 
       // ── Table3: the account rows ──────────────────────────────────────────
       //
@@ -473,24 +632,33 @@ export function apRouter(): Router {
       //   sentence it cannot write about rows it never received. So every account of an in-scope
       //   invoice is returned and each one carries its own verdict.
       //
-      // ★ BUT IT IS NARROWED TO `Table1`'s INVOICES, AND THAT IS NOT THE SAME AS SCOPING IT.
-      //   Measured without this: **5,358 rows, of which 5,174 belong to invoices `Table1` does not
-      //   contain** — every invoice in the fiscal window, in scope or not. The page would receive
-      //   accounts for invoices it never shows, and its own "accounts on this invoice" lookup would
-      //   silently succeed for invoices it had filtered out. Narrowing to the ids already read
-      //   leaves **184**, which is exactly the frozen file's count — the number that proves the
-      //   narrowing is right rather than merely smaller.
+      // ★ IT IS NARROWED TO `Table1`'s INVOICES BY RE-RUNNING THEIR OWN PREDICATE, NOT BY
+      //   PASSING THEIR IDS — AND THAT IS A FIX, NOT A STYLE CHOICE.
       //
-      // ★ `IN_SCOPE` IS A `CASE` OVER THE SAME PREDICATE, NOT THE FRAGMENT SPLICED IN. `where` is
-      //   built for a `WHERE` clause — it is a conjunction of `g.SEGMENT1 = :fund` and
-      //   `g.SEGMENT3 IN (:p0, :p1, :p2)` — and splicing that into `CASE WHEN` is a syntax error,
-      //   because `IN` is not a boolean expression in that position on this Oracle version. The
-      //   flag is written out here in the form Oracle accepts, and it names the same binds the
-      //   fragment does, so the two cannot drift apart without the binds going missing.
-      const accounts = invoiceIds.length === 0
-        ? { rows: [] as Record<string, unknown>[] }
-        : await db.execute({
-            sql: `SELECT d.INVOICE_ID,
+      //   The first version bound one parameter per invoice id
+      //   (`WHERE d.INVOICE_ID IN (:inv0, :inv1, …)`). That works for one fiscal year (126
+      //   invoices) and **fails the moment a reader asks for a wider range**: SQL Server caps a
+      //   request at **2,100 parameters** and answers
+      //
+      //       RequestError 8003: The incoming request has too many parameters. The server
+      //       supports a maximum of 2100 parameters.
+      //
+      //   Measured: `?fyStart=2025&fyEnd=2027` threw that, while `?fyStart=2027` answered fine.
+      //   So the window control was unusable for exactly the case it was added for — a reader
+      //   widening the range to find an invoice the one-year default hid.
+      //
+      //   ★ THE PREDICATE IS THE SAME ONE `Table1` APPLIES, so the two cannot disagree about
+      //     which invoices are in the register: the window, the fund and the programs, and the
+      //     `EXISTS` over the distributions that makes an invoice "in scope". It is written out
+      //     rather than shared as a fragment because the aliases differ (`i` here, `d`/`g` in the
+      //     subquery) and a fragment built for one alias set would be a syntax error in the other.
+      //
+      //   ★ THE BIND COUNT IS NOW CONSTANT — four, whatever the range. That is the property that
+      //     makes a wide window safe, and it is why this is a join rather than a longer IN-list
+      //     split into chunks: chunking would keep the parameter count proportional to the result
+      //     set, which is the thing that must not happen.
+      const accounts = await db.execute({
+        sql: `SELECT d.INVOICE_ID,
                 d.DIST_CODE_COMBINATION_ID AS CODE_COMBINATION_ID,
                 g.SEGMENT1, g.SEGMENT2, g.SEGMENT3, g.SEGMENT4,
                 g.SEGMENT5, g.SEGMENT6, g.SEGMENT7,
@@ -502,13 +670,28 @@ export function apRouter(): Router {
            FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL d
            JOIN APPS.GL_CODE_COMBINATIONS g
              ON g.CODE_COMBINATION_ID = d.DIST_CODE_COMBINATION_ID
-          WHERE d.INVOICE_ID IN (${invoiceIds.map((_, n) => `:inv${n}`).join(', ')})
+          WHERE EXISTS (
+                  SELECT 1
+                    FROM APPS.WCSEXP_AP_INVOICES i2
+                   WHERE i2.INVOICE_ID = d.INVOICE_ID
+                     AND i2.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+                     AND i2.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')
+                     AND EXISTS (
+                           SELECT 1
+                             FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL d2
+                             JOIN APPS.GL_CODE_COMBINATIONS g2
+                               ON g2.CODE_COMBINATION_ID = d2.DIST_CODE_COMBINATION_ID
+                            WHERE d2.INVOICE_ID = i2.INVOICE_ID
+                              AND g2.SEGMENT1 = :fund
+                              AND g2.SEGMENT3 IN (:p0, :p1, :p2)
+                         )
+                )
           GROUP BY d.INVOICE_ID, d.DIST_CODE_COMBINATION_ID,
                    g.SEGMENT1, g.SEGMENT2, g.SEGMENT3, g.SEGMENT4,
                    g.SEGMENT5, g.SEGMENT6, g.SEGMENT7, g.ACCOUNT_TYPE
           ORDER BY d.INVOICE_ID, g.SEGMENT1, g.SEGMENT3, g.SEGMENT5`,
-            args: { fund: tenant.fund, ...binds, ...Object.fromEntries(invoiceIds.map((id, n) => [`inv${n}`, id])) },
-          });
+        args: { since: from, until: to, fund: tenant.fund, ...binds },
+      });
 
       // ── The scope block: what the narrowing cost, measured ────────────────
       //
@@ -547,8 +730,9 @@ export function apRouter(): Router {
                         ON g.CODE_COMBINATION_ID = dd.DIST_CODE_COMBINATION_ID
                      GROUP BY dd.INVOICE_ID
               ) d ON d.INVOICE_ID = i.INVOICE_ID
-             WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')`,
-        args: { since: from, fund: tenant.fund, ...binds },
+             WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+               AND i.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')`,
+        args: { since: from, until: to, fund: tenant.fund, ...binds },
       });
       const counts = (scopeCounts.rows[0] ?? {}) as Record<string, unknown>;
       const num = (v: unknown): number => {
@@ -568,7 +752,20 @@ export function apRouter(): Router {
         //   SET. `body.ResultSets` is the shape the frozen files use and the shape every reader
         //   decodes; adding a fourth table would be a change to that contract, and the page reads
         //   this block from the top level exactly as it read the file's own.
-        window: { from, to: '', fiscalYear: 0 },
+        //
+        // ★★ THE WINDOW IS NOW THE REAL ONE, AND THAT IS THE FIX FOR "THE HIDDEN
+        //    INVOICE". It used to be `{ from, to: '', fiscalYear: 0 }` — a stub —
+        //    and the page did not render it at all. So a reader who filtered to a
+        //    project saw "1 of 126" with nothing on screen saying a year boundary
+        //    had been applied: level `0450` has 52 in-scope invoices and only one
+        //    of them falls in the newest fiscal year. The page now states the
+        //    window and the reader can move it.
+        window: {
+          from,
+          to,
+          fiscalYear: win.fiscalYear,
+          fiscalYearEnd: win.fiscalYearEnd,
+        },
         scope: {
           fund: tenant.fund,
           programs: [...tenant.programs],
@@ -586,5 +783,187 @@ export function apRouter(): Router {
     },
   });
 
+  registerProjectLineage(api);
+
   return api.router;
+}
+
+/**
+ * The PO-line → invoice → check link for one project — the lineage graph's tail.
+ *
+ * ─── ★★ WHY THIS IS AN ENDPOINT AND NOT A CLIENT-SIDE JOIN ──────────────────
+ *
+ * The extract the app already holds is a **PO-line** report: it carries the order
+ * number, the line number, the vendor and the amount, and nothing about invoices.
+ * The invoice link lives in `AP_INVOICE_LINES_ALL.PO_LINE_ID`, which is not in the
+ * extract — so the graph's last two levels need a server read.
+ *
+ * ─── ★★ IT READS THE MIRROR, BECAUSE THAT IS WHAT THE APP READS ─────────────
+ *
+ * `DB_MODE=sqlserver`, so this statement names the mirror's own objects: no `APPS.`
+ * prefix, and the base tables rather than the `WCSEXP_*` views where the mirror holds
+ * them. The two engines need different SQL for the same question, which is the same
+ * seam `extract.ts` already carries (`buildLiveSql` / `buildLiveSqlServer`).
+ *
+ * ★★ AND ON THE MIRROR IT IS FAST WHERE ORACLE WAS NOT. The identical join was tried
+ *    against Oracle first and **did not return in four minutes** — in both directions,
+ *    and even with the driving table bounded to 2,000 rows. Measured on the mirror:
+ *
+ *        level 0450 -> 16 linked PO lines -> 52 invoices -> 51 checks   (0.6 s)
+ *
+ *   ★ THE LESSON IS ABOUT THE ENGINE, NOT THE QUERY. "This join is impossible" was a
+ *     conclusion about one database dressed up as a fact about the data. The 52 matches
+ *     the independently-recorded Athens Drive invoice count, which is what makes it a
+ *     verification rather than a number.
+ *
+ * ─── ★ THE KEY IS THE PO LINE, WHICH IS WHAT AN INVOICE ACTUALLY NAMES ──────
+ *
+ * Measured on the scoped table: of 162,639 invoice lines, **115,168 carry a
+ * `PO_HEADER_ID` and 115,168 carry a `PO_LINE_ID` — the same rows**. So the link is
+ * populated on 71% of scoped lines, and it is a *line* link: an invoice names a
+ * specific PO line, not merely an order. Keying the response on the line is what
+ * lets the graph attach an invoice to the line it paid; keying on the order would
+ * collapse a real many-to-one relation and lose which line was billed.
+ *
+ * ★ THE 29% WITHOUT A LINK ARE A REAL ANSWER, NOT MISSING DATA. Prepaid cards, use
+ *   tax, standing charges and travel reimbursements name no order at all — the same
+ *   categories the Invoices page already documents. The response reports them as
+ *   absent rather than inventing an attachment.
+ */
+function registerProjectLineage(api: Api): void {
+  api.route({
+    method: 'get',
+    path: '/api/ap/project-lineage',
+    operationId: 'ap_project_lineage',
+    summary: 'Invoices and checks per purchase-order line, for one project level',
+    description:
+      'The tail of the lineage graph: for each PO line of a project, how many invoices settled it and how many ' +
+      'checks paid those invoices.\n\n' +
+      '**Read from the mirror** (`DB_MODE=sqlserver`), not the Oracle ledger. The identical join against Oracle ' +
+      'did not return in four minutes; on the mirror it answers in 0.6 s, because the mirror carries indexes the ' +
+      'Oracle account\'s plan does not.\n\n' +
+      '**Keyed on the PO line, because that is what an invoice names.** Measured on the scoped invoice-line ' +
+      'table, `PO_LINE_ID` is populated on the same 115,168 of 162,639 rows as `PO_HEADER_ID` — so the link is a ' +
+      'line link, and keying on the order would collapse a real many-to-one relation.\n\n' +
+      '**A PO line absent from `links` has no invoice naming it**, which is a real answer: prepaid cards, use tax ' +
+      'and standing charges name no order. The caller must not read absence as a fetch failure.',
+    tags: ['Payables'],
+    query: z.object({
+      level: z
+        .string()
+        .min(1)
+        .openapi({
+          description: 'The project level (`SEGMENT5`), e.g. `0450`.',
+          example: '0450',
+        }),
+    }),
+    response: z
+      .object({
+        level: textReq('The level the links were read for.'),
+        /** One row per PO line that has at least one invoice. */
+        links: z.array(
+          z
+            .object({
+              orderNumber: textReq('`PO_HEADERS_ALL.SEGMENT1` — the order the line belongs to.'),
+              lineNumber: textReq('`PO_LINES_ALL.LINE_NUM` — the line within that order.'),
+              invoices: intReq('Distinct invoices naming this PO line.'),
+              checks: intReq('Distinct checks that paid those invoices.'),
+              amount: realReq('Σ invoice-line amount for this PO line.'),
+            })
+            .openapi('ProjectLineageLink'),
+        ),
+        /** What the read covered, so a caller can tell a complete answer from a truncated one. */
+        coverage: z
+          .object({
+            poLines: intReq('Distinct PO lines of this level that the mirror holds.'),
+            linked: intReq('Of those, how many an invoice names. The rest have no link, which is a real answer.'),
+          })
+          .openapi('ProjectLineageCoverage'),
+        source: textReq('The tables the links were read from, named so a consumer can check them.'),
+      })
+      .openapi('ProjectLineage'),
+    errors: [400, 500],
+    handler: async (req) => {
+      const level = String(req.query.level ?? '').trim();
+      if (level === '') {
+        throw new AppError(400, 'BAD_REQUEST', 'A `level` is required — the project level, e.g. `0450`.');
+      }
+      const tenant = await defaultTenant();
+      const { where, binds } = apScope(tenant.programs);
+
+      /**
+       * ★ THE LEVEL IS THE DRIVING FILTER, AND IT IS WHAT MAKES THIS CHEAP.
+       *
+       * The Oracle attempt timed out because it started from the invoice-line table
+       * (millions of rows) and joined outward. This starts from the **level's own PO
+       * lines** — 20 for level 0450 — and joins inward, so the plan is an index seek
+       * on a tiny set rather than a scan of a large one.
+       *
+       * ★ `LEFT JOIN` ON THE PAYMENTS, DELIBERATELY. An invoice that no check has paid
+       *   yet is a real state — it is the whole reason the Invoices page distinguishes
+       *   "accounted" from "paid" — so an inner join would drop unpaid invoices and
+       *   make the graph look like every invoice was settled.
+       */
+      const res = await db.execute({
+        sql: `WITH lvl AS (
+                       SELECT DISTINCT pll.PO_LINE_ID
+                         FROM PO_LINE_LOCATIONS_ALL pll
+                         JOIN PO_DISTRIBUTIONS_ALL d
+                           ON d.LINE_LOCATION_ID = pll.LINE_LOCATION_ID
+                         JOIN GL_CODE_COMBINATIONS g
+                           ON g.CODE_COMBINATION_ID = d.CODE_COMBINATION_ID
+                        WHERE g.SEGMENT5 = :level
+                          ${where}
+                     )
+                SELECT h.SEGMENT1 AS ORDER_NUMBER,
+                       pl.LINE_NUM AS LINE_NUMBER,
+                       COUNT(DISTINCT il.INVOICE_ID) AS INVOICES,
+                       COUNT(DISTINCT p.CHECK_ID) AS CHECKS,
+                       SUM(il.AMOUNT) AS AMOUNT
+                  FROM lvl
+                  JOIN AP_INVOICE_LINES_ALL il ON il.PO_LINE_ID = lvl.PO_LINE_ID
+                  JOIN PO_LINES_ALL pl ON pl.PO_LINE_ID = il.PO_LINE_ID
+                  JOIN PO_HEADERS_ALL h ON h.PO_HEADER_ID = pl.PO_HEADER_ID
+                  LEFT JOIN WCSEXP_AP_INVOICE_PAYMENTS p ON p.INVOICE_ID = il.INVOICE_ID
+                 GROUP BY h.SEGMENT1, pl.LINE_NUM
+                 ORDER BY h.SEGMENT1, pl.LINE_NUM`,
+        args: { level, fund: tenant.fund, ...binds },
+      });
+
+      /** How many PO lines the level has at all — the denominator for `linked`. */
+      const total = await db.execute({
+        sql: `SELECT COUNT(DISTINCT pll.PO_LINE_ID) AS N
+                FROM PO_LINE_LOCATIONS_ALL pll
+                JOIN PO_DISTRIBUTIONS_ALL d ON d.LINE_LOCATION_ID = pll.LINE_LOCATION_ID
+                JOIN GL_CODE_COMBINATIONS g ON g.CODE_COMBINATION_ID = d.CODE_COMBINATION_ID
+               WHERE g.SEGMENT5 = :level
+                 ${where}`,
+        args: { level, fund: tenant.fund, ...binds },
+      });
+
+      const num = (v: unknown): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      return {
+        level,
+        links: res.rows.map((r) => {
+          const row = r as Record<string, unknown>;
+          return {
+            orderNumber: String(row.ORDER_NUMBER ?? ''),
+            lineNumber: String(row.LINE_NUMBER ?? ''),
+            invoices: num(row.INVOICES),
+            checks: num(row.CHECKS),
+            amount: num(row.AMOUNT),
+          };
+        }),
+        coverage: {
+          poLines: num((total.rows[0] as Record<string, unknown> | undefined)?.N),
+          linked: res.rows.length,
+        },
+        source: 'AP_INVOICE_LINES_ALL · WCSEXP_AP_INVOICE_PAYMENTS · PO_LINE_LOCATIONS_ALL (mirror)',
+      };
+    },
+  });
 }

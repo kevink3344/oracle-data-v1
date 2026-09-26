@@ -1,0 +1,421 @@
+/* ============================================================================
+   The lineage canvas — the Flowchart and Network views on a project page.
+
+   ★ EVERY COLOUR HERE IS A TOKEN. The node fills are the one exception, and they
+   are not decoration: they are the account key, and the four accounts of a level
+   must be distinguishable from each other. They live in `lineage.ts`
+   (`ACCOUNT_COLOURS`) rather than here because the SVG sets them per node, and a
+   stylesheet cannot know which account a node is.
+
+   ★ NODE GEOMETRY IS DUPLICATED FROM `layouts.ts` ON PURPOSE, AND IT IS THE ONE
+   PLACE THE TWO MUST AGREE. `NODE_W = 200` / `NODE_H = 62` in that file are what
+   dagre ranks and d3-force keeps apart; the values below are what the card
+   actually measures. If they drift, the layout spaces cards for a size they do
+   not have — which looks like "the spacing is slightly off" rather than a bug.
+   The constants are named in both files so the pair is findable from either side.
+   ============================================================================ */
+
+.lin {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The mode switch, sitting in the page header's action row (upper right). */
+.lin__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.lin__switchbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lin__switchbtn:hover {
+  background: var(--surface-hover);
+  color: var(--text-body);
+}
+
+/* ★ THE ACTIVE STATE IS `--link`, NOT THE BRAND CYAN. `--tertiary-color` sits near
+   2.4:1 on white and fails AA at this size; `--link` measures 7.6:1. The same
+   choice the checks register records. */
+.lin__switchbtn--on {
+  background: var(--link);
+  color: var(--on-brand);
+}
+
+.lin__switchbtn--on:hover {
+  background: var(--link);
+  color: var(--on-brand);
+}
+
+/* ── The canvas ─────────────────────────────────────────────────────────── */
+
+.lin__canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* ★★ THE HEIGHT IS THE OTHER HALF OF "I CAN'T SEE IT".
+     A 477px box for a ~1260px-tall layout forces a 0.38 fit before any zoom, so the
+     labels are unreadable no matter how the scale is computed. This gives the graph
+     most of the viewport, which is what a reader who chose a graph view is asking for.
+     `dvh` rather than `vh` so a mobile browser's chrome does not eat the bottom. */
+  height: max(560px, calc(100dvh - 300px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.lin__canvasbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.lin__mode {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.lin__count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The "there is more graph than panel" hint. `--link` rather than a warning colour:
+   this is orientation, not a problem — nothing is wrong, the reader just needs to
+   know they can move. */
+.lin__overflow {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.lin__canvasbar .btn {
+  margin-left: 0;
+}
+
+/* The zoom cluster, pushed to the right of the bar. */
+.lin__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* ★ TABULAR FIGURES, SO THE PERCENTAGE DOES NOT JITTER as it changes — a proportional
+   font makes 100% → 99% shift the controls beside it by a pixel or two. */
+.lin__zoomval {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.lin__busy {
+  position: absolute;
+  inset: 40px 0 0 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.lin__svg {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.lin__svg:active {
+  cursor: grabbing;
+}
+
+/* ── Edges ──────────────────────────────────────────────────────────────── */
+
+.lin__edge {
+  fill: none;
+  stroke: var(--border-strong);
+  /* ★ THE OPACITY IS WHAT KEEPS A DENSE GRAPH READABLE. With thickness carrying the
+     amount, the heaviest edges are the widest — and if they were also opaque they
+     would hide the nodes underneath them in the Network view. */
+  stroke-opacity: 0.55;
+}
+
+/* ★★ IN THE NETWORK THE EDGES ARE THE STRUCTURE, SO THEY ARE THIN AND DARK.
+   The reference image draws them as thin near-black lines: at mesh density a
+   thick grey edge reads as a smear, and the circles stop standing out. The
+   Flowchart keeps the softer grey because its edges are a flow to follow, not a
+   fabric to see. */
+.lin__canvas--brain .lin__edge {
+  stroke: var(--neutral-600);
+  stroke-opacity: 0.75;
+}
+
+.lin__forcegraph {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.lin__forcegraph:active {
+  cursor: grabbing;
+}
+
+.lin__fit {
+  margin-left: auto;
+}
+
+.lin__node-select {
+  min-width: 0;
+  max-width: 220px;
+  padding: 5px 28px 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-body);
+  font-size: 12px;
+}
+
+/* ── Nodes ──────────────────────────────────────────────────────────────── */
+
+.lin__node {
+  cursor: pointer;
+}
+
+.lin__card {
+  fill: var(--surface);
+  stroke-width: 1.5;
+}
+
+.lin__node:hover .lin__card {
+  fill: var(--surface-active);
+}
+
+.lin__node--on .lin__card {
+  stroke-width: 2.5;
+  fill: var(--surface-active);
+}
+
+/* ★ THE FOCUS RING IS ON THE GROUP, NOT THE RECT. The `<g>` is what carries
+   `tabIndex`, so it is what receives focus — a ring drawn on the rect would never
+   appear for a keyboard reader. */
+.lin__node:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.lin__kind {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lin__label {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: var(--text-heading);
+}
+
+.lin__sub {
+  font-size: 10px;
+  fill: var(--text-muted);
+}
+
+/* ── The Network's circles ──────────────────────────────────────────────── */
+
+/* ★ THE DOT IS FILLED WITH ITS OWN COLOUR AND OUTLINED IN THE SURFACE, so two
+   overlapping circles stay visibly separate. Without the light stroke they merge into
+   one blob at fit scale, which is the opposite of what a node-link diagram is for.
+
+   ★★ THE FILL COLOURS ARE DELIBERATELY DARK AND CLOSE TOGETHER. The reference image is
+   near-monochrome: the eye reads SIZE and POSITION, not hue. Brightly-coloured dots
+   turn the mesh into confetti and the structure is lost — so the account colours used
+   here are the darker end of the palette, and the project/vendor dots are greys. */
+.lin__dot {
+  stroke: var(--surface-sunken);
+  stroke-width: 1.5;
+}
+
+.lin__node:hover .lin__dot {
+  stroke: var(--text-heading);
+  stroke-width: 2;
+}
+
+.lin__node--on .lin__dot {
+  stroke: var(--text-heading);
+  stroke-width: 3;
+}
+
+/* The hub ring — the "this one is different" signal, per the reference image. */
+.lin__halo {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-opacity: 0.45;
+}
+
+/* ★ THE LABEL SITS BESIDE THE CIRCLE, SO IT NEEDS A HALO OF ITS OWN. A label that runs
+   over an edge is unreadable; `paint-order: stroke` draws a surface-coloured outline
+   behind the glyphs, which is the standard trick and costs nothing.
+
+   ★ THE WHOLE GROUP IS `pointer-events: none`, AND THAT IS LOAD-BEARING. The label
+   appears on hover; if the label could itself be hovered, moving the pointer onto it
+   would fire `pointerleave` on the circle, hide the label, and the reader would get a
+   flickering label they cannot read. */
+.lin__netlabel-group {
+  pointer-events: none;
+}
+
+.lin__netlabel {
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--text-body);
+  paint-order: stroke;
+  stroke: var(--surface-sunken);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.lin__netlabel--hub {
+  font-size: 11.5px;
+  font-weight: 700;
+  fill: var(--text-heading);
+}
+
+.lin__netsub {
+  font-size: 9.5px;
+  fill: var(--text-muted);
+  paint-order: stroke;
+  stroke: var(--surface-sunken);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+/* ── The legend and the disclosure ──────────────────────────────────────── */
+
+.lin__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lin__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lin__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* A round swatch, for the Network's legend — the key should look like the thing it
+   keys. A square swatch beside a circle legend entry reads as a different shape. */
+.lin__swatch--dot {
+  border-radius: 50%;
+}
+
+.lin__key--note {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ★ THE DISCLOSURE IS NOT OPTIONAL, AND IT IS NOT A TOOLTIP. A graph that drops
+   nodes must say so where the reader is looking — a silently reduced graph is the
+   "filtered set presented as the whole" failure this codebase keeps recording. */
+.lin__hidden {
+  margin-left: auto;
+  color: var(--warn-fg);
+  font-weight: 600;
+}
+
+/* ── The detail panel for a selected node ───────────────────────────────── */
+
+.lin__detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.lin__detail h3 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  color: var(--text-heading);
+}
+
+.lin__detail p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lin__detailrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lin__detailrow dt {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lin__detailrow dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+@media (max-width: 720px) {
+  .lin__canvas {
+    height: 62dvh;
+  }
+}

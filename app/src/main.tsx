@@ -86,6 +86,12 @@ import './styles/readcaps.css';
 // layered over whatever page it appears on, and it must not be the sheet that
 // decides anything about a table or a panel.
 import './styles/sql.css';
+// One project as a page. It reuses `.dsec`, `.spine`, `.usage-head`, `.stats` and
+// `.legend` from panel.css and `.drawer__eyebrow`/`__meta`/`__chips` from the same
+// file, so it has to come after panel.css — and it redeclares none of them. It only
+// adds the page frame: the head, the action row and the reading measure.
+import './styles/projectpage.css';
+import './styles/lineage.css';
 // Last, and after shell.css in particular: it expands the rail into a tree, so it
 // has to be able to override the rail's own rules.
 import './styles/rail.css';

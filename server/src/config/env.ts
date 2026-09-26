@@ -71,7 +71,7 @@ const bool = (key: string, fallback: boolean): boolean => {
  * Order is the order the modes are offered in messages and in the generated enum:
  * the zero-config default first, then the remote option, then the extract.
  */
-export const DB_MODES = ['local', 'turso', 'oracle'] as const;
+export const DB_MODES = ['local', 'turso', 'oracle', 'sqlserver'] as const;
 
 export type DbMode = (typeof DB_MODES)[number];
 
@@ -134,6 +134,23 @@ export interface DbConfig {
   allowWrites: boolean;
   /** Present only in oracle mode. */
   oracle?: OracleConfig;
+  /**
+   * Present only in sqlserver mode.
+   *
+   * ★ THE PASSWORD IS IN HERE, AND THAT IS WHY `label` EXISTS. Every log line and
+   *   the health payload use `label`, which is the host plus the database name and
+   *   never the credentials. Anything that prints this object whole would leak the
+   *   password, so nothing does.
+   */
+  sqlserver?: SqlServerConfig;
+}
+
+/** Connection settings for Azure SQL (`DB_MODE=sqlserver`). */
+export interface SqlServerConfig {
+  server: string;
+  database: string;
+  user: string;
+  password: string;
 }
 
 export interface Config {
@@ -462,6 +479,7 @@ function resolveDb(): DbConfig {
   const mode: DbMode = (requested as DbMode | undefined) ?? 'local';
 
   if (mode === 'oracle') return oracleConfig();
+  if (mode === 'sqlserver') return sqlServerConfig();
   if (mode === 'turso') {
     const remoteUrl = str('TURSO_DATABASE');
     if (!remoteUrl) {
@@ -592,6 +610,54 @@ function oracleConfig(): DbConfig {
   };
 }
 
+/**
+ * The Azure SQL target.
+ *
+ * ★ `allowWrites` IS `true`, AND THAT IS THE DIFFERENCE FROM ORACLE.
+ *   The Oracle account holds `SELECT` and nothing else, so its config hard-codes
+ *   `false` and offers no switch. This login is a database owner: it created the
+ *   tables, and the app's own store lives here. Refusing writes would break
+ *   saving a view, creating a project, and stamping `last_seen_at` on sign-in.
+ *
+ * ★ THE PASSWORD IS NOT IN `label`. Every log line and the health payload use
+ *   `label`, which is `server/database` — enough to tell two targets apart and
+ *   nothing more. This matters more here than for Oracle because the label is
+ *   echoed by `/api/health`, which is unauthenticated.
+ */
+function sqlServerConfig(): DbConfig {
+  const server = str('AZURE_SQL_SERVER');
+  const database = str('AZURE_SQL_DATABASE');
+  const user = str('AZURE_SQL_USER');
+  const password = str('AZURE_SQL_PASSWORD');
+
+  // Any one missing makes every query fail at connect with a message naming the
+  // driver rather than the setting. Name them all at once, so one boot explains
+  // the whole gap — the same shape `oracleConfig` uses, and for the same reason.
+  if (server === undefined || database === undefined || user === undefined || password === undefined) {
+    const missing = [
+      server === undefined ? 'AZURE_SQL_SERVER' : null,
+      database === undefined ? 'AZURE_SQL_DATABASE' : null,
+      user === undefined ? 'AZURE_SQL_USER' : null,
+      password === undefined ? 'AZURE_SQL_PASSWORD' : null,
+    ].filter((k): k is string => k !== null);
+
+    throw new Error(
+      `DB_MODE=sqlserver but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set. ` +
+        'Add them to the repo-root .env, or set DB_MODE=oracle to read the live EBS extract.',
+    );
+  }
+
+  return {
+    mode: 'sqlserver',
+    url: '',
+    authToken: undefined,
+    filePath: undefined,
+    label: `${server}/${database}`,
+    allowWrites: true,
+    sqlserver: { server, database, user, password },
+  };
+}
+
 /** Where a libSQL-backed store actually is. Enough to open a client against it. */
 export interface DbTarget {
   url: string;
@@ -600,6 +666,16 @@ export interface DbTarget {
   filePath: string | undefined;
   /** Human label for logs and the health payload. Never contains a secret. */
   label: string;
+  /**
+   * Present only for a SQL Server target.
+   *
+   * ★ A libSQL target is fully described by a URL and a token; a SQL Server one is
+   *   described by four separate settings and has no URL at all. So this is a
+   *   second, optional shape rather than a field on the first — and `url` stays
+   *   `''` for SQL Server, which is what the existing `url === ''` checks in
+   *   `client.ts` already expect from a non-libSQL target.
+   */
+  sqlserver?: SqlServerConfig;
 }
 
 /**
@@ -683,6 +759,24 @@ function resolveAppDb(ledger: DbConfig): AppDbConfig {
       label: path.relative(REPO_ROOT, filePath).split(path.sep).join('/'),
       shared: pathToFileURL(filePath).href === ledger.url,
       allowWrites: true,
+    };
+  }
+
+  // ★ SQL SERVER SHARES ITSELF, LIKE A libSQL LEDGER DOES — but it cannot take
+  //   the branch below, because that one hands back `ledger.url` and a SQL Server
+  //   target has no URL. Its connection settings live in `ledger.sqlserver`, so
+  //   the app store is the same server and the same database, reached by the same
+  //   credentials. `shared: true` is what tells `hybrid.ts` that a statement
+  //   naming both app and ledger tables is harmless rather than unanswerable.
+  if (ledger.mode === 'sqlserver') {
+    return {
+      url: '',
+      authToken: undefined,
+      filePath: undefined,
+      label: ledger.label,
+      shared: true,
+      allowWrites: true,
+      sqlserver: ledger.sqlserver,
     };
   }
 

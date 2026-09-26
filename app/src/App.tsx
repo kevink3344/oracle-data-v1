@@ -4,9 +4,9 @@ import { StoreProvider } from './state/store';
 import AppBrand from './components/AppBrand';
 import Rail from './components/Rail';
 import TopBar from './components/TopBar';
-import DetailDrawer from './components/DetailDrawer';
 import Dashboard from './routes/Dashboard';
 import Projects from './routes/Projects';
+import ProjectDetailPage from './routes/ProjectDetailPage';
 import NewProject from './routes/NewProject';
 import EditProject from './routes/EditProject';
 import FundingSearch from './routes/FundingSearch';
@@ -17,6 +17,7 @@ import SavedViews from './routes/SavedViews';
 import Checks from './routes/Checks';
 import Invoices from './routes/Invoices';
 import ViewBuilder from './routes/ViewBuilder';
+import ViewResultWindow from './routes/ViewResultWindow';
 import Settings from './routes/Settings';
 import ReadCaps from './routes/ReadCaps';
 import SignIn from './routes/SignIn';
@@ -187,6 +188,25 @@ export default function App() {
         this file is *for* (see the note on `SCREENS`).
       */}
       <Route element={<Gate />}>
+        {/*
+          ★ THE RESULT WINDOW IS INSIDE THE GATE BUT OUTSIDE THE SHELL, AND BOTH
+            HALVES OF THAT ARE DELIBERATE.
+
+            Inside the gate, because it runs a saved view and a view is a row the
+            server guards — an unauthenticated reader gets the sign-in screen, which
+            is the same answer every other guarded read gives.
+
+            Outside the shell, because the shell is a rail and a topbar, and the
+            whole point of this page is to be the result and nothing else. Rendered
+            inside it the table was letterboxed between the nav and the page
+            padding, which is the layout the page exists to escape.
+
+            It sits between the two `<Route>` elements rather than inside either,
+            so "is this chrome-free?" is answered by where the line is in this file
+            rather than by a conditional a later change could widen.
+        */}
+        <Route path="/admin/views/:id/result" element={<ViewResultWindow />} />
+
         <Route element={<Shell />}>
           {ALL_LEAVES.map((leaf) => (
             <Route key={leaf.to} path={leaf.to} element={SCREENS[leaf.to] ?? <Pending />} />
@@ -195,6 +215,13 @@ export default function App() {
           {/* Reachable but deliberately not a menu leaf: it is a step in a task,
               not a destination a reader would look for in a tree. §10.1. */}
           <Route path="/projects/new" element={<NewProject />} />
+
+          {/* ★ ONE PROJECT, AS A PAGE — `/projects/0450`. It replaced a sliding panel at the
+              user's request. The key is the LEVEL rather than the registry slug, because a
+              project in this app IS a level and this page has to open on all 139 of them,
+              while only ~10 have a registry row. `:slug/edit` below keeps the slug, because
+              a write needs the row that carries it. */}
+          <Route path="/projects/:level" element={<ProjectDetailPage />} />
 
           {/* The same argument as `/projects/new`, and the same shape of URL: the
               key is derived from the name, so it can be any string and it comes
@@ -291,8 +318,7 @@ function CheckingSession() {
  *   the login screen. A session is now the precondition for wanting the ledger, so the
  *   ledger is not fetched until there is one.
  *
- * Nothing outside this component reads the store: `DetailDrawer` is the only consumer
- * that is not already inside the shell, and it is rendered here.
+ * Nothing outside this component reads the store: every consumer is inside the shell.
  */
 function Shell() {
   return (
@@ -303,7 +329,6 @@ function Shell() {
         </a>
         <ShellFrame />
       </NavDrawerProvider>
-      <DetailDrawer />
     </StoreProvider>
   );
 }

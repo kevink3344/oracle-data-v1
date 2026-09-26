@@ -160,7 +160,7 @@ interface ColumnRow {
 export interface ActivitySource {
   store: 'app';
   label: string;
-  dialect: 'sqlite' | 'oracle';
+  dialect: 'sqlite' | 'oracle' | 'sqlserver';
   ledgerLabel: string;
   sharedWithLedger: boolean;
   countStore: StoreId;

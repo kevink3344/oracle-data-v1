@@ -1441,9 +1441,24 @@ function registerFundingSummary(api: Api): void {
         `          period_year ASC, period_num ASC, budget_type_code ASC`,
       ].join('\n');
 
-      const budgetPromise = rows<Record<string, unknown>>(
-        storeDriver('ledger').dialect === 'oracle' ? oracleBudgetSql : sqliteBudgetSql,
-      );
+      // ★ THREE DIALECTS, TWO STATEMENTS, AND THE CHOICE IS EXPLICIT.
+      //
+      //   The Oracle arm uses `GROUP BY GROUPING SETS`, which neither SQLite nor
+      //   T-SQL has. The SQLite arm is a `UNION ALL` of one branch per grain — and
+      //   every construct in it (`UNION ALL`, `COALESCE`, `COUNT(DISTINCT …)`,
+      //   `CASE`) is valid T-SQL, so **SQL Server takes the same arm**. That is
+      //   stated rather than left to an `else`, because the two dialects agreeing
+      //   here is a fact worth being able to read: it is the only place in this
+      //   codebase where a non-Oracle arm is shared by two engines.
+      //
+      //   ★ `GROUPING SETS` IS NOT PORTABLE AND MUST NOT BE "FIXED" INTO THE
+      //     SHARED ARM. The note above the SQLite arm records why: it is a claim
+      //     about the engine, not a rewrite of syntax, and the portable equivalent
+      //     costs three passes of a 3.4 M-row fragment on the instance that can
+      //     afford one pass.
+      const budgetSql =
+        storeDriver('ledger').dialect === 'oracle' ? oracleBudgetSql : sqliteBudgetSql;
+      const budgetPromise = rows<Record<string, unknown>>(budgetSql);
 
       const [countRow, positionRow, budgetRows] = await Promise.all([
         cheapPromise,

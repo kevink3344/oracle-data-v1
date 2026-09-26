@@ -215,11 +215,48 @@ export function queryFor(d: ResourceDescriptor): z.AnyZodObject {
  * can be returned in either order per query, so page 2 can repeat a row from page
  * 1 and drop another entirely. Appending the key makes the order total, and the
  * client's pages then tile the result set exactly once.
+ *
+ * ★★ THE CHECK MUST COVER THE DEFAULT SORT TOO, AND IT DID NOT.
+ *
+ *   This tested `sorts` — the caller's `?sort=` — and appended `pk` when it was
+ *   absent. But when `sorts` is empty, `orderByClause` emits the descriptor's
+ *   **`defaultSort`**, and a descriptor is free to end its default with the key
+ *   (several here do, because it is the natural tiebreaker). So
+ *   `V_CODE_COMBINATIONS` — `defaultSort` `…, "CODE_COMBINATION_ID" ASC`, `pk`
+ *   `CODE_COMBINATION_ID` — emitted the column **twice**.
+ *
+ *   ★ SQLITE TOLERATES THAT AND T-SQL DOES NOT. Measured on the live instance:
+ *   `ORDER BY SEGMENT1, SEGMENT1` → **Msg 169** ("A column has been specified
+ *   more than once in the order by list"), which is what `/api/coa/combinations`
+ *   answered under `DB_MODE=sqlserver`. The redundant key was harmless for as
+ *   long as the only backend accepted it, which is exactly why it went unnoticed.
+ *
+ *   The fix is to ask whether the key is already named by *whatever* ordering is
+ *   in effect — the caller's sorts or the default — rather than by the caller's
+ *   alone. `defaultSort` is raw SQL, so it is tested as text; the caller's sorts
+ *   are compared as identifiers, which is exact.
  */
 function orderSql(d: ResourceDescriptor, sorts: ReturnType<typeof parseSort>): string {
   const base = orderByClause(sorts, d.defaultSort);
-  if (!d.pk || sorts.some((s) => s.column === d.pk)) return base;
+  if (!d.pk) return base;
+  if (sorts.some((s) => s.column === d.pk)) return base;
+  // The default sort is only in effect when the caller named none.
+  if (sorts.length === 0 && namesColumn(d.defaultSort, d.pk)) return base;
   return `${base}, ${quoteIdent(d.pk)} ASC`;
+}
+
+/**
+ * Whether a raw `ORDER BY` fragment already names `column`.
+ *
+ * Matches the identifier as a whole word, quoted or bare, so
+ * `"CODE_COMBINATION_ID" ASC` and `CODE_COMBINATION_ID DESC` both count while
+ * `SOME_CODE_COMBINATION_ID_X` does not. Deliberately narrow: a false positive
+ * drops a tiebreaker (a pagination nicety), a false negative repeats a column
+ * (an error on T-SQL), so it errs toward matching.
+ */
+function namesColumn(orderByFragment: string, column: string): boolean {
+  const escaped = column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Za-z0-9_$#])"?${escaped}"?([^A-Za-z0-9_$#]|$)`, 'i').test(orderByFragment);
 }
 
 export interface ListOptions {

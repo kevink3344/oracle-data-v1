@@ -272,6 +272,66 @@
   color: var(--text-faint);
 }
 
+/* ★ THE ACTIONS SIT ON THE COUNT LINE, AFTER THE META. `display: block` keeps them
+   on their own line under the count rather than inline with it — the count is a
+   fact about the result and the link is a way out of the panel, and running them
+   together made "200 rows · 861 ms · Open in a new window" read as one sentence. */
+.vb-footer__actions {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+/* ------------------------------------------------------------------------- *
+   The result in its own window (`routes/ViewResultWindow.tsx`)
+   ------------------------------------------------------------------------- */
+
+/* The window has no rail, no topbar and no editor, so it supplies its own frame
+   rather than borrowing the shell's. `min-height: 100vh` makes the background
+   reach the bottom of a short result, which is what stops a two-row table from
+   looking like a rendering failure. */
+.vb-window {
+  min-height: 100vh;
+  padding: var(--space-5);
+  background: var(--surface);
+}
+
+.vb-window__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.vb-window__id {
+  min-width: 0;
+}
+
+.vb-window__title {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.vb-window__sub {
+  margin: var(--space-1) 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.vb-window__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* The table is the point of the page, so it gets the width. `max-width` rather
+   than `width` so a narrow result does not stretch its columns across a wide
+   monitor — a two-column table at 3000px is harder to read, not easier. */
+.vb-window .panel {
+  max-width: 1600px;
+}
+
 /* A confirmation, in the success colour. Sits inside the panel rather than in a
    toast: it is about the form the button belongs to, and it should still be
    there when the pointer has moved on. */

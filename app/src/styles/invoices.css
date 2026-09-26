@@ -70,11 +70,19 @@
 
 /* --- filter bar ------------------------------------------------------- */
 
+/* ★ THE SEARCH BOX IS HALF THE WIDTH IT WAS, AND THE TWO FILTERS TAKE THE REST.
+   It was `flex: 1 1 300px; max-width: 480px` as the only free-text control on the
+   bar. With a project combo and an account combo beside it there are now three
+   controls competing for one line, and the search box is the one that does not
+   need the room: a reader types an invoice number or a vendor, both short, while
+   the two combos have to show a project name and a 29-character account code.
+   `flex: 0 1 240px` with a 320px ceiling halves the old allowance and lets the
+   combos grow into what it gave up. */
 .invfilter__box {
   position: relative;
-  flex: 1 1 300px;
-  min-width: 200px;
-  max-width: 480px;
+  flex: 0 1 240px;
+  min-width: 170px;
+  max-width: 320px;
 }
 
 .invfilter__box svg {
@@ -114,50 +122,180 @@
   outline-offset: 1px;
 }
 
-/* The account filter. A native `<select>` beside the search box, and it is
-   deliberately NOT a copy of `.invfilter__box`: that is a box with an icon in it,
-   this is a control with a caret the browser draws. What it shares is the only
-   thing that matters — the height, the font size and the surface — so the two sit
-   on one line without one of them looking like a different generation of the app.
+/* The two filter combos, side by side to the right of the search box.
 
-   `flex: 0 1 300px` rather than `1 1`: the free-text box should absorb the slack,
-   because it is the control a reader uses constantly and this one is used to
-   answer a single question and then be reset. */
-.invfilter__pick {
-  flex: 0 1 auto;
+   ★ THEY SHARE THE SEARCH BOX'S HEIGHT, FONT SIZE AND SURFACE, and nothing else.
+   `.combo__input` (newproject.css) is a 0.875rem/600 field with 10px of vertical
+   padding, sized for a form's primary field; on a filter bar that makes a control
+   8px taller than the box beside it. So the shared shape is restated here at the
+   bar's scale rather than the form's — the same reason `.fselect` existed, kept
+   after the `<select>` it was written for is gone. */
+.fcombo {
+  position: relative;
+  flex: 0 1 260px;
   min-width: 0;
-  max-width: 340px;
+  max-width: 320px;
 }
 
-.fselect {
-  width: 100%;
-  max-width: 340px;
-  padding: 6px 26px 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-heading);
-  font: inherit;
+.fcombo .combo__icon {
+  left: 9px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+}
+
+.fcombo .combo__input--filter {
+  padding: 6px 74px 6px 29px;
+  border-color: var(--border);
+  font-family: var(--font-body);
   font-size: 0.8125rem;
-  cursor: pointer;
-  transition: border-color var(--transition);
+  font-weight: 400;
+  line-height: 1.4;
 }
 
-.fselect:hover {
+.fcombo .combo__input--filter:focus {
   border-color: var(--primary-color);
-}
-
-.fselect:focus-visible {
   outline: 3px solid var(--tertiary-color);
   outline-offset: 1px;
 }
 
-/* A chosen combination is 29 characters of mono and would set the width of the
-   whole control, so the list is mono while the collapsed value is not: the reader
-   is choosing between codes, not reading one. */
-.fselect option {
+/* The list hangs below its own control rather than pushing the bar down: the
+   bar is a flex row and an in-flow listbox would grow it to the list's height.
+   ★ It is also only in the DOM while open, so this rule is what makes the open
+   state an overlay rather than a layout change. */
+.fcombo .listbox--filter {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  margin: 0;
+  box-shadow: var(--shadow-md);
+}
+
+/* ★ THE FIELD SAYS WHETHER ITS LIST IS OPEN, because the list itself is below
+   the fold of the control and a reader looking at the bar cannot see it. The
+   border goes to the primary colour on focus (already the case) and the caret
+   turns — a closed control and an open one must not look identical. */
+.fcombo .combo__input--filter[aria-expanded='true'] {
+  border-color: var(--primary-color);
+}
+
+.fcombo .opt--row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+}
+
+.fcombo .opt--any {
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.fcombo .opt--chosen {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* The row count, right-aligned and tabular so the column of figures lines up —
+   the numbers are what a reader compares between two accounts. */
+.fcombo .opt__detail {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fcombo .opt__label {
   font-family: var(--font-mono);
   font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A project's label is a school name, not a code — mono would be wrong. The
+   account combo's options are codes and keep it. */
+.fcombo .opt__label mark {
+  background: var(--warn-bg);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* --- the fiscal-year range -------------------------------------------- */
+
+/* ★ TWO NATIVE `<select>`S AND A DASH, AND THEY ARE NATIVE ON PURPOSE. The years
+   come from the ledger (30 of them), the list is short, and the value is a
+   four-digit number a reader recognises — so the control that needs no typing is
+   the right one. The Account filter became a combo because it had 71 options and
+   a 29-character value; this has 30 options and a 6-character one, which is the
+   opposite case. */
+.fyrange {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.fselect--fy {
+  width: auto;
+  min-width: 84px;
+  max-width: none;
+  padding: 6px 24px 6px 8px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The dash is decoration between two labels that a screen reader reads as
+   separate fields with their own names — so it must not be announced. */
+.fyrange__dash {
+  color: var(--text-faint);
+  font-size: 0.8125rem;
+}
+
+/* --- the window disclosure -------------------------------------------- */
+
+/* ★ THE LINE THAT PREVENTS "THERE SHOULD BE A LOT MORE INVOICES". It states the
+   bound the register is under and names the control that moves it. It is a plain
+   sentence rather than a `.notice` box: nothing is wrong, and dressing a fact as
+   a warning is how a reader learns to ignore warnings.
+
+   `display: flex` with the prose WRAPPED in a child — a bare text node beside the
+   flag would become its own flex item and the gap would land between the
+   fragments. Same trap `.scopenote` records. */
+.invwindow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.invwindow__flag {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.invwindow__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.invwindow__text strong {
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- the table -------------------------------------------------------- */

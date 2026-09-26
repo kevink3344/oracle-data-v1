@@ -3,7 +3,7 @@ import { StrParam } from '../http/z.js';
 import type { Api } from '../http/api.js';
 import { AppError } from '../http/errors.js';
 import { registerResource, type ResourceDescriptor } from './resource.js';
-import { bindable, columnNumber, one, quoteIdent, rows } from '../db/sql.js';
+import { bindable, columnNumber, concatExpr, one, quoteIdent, rows } from '../db/sql.js';
 import { ledgerIdent, ledgerPlan } from '../db/ledger-shape.js';
 import { levelValueSetExpression, legendFragment } from '../db/derived.js';
 import { date, flag, int, intReq, real, realReq, rowObject, text, textReq, writeObject } from '../schemas/columns.js';
@@ -138,6 +138,26 @@ const FLEX_VALUE_TL_COLUMNS = [
   'FLEX_VALUE',
   'LANGUAGE',
   'DESCRIPTION',
+] as const;
+
+/**
+ * ★ THE SEVEN SEGMENTS OF THE ACCOUNT KEY, IN ORDER, AS THEIR OWN LIST.
+ *
+ * `CODE_COMBINATION_COLUMNS` above is the full projection — it also carries
+ * `ACCOUNT_TYPE`, `ENABLED_FLAG` and the dates — so it cannot be used to build
+ * the key. The key is exactly these seven, joined with dots, in this order, and
+ * the order is load-bearing: `V_CODE_COMBINATION_KEY.COMBINATION_KEY` is built
+ * the same way, so a reordered list would produce a key that matches nothing
+ * while looking entirely plausible.
+ */
+const ACCOUNT_SEGMENT_COLUMNS = [
+  'SEGMENT1',
+  'SEGMENT2',
+  'SEGMENT3',
+  'SEGMENT4',
+  'SEGMENT5',
+  'SEGMENT6',
+  'SEGMENT7',
 ] as const;
 
 const CODE_COMBINATION_COLUMNS = [
@@ -1071,9 +1091,8 @@ function registerCombinationKeyLookup(api: Api): void {
       const table = quoteIdent('GL_CODE_COMBINATIONS');
       const combination = await one(
         `SELECT ${CODE_COMBINATION_COLUMNS.map(quoteIdent).join(', ')} FROM ${table} ` +
-          `WHERE ${quoteIdent('SEGMENT1')} || '.' || ${quoteIdent('SEGMENT2')} || '.' || ${quoteIdent('SEGMENT3')} || '.' || ` +
-          `${quoteIdent('SEGMENT4')} || '.' || ${quoteIdent('SEGMENT5')} || '.' || ${quoteIdent('SEGMENT6')} || '.' || ` +
-          `${quoteIdent('SEGMENT7')} = :key ORDER BY ${quoteIdent('CODE_COMBINATION_ID')} ASC LIMIT 1`,
+          `WHERE ${concatExpr(ACCOUNT_SEGMENT_COLUMNS.map(quoteIdent), '.')} = :key ` +
+          `ORDER BY ${quoteIdent('CODE_COMBINATION_ID')} ASC LIMIT 1`,
         { key: bindable(key) },
       );
       if (!combination) {

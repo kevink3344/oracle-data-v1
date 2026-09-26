@@ -1,7 +1,31 @@
 import { z } from '../http/z.js';
 import type { Api } from '../http/api.js';
-import { one, quoteIdent, rows } from '../db/sql.js';
+import { concatExpr, one, quoteIdent, rows } from '../db/sql.js';
 import { intReq, real, realReq, text, textReq } from '../schemas/columns.js';
+
+/**
+ * ★ THE SEVEN SEGMENTS OF THE ACCOUNT KEY, IN ORDER, AS THEIR OWN LIST.
+ *
+ * The key is exactly these seven, joined with dots, in this order — the order
+ * is load-bearing, because `V_CODE_COMBINATION_KEY.COMBINATION_KEY` is built the
+ * same way and a reordered list would produce a key that matches nothing while
+ * looking entirely plausible.
+ *
+ * ★ `concatExpr` SPELLS THE JOIN OPERATOR PER DIALECT. SQLite and Oracle use
+ *   `||`; T-SQL uses `+` and has no `||` at all. The operator is chosen at the
+ *   query rather than rewritten in the driver, because `+` is also numeric
+ *   addition and the driver cannot tell the two apart — see `concatOp` in
+ *   `db/sql.ts` for why guessing there would fail *silently*.
+ */
+const ACCOUNT_SEGMENT_COLUMNS = [
+  'SEGMENT1',
+  'SEGMENT2',
+  'SEGMENT3',
+  'SEGMENT4',
+  'SEGMENT5',
+  'SEGMENT6',
+  'SEGMENT7',
+] as const;
 
 /**
  * Commitments & Spend — the encumbrance screen's one endpoint.
@@ -329,10 +353,7 @@ export function registerSpend(api: Api): void {
           `       v.${quoteIdent('DISTRIBUTIONS')}        AS distributions,`,
           `       v.${quoteIdent('ENCUMBERED_FROM_PO')}   AS po_encumbered,`,
           `       v.${quoteIdent('ORDERED_FROM_PO')}      AS po_ordered,`,
-          `       cc.${quoteIdent('SEGMENT1')} || '.' || cc.${quoteIdent('SEGMENT2')} || '.' ||`,
-          `       cc.${quoteIdent('SEGMENT3')} || '.' || cc.${quoteIdent('SEGMENT4')} || '.' ||`,
-          `       cc.${quoteIdent('SEGMENT5')} || '.' || cc.${quoteIdent('SEGMENT6')} || '.' ||`,
-          `       cc.${quoteIdent('SEGMENT7')}            AS account,`,
+          `       ${concatExpr(ACCOUNT_SEGMENT_COLUMNS.map((c) => `cc.${quoteIdent(c)}`), '.')} AS account,`,
           `       cc.${quoteIdent('SEGMENT1')}            AS fund_code,`,
           `       cc.${quoteIdent('SEGMENT2')}            AS purpose_code,`,
           `       cc.${quoteIdent('SEGMENT3')}            AS program_code`,

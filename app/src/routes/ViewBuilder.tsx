@@ -1336,6 +1336,18 @@ export default function ViewBuilder() {
                 setSql(statement);
                 setOutcome({ kind: 'unrun' });
               }}
+              /*
+                ★ THE LINK NAMES THE SAVED VIEW, SO IT IS ONLY OFFERED FOR ONE.
+                `outcome.run.viewId` is set by the server from the row it executed,
+                and it is null for a preview of an unsaved statement — there is no
+                id to put in the URL, and a link to `/admin/views/undefined/result`
+                would be a link that fails after the reader has left the page.
+              */
+              resultHref={
+                activeRun !== null && activeRun.viewId !== null
+                  ? `/admin/views/${activeRun.viewId}/result`
+                  : null
+              }
             />
           </div>
 
@@ -1865,6 +1877,16 @@ interface ResultBodyProps {
   onPatchColumn: (key: string, patch: Partial<ColumnDecl>) => void;
   onMoveColumn: (key: string, delta: number) => void;
   onLoadStatement: (statement: string) => void;
+  /**
+   * Where the result lives on its own, or `null` when it has no address.
+   *
+   * ★ NULL FOR A PREVIEW OF AN UNSAVED STATEMENT, AND THAT IS THE COMMON CASE IN
+   *   THIS SCREEN. A result the server executed from a *row* has a view id and
+   *   therefore a URL; one executed from the editor's buffer does not, and there is
+   *   no honest link to offer. Rendering the link anyway would send the reader to
+   *   a page that 404s — after they had left the screen that could have told them.
+   */
+  resultHref: string | null;
 }
 
 /**
@@ -1887,6 +1909,7 @@ function ResultBody({
   onPatchColumn,
   onMoveColumn,
   onLoadStatement,
+  resultHref,
 }: ResultBodyProps) {
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [statements, setStatements] = useState<{ label: string; sql: string }[] | null>(null);
@@ -2117,6 +2140,30 @@ function ResultBody({
             . Shown rather than assumed — this is what the server actually compiled, after defaults and
             type coercion.
           </p>
+        ) : null
+      }
+      /**
+       * ★ "OPEN IN A NEW WINDOW" — THE RESULT WITHOUT THE EDITOR BESIDE IT.
+       *
+       * The panel is narrow and the page has its own scroll, so reading 200 rows
+       * here means reading them through a letterbox. The link opens the same view
+       * at its own address, where the table is the only thing on the page.
+       *
+       * ★ `target="_blank"` WITH `rel="noopener"`. Without `noopener` the new
+       *   window gets a live `window.opener` handle back into this one, which is
+       *   both a security smell and unnecessary — the result page re-runs the view
+       *   rather than borrowing this page's rows.
+       *
+       * ★ AND IT IS ONLY OFFERED WHEN THERE IS AN ADDRESS. `resultHref` is null for
+       *   a preview of an unsaved statement, because that result has no id and
+       *   therefore no URL. A link to `/admin/views/undefined/result` would fail
+       *   after the reader had left the screen that could have told them.
+       */
+      actions={
+        resultHref !== null ? (
+          <a className="linkish" href={resultHref} target="_blank" rel="noopener noreferrer">
+            Open in a new window ↗
+          </a>
         ) : null
       }
     />

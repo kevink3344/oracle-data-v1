@@ -262,10 +262,6 @@ interface StoreValue {
    */
   matchReasons: Map<string, LineMatch>;
 
-  selected: Project | null;
-  selectedLevel: string | null;
-  selectLevel: (level: string | null) => void;
-
   /**
    * Which fund and which programs every page is showing.
    *
@@ -427,7 +423,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [params, setParams] = useSearchParams();
-  const selectedLevel = params.get('project');
+
+  /**
+   * ★ THE OPEN PROJECT IS NO LONGER STORE STATE, AND THAT IS THE POINT OF THE CHANGE.
+   *
+   *   `selected` / `selectedLevel` / `selectLevel` existed to drive the sliding detail panel: the
+   *   panel was rendered once by the shell and the store held *which* project it described. The
+   *   detail is a page now (`/projects/:level`), so the URL carries the selection and the route
+   *   reads it — there is nothing for the store to hold, and a second copy of it here would be a
+   *   state that could disagree with the address bar.
+   *
+   *   `params` stays: the account scope is still URL-driven, and it is a refinement of the page a
+   *   reader is standing on rather than a navigation away from it.
+   */
 
   /**
    * ★ THE TENANT THE SCOPE IS READ FROM, AND WHY IT IS READ HERE RATHER THAN ON A PAGE.
@@ -941,29 +949,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [faceted, projectSort],
   );
 
-  const selected = useMemo(
-    () => (selectedLevel ? projects.find((p) => p.level === selectedLevel) ?? null : null),
-    [projects, selectedLevel],
-  );
-  const selectLevel = useCallback(
-    (level: string | null) => {
-      setParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (level) next.set('project', level);
-          else next.delete('project');
-          return next;
-        },
-        { replace: false },
-      );
-    },
-    [setParams],
-  );
-
   /**
    * Write a scope into the URL, keeping every other param.
    *
-   * Built from `prev` for the same reason `selectLevel` is: the scope and the open project are
+   * Built from `prev` for the same reason the project link is: the scope and the open project are
    * independent, and a reader who narrows the programs while looking at a project must not lose
    * the project.
    *
@@ -1080,9 +1069,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     query,
     setQuery,
     matchReasons,
-    selected,
-    selectedLevel,
-    selectLevel,
     scope,
     setScope,
     toggleProgram,

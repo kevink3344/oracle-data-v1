@@ -139,7 +139,12 @@ const ExtractSourceSchema = z
   .object({
     /** `oracle` = live ledger. `file` = the frozen document on disk. */
     kind: z.enum(['oracle', 'file']),
-    dialect: z.enum(['sqlite', 'oracle']),
+    // ★ `sqlserver` IS LISTED BECAUSE THE LIVE READ CAN NOW COME FROM IT. The
+    //   frontend reads only `body`, so a dialect it does not recognise is
+    //   invisible to it — but this schema is what the route validates its own
+    //   response against, and a value missing here fails the response, not the
+    //   reader. Add a dialect to `SqlDriver` and it must be added here.
+    dialect: z.enum(['sqlite', 'oracle', 'sqlserver']),
     /** The store's human label, as `/api/health` reports it. */
     label: z.string(),
     /** ISO instant the document was read. On a cache hit this is the build time. */
@@ -395,6 +400,114 @@ export function buildLiveSql(programs: readonly string[]): { sql: string; binds:
 }
 
 /**
+ * The same document, read from the SQL Server mirror instead of Oracle.
+ *
+ * ★★ WHY THIS EXISTS: THE MIRROR IS THE POINT OF THE MIRROR.
+ *
+ *   `buildExtract` served the frozen file whenever the ledger was not Oracle, so
+ *   under `DB_MODE=sqlserver` — the configuration this app is *deployed* in — the
+ *   whole register came from a 2,782-row snapshot. Measured against live Oracle for
+ *   Fund 04, that snapshot is missing **six lines worth $5,922,438** on level 0450
+ *   alone, and the same shortfall runs through every level: the snapshot keeps only
+ *   the highest line number of each order, a rule that lived in the retired
+ *   `WCSEXP_*` view and is unrecoverable from the base tables. The reader's report
+ *   was *"there should be more purchase order lines for 526, 527"* — correct, and
+ *   the cause was the source rather than the arithmetic.
+ *
+ *   The SQL Server mirror already holds the real rows (`PO_LINES_ALL` = 1,141,923
+ *   against the snapshot's 2,782), so the fix is to read it.
+ *
+ * ★ THREE DIFFERENCES FROM THE ORACLE STATEMENT, AND EACH IS FORCED:
+ *
+ *   1. **`AMOUNT` IS COMPUTED HERE, NOT SELECTED.** Oracle reads
+ *      `WCSEXP_PO_DISTRIBUTIONS`, a view that *derives* the amount from
+ *      `PO_LINE_LOCATIONS_ALL`. The base `PO_DISTRIBUTIONS_ALL` carries
+ *      `AMOUNT_ORDERED` — and it is **NULL on all 82,007 Fund-04 rows**, measured.
+ *      So the mirror would report a null amount for every line unless the same
+ *      formula is applied here. It is transcribed from the view body verbatim:
+ *
+ *          ROUND( DECODE(PLL.QUANTITY, NULL, (PLL.AMOUNT - NVL(PLL.AMOUNT_CANCELLED,0)),
+ *                 (PLL.QUANTITY - NVL(PLL.QUANTITY_CANCELLED,0)) * NVL(PLL.PRICE_OVERRIDE,0) ), 2 )
+ *
+ *      `DECODE` becomes `CASE`, `NVL` becomes `COALESCE`, `ROUND(x,2)` becomes
+ *      `ROUND(x,2)` (identical on both engines). **The three-argument `DECODE` is a
+ *      null test on `QUANTITY`, not an equality test** — `DECODE(a, NULL, x, y)` is
+ *      `CASE WHEN a IS NULL THEN x ELSE y END`, which is why it is written that way
+ *      rather than as a `CASE a WHEN NULL`.
+ *
+ *   2. **`PO_LINE_LOCATIONS_ALL` IS JOINED ON THE SAME KEY THE VIEW USES** —
+ *      `PO_HEADER_ID` *and* `PO_LINE_ID`, not the line id alone. A line can have
+ *      several locations (schedules), so joining on the line id alone would fan the
+ *      rows out and inflate every total.
+ *
+ *   3. **NO `APPS.` PREFIX AND NO `WCSEXP_*` VIEW.** The mirror holds base tables
+ *      under `dbo`, and `WCSEXP_MTL_SYSTEM_ITEMS` was never copied — the item number
+ *      is therefore `NULL` here, exactly as `BUYER_NAME` is on Oracle. Both are
+ *      absent rather than guessed, which is the rule this file already follows.
+ *
+ * ★ `STATUS` COMES FROM `AUTHORIZATION_STATUS`, WHICH THE COPY ADDED to
+ *   `PO_HEADERS_ALL` by joining the base table to the view. Without it every row
+ *   would report a null status.
+ */
+export function buildLiveSqlServer(programs: readonly string[]): { sql: string; binds: Record<string, string> } {
+  const { where, binds } = scopeClause(programs);
+
+  /**
+   * The same 18 columns, with `AMOUNT` computed rather than selected.
+   *
+   * ★ ONLY `AMOUNT` AND `ITEM_NUMBER` DIFFER FROM `LIVE_COLUMNS`, and both differ
+   *   because the mirror lacks the view that supplied them. Keeping the rest
+   *   spelled out here rather than reusing `LIVE_COLUMNS` is deliberate: the two
+   *   lists are the same *document* on two engines, and a reader comparing them
+   *   should be able to see every column side by side. A shared prefix plus an
+   *   override would hide exactly the two lines that need reading.
+   */
+  const columns = `
+         CONVERT(varchar(10), h.APPROVED_DATE, 23) AS ORDER_DATE,
+         h.SEGMENT1                             AS ORDER_NUMBER,
+         NULL                                   AS BUYER_NAME,
+         v.VENDOR_NAME                          AS VENDOR_NAME,
+         l.LINE_NUM                             AS LINE_NUMBER,
+         l.CANCEL_FLAG                          AS CANCEL_FLAG,
+         NULL                                   AS ITEM_NUMBER,
+         l.ITEM_DESCRIPTION                     AS DESCRIPTION,
+         l.QUANTITY                             AS QUANTITY,
+         ROUND(
+           CASE WHEN pll.QUANTITY IS NULL
+                THEN (pll.AMOUNT - COALESCE(pll.AMOUNT_CANCELLED, 0))
+                ELSE (pll.QUANTITY - COALESCE(pll.QUANTITY_CANCELLED, 0))
+                     * COALESCE(pll.PRICE_OVERRIDE, 0)
+           END, 2)                              AS AMOUNT,
+         g.SEGMENT1                             AS FUND,
+         g.SEGMENT2                             AS PURPOSE,
+         g.SEGMENT3                             AS PROGRAM,
+         g.SEGMENT4                             AS OBJECT_,
+         g.SEGMENT5                             AS LEVEL_,
+         g.SEGMENT6                             AS COST_CENTER,
+         g.SEGMENT7                             AS FUTURE_USE,
+         h.AUTHORIZATION_STATUS                 AS STATUS`;
+
+  const sql = `
+    SELECT ${columns}
+      FROM PO_HEADERS_ALL h
+      JOIN PO_LINES_ALL l
+        ON l.PO_HEADER_ID = h.PO_HEADER_ID
+      JOIN PO_DISTRIBUTIONS_ALL wd
+        ON wd.PO_LINE_ID = l.PO_LINE_ID
+      JOIN PO_LINE_LOCATIONS_ALL pll
+        ON pll.PO_HEADER_ID = wd.PO_HEADER_ID
+       AND pll.PO_LINE_ID = wd.PO_LINE_ID
+      JOIN GL_CODE_COMBINATIONS g
+        ON g.CODE_COMBINATION_ID = wd.CODE_COMBINATION_ID
+ LEFT JOIN PO_VENDORS v
+        ON v.VENDOR_ID = h.VENDOR_ID
+     ${where}
+     ORDER BY h.SEGMENT1, l.LINE_NUM, wd.PO_DISTRIBUTION_ID`;
+
+  return { sql, binds };
+}
+
+/**
  * The fiscal floor for a tenant, as `YYYY-MM-DD`.
  *
  * ★ THE SAME ARITHMETIC AS THE FRONTEND'S `fiscalYearStart`, DELIBERATELY.
@@ -497,7 +610,7 @@ interface LiveDocument {
     //   `SqlDriver['dialect']` is already this union, so widening it in one interface
     //   was the only thing standing between the cached document and the type the
     //   route promises. Same reasoning as `kind` above, one field over.
-    dialect: 'oracle' | 'sqlite';
+    dialect: 'oracle' | 'sqlite' | 'sqlserver';
     label: string;
     generatedAt: string;
     cached: boolean;
@@ -781,12 +894,22 @@ async function buildExtract(forced: boolean): Promise<{ source: ExtractSource; t
     throw new AppError(500, 'INTERNAL', 'No ledger store is configured, so there is nothing to read.');
   }
 
-  // ★ A NON-ORACLE LEDGER IS NOT AN ERROR — IT IS `DB_MODE=local`, the default
-  //   and the configuration every test runs under. The frontend's own
-  //   `loadExtract()` falls back to the static file for exactly this case, and
-  //   this arm makes the endpoint answer rather than 500 so that a client which
-  //   *does* point at the API in local mode still gets a working document.
-  if (ledger.dialect !== 'oracle') {
+  // ★★ ONLY THE BUNDLED SAMPLE TAKES THIS ARM NOW — `DB_MODE=local` / `turso`.
+  //
+  //   It used to catch every non-Oracle ledger, which meant `DB_MODE=sqlserver` —
+  //   the deployed configuration — served the frozen 2,782-row file while the
+  //   mirror beside it held 1,141,923 real PO lines. The reader's report was
+  //   *"there should be more purchase order lines for 526, 527"*, and the cause was
+  //   this line rather than any arithmetic downstream.
+  //
+  //   ★ THE TEST IS `sqlite`, NOT "not oracle". `local` and `turso` are both the
+  //     bundled sample — the same file, opened two ways — and neither has the base
+  //     tables the live statement needs. SQL Server does, so it reads live.
+  //
+  //   ★ THE FRONTEND'S OWN `loadExtract()` STILL FALLS BACK TO THE STATIC FILE for
+  //     a client that points at the API in local mode, so this arm keeps the
+  //     endpoint answering rather than 500-ing on a screen that has nothing else.
+  if (ledger.dialect === 'sqlite') {
     const table = await readFrozen();
     const s = summarise(table);
     return {
@@ -851,7 +974,19 @@ async function buildExtract(forced: boolean): Promise<{ source: ExtractSource; t
   //   happen is a silent fallback: hence the field, which the frontend surfaces.
   let fallbackReason: string | null = null;
   try {
-    const { sql, binds } = buildLiveSql(tenant.programs);
+    // ★★ ONE DOCUMENT, TWO ENGINES — AND THE SQL SERVER ARM IS THE ONE THAT MATTERS
+    //    IN PRODUCTION. `buildLiveSql` reads Oracle's `WCSEXP_*` views; the mirror
+    //    holds base tables, so it needs its own statement. Both produce the same 18
+    //    columns in the same order, which is what makes the response shape identical
+    //    and lets every consumer stay unaware of which engine answered.
+    //
+    //    Before this, a non-Oracle ledger never reached here at all — it returned the
+    //    frozen file above — so the mirror could hold every real row and the app
+    //    would still show the 2,782-row snapshot.
+    const { sql, binds } =
+      ledger.dialect === 'oracle'
+        ? buildLiveSql(tenant.programs)
+        : buildLiveSqlServer(tenant.programs);
     // ★ `storeDriver('ledger')` RATHER THAN `rows(...)`, AND THE CHOICE IS
     //   DELIBERATE. `rows()` routes the statement by the tables it names, and
     //   this one names `APPS.WCSEXP_*` views that the registry has never heard

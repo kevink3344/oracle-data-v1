@@ -70,7 +70,17 @@ export interface ExecResult {
 }
 
 export interface SqlDriver {
-  readonly dialect: 'sqlite' | 'oracle';
+  /**
+   * Which engine is underneath. Read by the guards that must spell a construct
+   * differently per dialect (row caps, the query guard, the ledger shape check).
+   *
+   * ★ `'sqlserver'` IS A THIRD MEMBER, NOT A SYNONYM FOR `'oracle'`. Both are
+   *   "not SQLite" to the routes, but they disagree on the things the guards ask
+   *   about: T-SQL pages with `OFFSET/FETCH` and has no `DUAL`, Oracle pages with
+   *   `FETCH FIRST` and requires one. Collapsing them would make every
+   *   dialect-aware branch a coin flip.
+   */
+  readonly dialect: 'sqlite' | 'oracle' | 'sqlserver';
   /**
    * A one-row, one-column statement that proves the connection works.
    *

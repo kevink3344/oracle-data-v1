@@ -17,7 +17,7 @@ interface Finding {
 }
 
 export default function Dashboard() {
-  const { status, error, reload, lines, projects, months, summary, selectLevel } = useStore();
+  const { status, error, reload, lines, projects, months, summary } = useStore();
   const { constants, scopeStats } = useStore();
   const [month, setMonth] = useState<string | null>(null);
 
@@ -400,13 +400,13 @@ export default function Dashboard() {
 
             <p className="chart-note">
               {moneyShort(summary?.committed ?? 0)} committed in total. Select a level from{' '}
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => selectLevel(projects[0]?.level ?? null)}
-              >
-                the largest project
-              </button>{' '}
+              {projects[0] ? (
+                <Link className="linkish" to={`/projects/${encodeURIComponent(projects[0].level)}`}>
+                  the largest project
+                </Link>
+              ) : (
+                <>the largest project</>
+              )}{' '}
               to see the same figures broken down by budget group and cost code.
             </p>
           </div>

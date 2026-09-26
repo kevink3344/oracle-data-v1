@@ -98,7 +98,13 @@
 --    fund filter, so the segments are in hand — the key is built from that join
 --    rather than adding a second one.
 --
---  ★ `||` IS THE CONCATENATION OPERATOR ON BOTH ENGINES, so no `CONCAT()`.
+--  ★ `||` IS THE CONCATENATION OPERATOR ON SQLITE AND ORACLE, BUT **NOT ON SQL
+--    SERVER**, WHICH HAS NO `||` AND USES `+`. This file is a standalone document
+--    — nothing in the app executes it — so the `||` below is left as written for
+--    the two engines it was measured against. The app's own account-key queries
+--    build the same string through `concatExpr()` in `server/src/db/sql.ts`, which
+--    picks `+` when the ledger is SQL Server. Do not copy the `||` below into a
+--    query the app runs.
 -- ============================================================================
 WITH code_period AS (
   SELECT gb.code_combination_id                  AS ccid,

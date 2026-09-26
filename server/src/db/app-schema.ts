@@ -71,6 +71,25 @@ export interface AppSchemaStatus {
 const APP_SCHEMA_FILE = path.join(REPO_ROOT, 'data', 'sql', 'turso', '01-app.sql');
 
 /**
+ * ★ THE SAME TABLES, IN T-SQL — A SECOND FILE, NOT A TRANSLATION.
+ *
+ * The two files declare the same thirteen tables and must stay in step, but they
+ * cannot be one file: `AUTOINCREMENT`, `datetime('now')`, `INTEGER CHECK(x IN
+ * (0,1))` and `CREATE INDEX IF NOT EXISTS` have no T-SQL spelling, and the
+ * rewrites are not mechanical (`AUTOINCREMENT` → `IDENTITY(1,1)` changes where
+ * the column keyword sits, and `IF NOT EXISTS` becomes an `IF OBJECT_ID(...) IS
+ * NULL` guard *around* the statement rather than a clause inside it).
+ *
+ * ★ WHAT KEEPS THEM IN STEP IS THE SMOKE SUITE, and it is the same gate that
+ *   already guards `APP_TABLES`: it reads the SQLite file, extracts every
+ *   `CREATE TABLE` name, and asserts the set equals `APP_TABLES`. That gate does
+ *   not currently read this file — see the note on `APP_TABLES` — so the honest
+ *   position is: the SQLite file is gated, this one is not yet, and adding a
+ *   table to one without the other is a change the suite will not catch.
+ */
+const APP_SCHEMA_FILE_SQLSERVER = path.join(REPO_ROOT, 'data', 'sql', 'sqlserver', '01-app.sql');
+
+/**
  * The tables `01-app.sql` owns, as opposed to the ones the extract ships.
  *
  * ★ THIS IS A SECOND COPY OF A LIST THAT ALREADY EXISTS, AND IT IS DELIBERATE.
@@ -178,25 +197,34 @@ async function apply(): Promise<AppSchemaStatus> {
    */
   const store = storeDriver('app');
 
-  if (store.dialect !== 'sqlite') {
-    // Reachable only if someone points `APP_DB_URL` at a non-SQLite store. Not an
-    // error state — there is simply no DDL this module can apply there, and
-    // saying so is more useful than a syntax error from the driver.
+  if (store.dialect !== 'sqlite' && store.dialect !== 'sqlserver') {
+    // Reachable only if someone points `APP_DB_URL` at a non-SQLite, non-SQL-Server
+    // store — Oracle today. Not an error state — there is simply no DDL this module
+    // can apply there, and saying so is more useful than a syntax error from the
+    // driver.
     return {
       state: 'skipped',
       statements: 0,
-      error: `the app store (${config.appDb.label}) is ${store.dialect}, not SQLite`,
+      error: `the app store (${config.appDb.label}) is ${store.dialect}, not SQLite or SQL Server`,
     };
   }
 
+  // ★ WHICH FILE IS APPLIED IS DECIDED BY THE STORE'S DIALECT, NOT BY `DB_MODE`.
+  //   The two are the same thing in every configuration that exists, but the app
+  //   store is what receives the statements, so it is what should choose the
+  //   syntax. A future `APP_DB_URL` pointing at SQL Server under a libSQL ledger
+  //   would then get the right DDL without this function learning about it.
+  const isSqlServer = store.dialect === 'sqlserver';
+  const schemaFile = isSqlServer ? APP_SCHEMA_FILE_SQLSERVER : APP_SCHEMA_FILE;
+
   let source: string;
   try {
-    source = readFileSync(APP_SCHEMA_FILE, 'utf8');
+    source = readFileSync(schemaFile, 'utf8');
   } catch (e) {
     // A missing file is a deployment problem, not a data problem, and saying so
     // by path is the difference between a two-minute fix and a hunt.
     const message = e instanceof Error ? e.message : String(e);
-    throw new Error(`could not read ${APP_SCHEMA_FILE}: ${message}`);
+    throw new Error(`could not read ${schemaFile}: ${message}`);
   }
 
   const statements = splitSql(source);
@@ -204,11 +232,21 @@ async function apply(): Promise<AppSchemaStatus> {
     await store.execute({ sql: statement, args: [] });
   }
 
-  const added = await applyColumnAdditions(store);
-  const migrated = await applyPinCategoryMigration(store);
+  // ★ THE TWO MIGRATIONS BELOW ARE SQLITE-ONLY AND ARE SKIPPED FOR SQL SERVER.
+  //   Both read `sqlite_master` and one rebuilds a table with `AUTOINCREMENT` —
+  //   neither can run in T-SQL. Skipping them is correct rather than a gap: the
+  //   SQL Server DDL is applied to a database that was *created from it* this
+  //   session, so it already carries the current shape and there is no older
+  //   definition for either migration to upgrade. The day a SQL Server app store
+  //   needs a column added, it needs its own addition path — `ALTER TABLE … ADD`
+  //   in T-SQL is idempotent-guarded by `IF COL_LENGTH(...) IS NULL`, which is a
+  //   different mechanism from the `pragma_table_info` probe below.
+  const added = isSqlServer ? [] : await applyColumnAdditions(store);
+  const migrated = isSqlServer ? false : await applyPinCategoryMigration(store);
 
   console.log(
-    `[db] app schema ready (${statements.length} statements from 01-app.sql → ${config.appDb.label}` +
+    `[db] app schema ready (${statements.length} statements from ` +
+      `${path.basename(schemaFile)} → ${config.appDb.label}` +
       `${added.length > 0 ? `, ${added.length} column${added.length === 1 ? '' : 's'} added: ${added.join(', ')}` : ''}` +
       `${migrated ? ', user_pin category constraint upgraded' : ''})`,
   );
@@ -459,11 +497,40 @@ export class AppErrorLike extends Error {
  *
  * Comments are kept rather than stripped: SQLite parses them, and retaining them
  * means a failure reported by the driver quotes the line the file actually has.
+ *
+ * ★★ `GO` IS A BATCH SEPARATOR THE DRIVER DOES NOT UNDERSTAND — AND IT IS NOT SQL.
+ *
+ *   The T-SQL DDL (`data/sql/sqlserver/01-app.sql`) uses `GO` on its own line
+ *   between batches, which is an SSMS/sqlcmd convention: the *client* splits on it
+ *   before sending anything. `mssql` does not, so `GO` arrived at the server as a
+ *   statement and SQL Server answered
+ *
+ *       Could not find stored procedure 'GO'.
+ *
+ *   ★ THAT FAILURE TOOK OUT THE WHOLE APP STORE, NOT ONE STATEMENT. `apply()`
+ *     executes the statements in order and throws on the first error, so the
+ *     schema was never applied — and every app-store endpoint answered 503
+ *     `DB_UNAVAILABLE`. Measured: `/api/views` failed with that 503 while
+ *     `saved_view` held a perfectly good row, because the *schema application*
+ *     had aborted, not the read.
+ *
+ *   ★ THE COPY SCRIPT ALREADY SPLIT ON `GO` (see `copy-oracle-to-sqlserver.ts`),
+ *     which is exactly why the tables exist and the app could not read them. Two
+ *     appliers of the same file, one of which knew about `GO` and one which did
+ *     not — the fix is to teach this one, not to remove `GO` from the file, since
+ *     the file is also read by humans and by `sqlcmd`.
+ *
+ * A `GO` is only a separator when it is the whole line (case-insensitive, optional
+ * surrounding whitespace), which is the same rule sqlcmd applies. `'GO'` inside a
+ * literal is already protected by the string handling above.
  */
 export function splitSql(src: string): string[] {
   const out: string[] = [];
   let buf = '';
   let inString = false;
+  // Tracks whether the current line has any non-whitespace before the cursor, so
+  // a `GO` can be recognised as standing alone.
+  let lineHasContent = false;
 
   for (let i = 0; i < src.length; i += 1) {
     const c = src[i];
@@ -485,6 +552,7 @@ export function splitSql(src: string): string[] {
     if (c === "'") {
       inString = true;
       buf += c;
+      lineHasContent = true;
       continue;
     }
 
@@ -494,6 +562,7 @@ export function splitSql(src: string): string[] {
         i += 1;
       }
       if (i < src.length) buf += src[i];
+      lineHasContent = false;
       continue;
     }
 
@@ -511,13 +580,32 @@ export function splitSql(src: string): string[] {
       continue;
     }
 
+    if (c === '\n') {
+      // ★ A LINE THAT IS EXACTLY `GO` ENDS A BATCH. Checked at the newline so the
+      //   whole line is known — `\bGO\b` on the running buffer would also fire on
+      //   a column named `GO` or a word in a comment.
+      const line = buf.slice(buf.lastIndexOf('\n') + 1).trim();
+      if (/^GO$/i.test(line) && lineHasContent) {
+        buf = buf.slice(0, buf.lastIndexOf('\n'));
+        const statement = stripCommentOnly(buf);
+        if (statement) out.push(statement);
+        buf = '';
+      } else {
+        buf += c;
+      }
+      lineHasContent = false;
+      continue;
+    }
+
     if (c === ';') {
       const statement = stripCommentOnly(buf);
       if (statement) out.push(statement);
       buf = '';
+      lineHasContent = false;
       continue;
     }
 
+    if (!/\s/.test(c ?? '')) lineHasContent = true;
     buf += c;
   }
 

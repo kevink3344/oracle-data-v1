@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useStore, FACET_LABEL, PROJECT_COLUMNS, type LineMatch } from '../state/store';
 import { StatusChip } from './Chip';
 import { MixBar } from './Bars';
@@ -69,14 +69,13 @@ function MatchReason({ match }: { match: LineMatch }) {
 }
 
 export default function ProjectTable() {
+  const navigate = useNavigate();
   const {
     visible,
     searched,
     facet,
     setFacet,
     matchReasons,
-    selectedLevel,
-    selectLevel,
     status,
     uncodedShown,
     registry,
@@ -193,9 +192,9 @@ export default function ProjectTable() {
       <div className="table-wrap">
         <table className="data">
           <caption className="sr">
-            Projects, one row per Oracle account level, {order}. Selecting a row opens its details
-            panel; the project's name opens the page that edits it. Click a column heading to
-            reorder the table.
+            Projects, one row per Oracle account level, {order}. Selecting a row opens that
+            project's detail page; the project's name opens the page that edits it. Click a column
+            heading to reorder the table.
           </caption>
           <colgroup>
             <col />
@@ -207,29 +206,35 @@ export default function ProjectTable() {
           <SortableHead columns={PROJECT_COLUMNS} sort={projectSort} onSort={applySort} />
           <tbody>
             {visible.map((p) => {
-              const isSelected = selectedLevel === p.level;
               const reason = matchReasons.get(p.level);
-              /* ★ THE NAME IS THE LINK WHENEVER THERE IS SOMETHING TO EDIT, AND A
-                 BUTTON WHEN THERE IS NOT. A claimed level has an app record, so its
-                 name can open that record's edit page — the same page the projects
-                 list offers — and the reader arrives at the one screen that can
-                 change the name, the note or the level. An unclaimed level has no
-                 registry row, so `/projects/:slug/edit` has no key to be given; its
-                 name keeps the job it always had and opens the details panel.
+              /* ★ THE ROW IS A LINK NOW, NOT A DRAWER TRIGGER — AND THE CHANGE IS THE POINT.
+                 It used to call `selectLevel(p.level)`, which wrote `?project=<level>` and opened
+                 the sliding panel. The user's instruction was that a project should open a PAGE,
+                 so the row navigates to `/projects/<level>`.
 
-                 The row click is untouched, so the drawer is still one click away
-                 from anywhere else on the row — and the link stops propagation, or
-                 the panel would be left open behind the page the link lands on. */
+                 ★ A `<tr onClick>` IS NOT KEYBOARD-REACHABLE, WHICH IS WHY THE NAME IS ALSO A
+                   LINK. The row click is a mouse convenience; the name carries the real anchor, so
+                   Tab reaches it, Enter follows it, and a screen reader announces a link rather
+                   than a row that happens to respond to a click. This was already true of the
+                   claimed-name branch below; the unclaimed branch was a `<button>` that opened the
+                   panel and is now the same link.
+
+                 ★ THE NAME'S LINK GOES TO THE EDIT PAGE WHEN THERE IS SOMETHING TO EDIT, AND TO
+                   THE DETAIL PAGE WHEN THERE IS NOT. A claimed level has an app record, so
+                   `/projects/:slug/edit` is the more useful destination — it is the one screen that
+                   can change the name, the note or the level. An unclaimed level has no registry
+                   row, so there is no slug to give and the detail page is the only destination. */
               const claimed = registry.find((r) => (r.levelCode ?? '').trim() === p.level);
               /* ★ NO CLAIMED ROW, NO BADGE — AND THAT IS NOT A GAP. The badge says a
                  project was recorded in this app today, so a level nobody has recorded
                  cannot wear it. The 127 unclaimed levels are not new; they are unowned. */
               const isNew = claimed ? addedToday(claimed, now) : false;
+              const detailHref = `/projects/${encodeURIComponent(p.level)}`;
               return (
                 <tr
                   key={p.level}
-                  className={`prow${isSelected ? ' is-selected' : ''}`}
-                  onClick={() => selectLevel(p.level)}
+                  className="prow"
+                  onClick={() => navigate(detailHref)}
                 >
                   <td>
                     <div className="pcell__code">{p.code}</div>
@@ -244,17 +249,13 @@ export default function ProjectTable() {
                           {p.name}
                         </Link>
                       ) : (
-                        <button
-                          type="button"
+                        <Link
                           className={`linkish${p.unclaimed ? ' linkish--muted' : ''}`}
-                          aria-current={isSelected ? 'true' : undefined}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            selectLevel(p.level);
-                          }}
+                          to={detailHref}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {p.name}
-                        </button>
+                        </Link>
                       )}
                       {/*
                         ★ THE MARK IS ON THE NAME BECAUSE IT IS A FACT ABOUT THE PROJECT.

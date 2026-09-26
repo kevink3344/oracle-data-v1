@@ -59,6 +59,7 @@ import { AppError } from '../http/errors.js';
 import { quoteIdent, rows } from './sql.js';
 import { storeDriver } from './client.js';
 import { defaultReadFor } from './ledger-defaults.js';
+import { stripTrailingOrderBy } from './query-guard.js';
 
 /**
  * One row of `ledger_read_cap`, as the resolver needs it.
@@ -180,14 +181,28 @@ export function applyReadCap(
   statement: string,
   maxRows: number,
   orderBy: string,
-  dialect: 'sqlite' | 'oracle',
+  dialect: 'sqlite' | 'oracle' | 'sqlserver',
 ): string {
   const n = Math.max(1, Math.trunc(maxRows));
   const inner = statement.trim().replace(/;\s*$/, '');
   const ordered = /\bORDER\s+BY\b/i.test(inner) ? inner : `${inner}\nORDER BY ${orderBy}`;
-  return dialect === 'oracle'
-    ? `SELECT * FROM (\n${ordered}\n) WHERE ROWNUM <= ${n + 1}`
-    : `SELECT * FROM (\n${ordered}\n) LIMIT ${n + 1}`;
+  if (dialect === 'oracle') {
+    return `SELECT * FROM (\n${ordered}\n) WHERE ROWNUM <= ${n + 1}`;
+  }
+  if (dialect === 'sqlserver') {
+    // ★ THE INNER `ORDER BY` IS REMOVED — see the long note in `query-guard.ts`'s
+    //   `wrapForRowCap`. T-SQL forbids an `ORDER BY` in a derived table outright
+    //   (Msg 1033), and measured, adding an outer `ORDER BY` does not rescue it
+    //   (Msg 10744) — there is no arrangement that keeps the inner clause.
+    //
+    //   ★ THIS IS THE PATH WHERE DROPPING IT IS SAFEST. `ordered` above exists to
+    //     make the window reproducible; the ordering is *also* applied by the
+    //     caller's own statement in every use, and `row.order_by` is reported back
+    //     to the reader as `cap.orderBy` regardless. So the disclosure of what the
+    //     window means does not depend on the clause surviving the wrap.
+    return `SELECT TOP (${n + 1}) * FROM (\n${stripTrailingOrderBy(ordered)}\n) AS capped`;
+  }
+  return `SELECT * FROM (\n${ordered}\n) LIMIT ${n + 1}`;
 }
 
 /**
@@ -275,7 +290,7 @@ export function forgetReadCap(tableName?: string): void {
 export async function resolveReadCap(
   tableName: string,
   statement: string,
-  dialect: 'sqlite' | 'oracle',
+  dialect: 'sqlite' | 'oracle' | 'sqlserver',
 ): Promise<ResolvedReadCap> {
   const row = await readCapFor(tableName);
   const declared = defaultReadFor(tableName);
@@ -326,8 +341,8 @@ export async function resolveReadCap(
 }
 
 /** The dialect of the store a ledger read will run in. */
-export function ledgerDialect(): 'sqlite' | 'oracle' {
-  return storeDriver('ledger').dialect === 'oracle' ? 'oracle' : 'sqlite';
+export function ledgerDialect(): 'sqlite' | 'oracle' | 'sqlserver' {
+  return storeDriver('ledger').dialect;
 }
 
 /**

@@ -61,6 +61,157 @@ function oracleConfig(): NonNullable<typeof config.db.oracle> {
 }
 
 /**
+ * ★★ AN EXPLICIT OVERRIDE, SO A SCRIPT CAN READ ORACLE WHILE `DB_MODE` IS NOT
+ *    `oracle`.
+ *
+ * `copy-oracle-to-sqlserver.ts` reads Oracle and writes SQL Server, and it reads
+ * Oracle through `rows()` from `db/sql.js` — which goes to whichever store
+ * `DB_MODE` names. That is correct for the app and **wrong for that script**: the
+ * moment `.env` said `DB_MODE=sqlserver`, the copy's *source* became SQL Server,
+ * and every table it had not yet created answered
+ * `Invalid object name 'PO_LINE_LOCATIONS_ALL'` — a SQL Server error, from a
+ * script whose whole job is to read Oracle.
+ *
+ * ★ THE SYMPTOM IS WORTH RECOGNISING: a "SOURCE FAILED" whose message is a
+ *   *destination* dialect. When a script's error names the engine it is supposed
+ *   to be writing to, the connection it is reading through is the bug.
+ *
+ * The override is set for the duration of one call and cleared in a `finally`, so
+ * a script can read Oracle without the process-wide `config.db` being rewritten —
+ * which would leave the app's own driver pointing at the wrong store if the script
+ * ran in-process.
+ */
+export async function oracleRowsDirect<T = Record<string, unknown>>(
+  sql: string,
+  args: unknown[] = [],
+): Promise<T[]> {
+  const saved = config.db.oracle;
+  if (saved === undefined) {
+    // The settings come from `AZURE_SQL_*`'s Oracle counterparts, which
+    // `resolveDb` only reads in oracle mode. Read them here so the script does
+    // not need `DB_MODE=oracle` in `.env` to do its job.
+    config.db.oracle = oracleConfigFromEnv();
+  }
+  try {
+    const conn = await (await getPool()).getConnection();
+    // ★★ A CONNECTION WHOSE STATEMENT FAILED MUST NOT GO BACK TO THE POOL.
+    //
+    //    Measured: run a statement that fails (ORA-00942), then run a perfectly
+    //    good one on the connection the pool hands out next — the second
+    //    statement KILLS THE PROCESS. No exception, no stderr, no exit code the
+    //    caller can see: `say()` before the fetch runs, the fetch never returns,
+    //    and nothing after it ever runs. The ordering is the whole experiment:
+    //
+    //        BAD → GOOD            BAD reports; GOOD dies silently
+    //        GOOD → BAD → GOOD     all three report; exit 0
+    //
+    //    ★ THE SYMPTOM NAMES NOTHING. This is what made a 162,639-row copy
+    //      "vanish": the script's own log ended at `=== AP_INVOICE_LINES_ALL ===`
+    //      with neither `source:` nor `SOURCE FAILED:`, because the surrounding
+    //      try/catch never got a chance to run. The SQL was correct, the row
+    //      count was reachable in 50 s, and the identical statement succeeded in
+    //      a fresh process — the only difference was a failed statement earlier
+    //      in the same pool.
+    //
+    //    ★ `conn.close()` IS THE BUG, NOT THE FIX. node-oracledb's `close()`
+    //      returns the session to the pool for reuse; it does not reset it. So
+    //      one bad statement poisons a slot that a later, unrelated read then
+    //      draws. `close({ drop: true })` discards the session instead, which is
+    //      the only safe thing to do with a connection whose protocol state is
+    //      unknown. (`destroy()` is not a node-oracledb 7 API — the documented
+    //      form is the `drop` option on `close`, which the pool honours by
+    //      dropping the session rather than releasing it back.)
+    //
+    //    ★ AND THE FAILURE MESSAGE IS STILL THE CALLER'S. Dropping the
+    //      connection changes nothing about what the caller sees: the original
+    //      error propagates exactly as before. Only the *next* statement's fate
+    //      changes, and it changes from "process dies" to "works".
+    let failed = false;
+    try {
+      const translated = toOracleDialect(positionalToNumbered(sql));
+      const binds = toOracleBinds(translated, args as never);
+      const res = await conn.execute(translated, binds as never);
+      return ((res.rows ?? []) as unknown as Row[]).map(caseInsensitiveRow) as unknown as T[];
+    } catch (e) {
+      failed = true;
+      throw e;
+    } finally {
+      // ★ `close({ drop: true })` ON THE FAILURE PATH ONLY. A successful
+      //   statement leaves a usable session, so releasing it keeps the pool
+      //   warm; a failed one is dropped rather than handed to the next caller.
+      await releaseConnection(conn, failed);
+    }
+  } finally {
+    config.db.oracle = saved;
+  }
+}
+
+/**
+ * Release a pooled connection, DROPPING it if its last statement failed.
+ *
+ * ★ THE `drop` OPTION IS REAL BUT UNTYPED HERE. `oracledb` ships no `.d.ts` and
+ *   there is no `@types/oracledb` in this tree, so `Connection.close` is seen
+ *   with no parameters even though the implementation reads `options.drop`
+ *   (`node_modules/oracledb/lib/connection.js`, `close(a1)`) and forwards it to
+ *   `pool._release(impl, options)`. The cast states that once, here, instead of
+ *   scattering `as never` across every call site.
+ *
+ * ★ WHY DROPPING MATTERS. `close()` with no options returns the session to the
+ *   pool for REUSE, and a session whose statement failed is not safe to reuse:
+ *   measured, the next statement on that connection kills the Node process with
+ *   no exception, no stderr and no exit code (see the long note in
+ *   `oracleRowsDirect`). `drop: true` discards the session instead, so a failure
+ *   costs one reconnect rather than the next request's life.
+ */
+async function releaseConnection(conn: Connection, failed: boolean): Promise<void> {
+  if (failed) {
+    await (conn.close as (opts?: { drop?: boolean }) => Promise<void>)({ drop: true });
+    return;
+  }
+  await conn.close();
+}
+
+/** The Oracle settings straight from the environment, for a non-oracle `DB_MODE`. */
+function oracleConfigFromEnv(): NonNullable<typeof config.db.oracle> {
+  const str = (k: string): string | undefined => {
+    const v = process.env[k];
+    return v === undefined || v.trim() === '' ? undefined : v.trim();
+  };
+  const user = str('ORACLE_USER');
+  const password = str('ORACLE_PASSWORD');
+  const connectString = str('ORACLE_CONNECT_STRING');
+  if (user === undefined || password === undefined || connectString === undefined) {
+    const missing = [
+      user === undefined ? 'ORACLE_USER' : null,
+      password === undefined ? 'ORACLE_PASSWORD' : null,
+      connectString === undefined ? 'ORACLE_CONNECT_STRING' : null,
+    ].filter((k): k is string => k !== null);
+    throw new Error(
+      `Reading Oracle with DB_MODE != oracle needs ${missing.join(', ')} in the environment. ` +
+        'They are the same settings DB_MODE=oracle reads; only the mode differs.',
+    );
+  }
+  // ★ THE FIELD NAMES ARE COPIED FROM `oracleConfig()` IN `config/env.ts`, and a
+  //   mismatch would be silent: `pinSession` reads `schema`/`thick`/`thickLibDir`
+  //   and a misspelling would leave CURRENT_SCHEMA unset, which makes every
+  //   unqualified name fail with ORA-00942 — an error that names neither the
+  //   schema nor the setting.
+  return {
+    user,
+    password,
+    connectString,
+    schema: str('ORACLE_SCHEMA'),
+    privilege: str('ORACLE_PRIVILEGE'),
+    connectTimeout: Number(str('ORACLE_CONNECT_TIMEOUT') ?? 15) || 15,
+    thick: str('ORACLE_THICK') === '1',
+    thickLibDir: str('ORACLE_THICK_LIB_DIR'),
+    tnsAdmin: str('ORACLE_TNS_ADMIN'),
+    walletDir: str('ORACLE_WALLET_DIR'),
+    walletPassword: str('ORACLE_WALLET_PASSWORD'),
+  };
+}
+
+/**
  * Load the thick client, once.
  *
  * `initOracleClient()` throws if called twice in a process, so the flag is the
@@ -247,100 +398,15 @@ async function getPool(): Promise<Pool> {
 }
 
 /**
- * One run of a statement — either code, or one of the three things that merely
- * looks like code.
+ * ★ THE SCANNER NOW LIVES IN `dialect-scan.ts`, BECAUSE A SECOND DIALECT NEEDS IT.
  *
  * Both rewrites below (`?` to `:1`, and SQLite syntax to Oracle syntax) need to
  * know where the code is, and neither may touch a string literal, a quoted
- * identifier or a comment. Scanning once and labelling the runs is what lets
- * them share that knowledge instead of each growing its own scanner.
+ * identifier or a comment. The SQL Server driver needs the identical answer for
+ * the identical reason, so the scan was extracted rather than copied — one
+ * scanner, three dialects, no second place for the escaping rules to drift.
  */
-interface SqlSegment {
-  readonly text: string;
-  /** False for a literal, a quoted identifier or a comment. */
-  readonly code: boolean;
-}
-
-/**
- * Split a statement into code and non-code runs.
- *
- * Oracle's alternative quoting (`q'[ … ]'`) is deliberately NOT scanned for, and
- * that is the one hole here: a `?` inside a `q'[…]'` literal would be taken for a
- * placeholder. This repo's SQL does not use it. The placeholder-arity guard in
- * `toOracleBinds` is what catches it if one ever appears — it counts the
- * placeholders in the rewritten text and refuses a mismatch rather than binding
- * the wrong value to the wrong column.
- */
-function segmentSql(sql: string): SqlSegment[] {
-  const segments: SqlSegment[] = [];
-  let code = '';
-  let i = 0;
-  const len = sql.length;
-
-  const flush = (): void => {
-    if (code.length > 0) {
-      segments.push({ text: code, code: true });
-      code = '';
-    }
-  };
-
-  while (i < len) {
-    const ch = sql.charAt(i);
-
-    if (ch === "'" || ch === '"') {
-      flush();
-      let quoted = ch;
-      i += 1;
-      while (i < len) {
-        const c = sql.charAt(i);
-        quoted += c;
-        i += 1;
-        if (c === ch) {
-          // A doubled quote is an escaped quote, not the end of the run.
-          if (sql.charAt(i) === ch) {
-            quoted += ch;
-            i += 1;
-            continue;
-          }
-          break;
-        }
-      }
-      segments.push({ text: quoted, code: false });
-      continue;
-    }
-
-    if (ch === '-' && sql.charAt(i + 1) === '-') {
-      flush();
-      let comment = '';
-      while (i < len && sql.charAt(i) !== '\n') {
-        comment += sql.charAt(i);
-        i += 1;
-      }
-      segments.push({ text: comment, code: false });
-      continue;
-    }
-
-    if (ch === '/' && sql.charAt(i + 1) === '*') {
-      flush();
-      let comment = '/*';
-      i += 2;
-      while (i < len && !(sql.charAt(i) === '*' && sql.charAt(i + 1) === '/')) {
-        comment += sql.charAt(i);
-        i += 1;
-      }
-      comment += '*/';
-      i += 2;
-      segments.push({ text: comment, code: false });
-      continue;
-    }
-
-    code += ch;
-    i += 1;
-  }
-
-  flush();
-  return segments;
-}
+import { segmentSql } from './dialect-scan.js';
 
 /**
  * Rewrite `?` placeholders to Oracle's `:1, :2, …`.
@@ -667,6 +733,7 @@ export function createOracleDriver(): SqlDriver {
       const translated = toOracleDialect(positionalToNumbered(sql));
       const binds = toOracleBinds(translated, args);
       const conn = await (await getPool()).getConnection();
+      let failed = false;
       try {
         const res = await conn.execute(translated, binds as never);
         // See `caseInsensitiveRow`: Oracle returns unquoted identifiers upper-cased,
@@ -683,10 +750,27 @@ export function createOracleDriver(): SqlDriver {
           // query that otherwise succeeded.
           columns: oracleColumnNames(res.metaData),
         };
+      } catch (e) {
+        failed = true;
+        throw e;
       } finally {
-        // Returned to the pool, not closed. A thrown query must not leak a
-        // connection, or a burst of failures exhausts poolMax and the app stalls.
-        await conn.close();
+        // ★★ A FAILED STATEMENT'S CONNECTION IS DESTROYED, NOT RETURNED.
+        //
+        //    The note that used to sit here said "a thrown query must not leak a
+        //    connection, or a burst of failures exhausts poolMax and the app
+        //    stalls" — true, and it is why this is a `finally`. But `close()`
+        //    returns the session to the pool for REUSE, and a session whose
+        //    statement failed is not safe to reuse: measured, the next statement
+        //    on that connection kills the Node process with no exception and no
+        //    stderr (see the long note in `oracleRowsDirect`, and the
+        //    BAD→GOOD / GOOD→BAD→GOOD ordering that isolates it).
+        //
+        //    So the pool-size concern and the correctness concern point the same
+        //    way here: `close({ drop: true })` still does not leak — it drops the
+        //    slot — but it also cannot hand a poisoned session to the next
+        //    request. A burst of failures now costs a reconnect each instead of
+        //    silently killing the server on the request after the failure.
+        await releaseConnection(conn, failed);
       }
     },
 

@@ -222,6 +222,17 @@ export interface ViewResultGridProps {
    * it would get the panel's padding a second time and read as a separate block.
    */
   footnote?: ReactNode;
+  /**
+   * Controls the *screen* wants beside the count line — "Open in a new window".
+   *
+   * ★ A SLOT RATHER THAN A LINK THIS FILE BUILDS ITSELF. The grid knows a result
+   *   and nothing about where it came from: the View Builder has a saved id to link
+   *   to, `Views` has a different one, and a preview that was never saved has
+   *   neither. A link built here would have to guess, and the guess that fails is
+   *   the one that links to a view the reader never opened. The caller owns the
+   *   destination; this file owns the row it sits in.
+   */
+  actions?: ReactNode;
 }
 
 /**
@@ -237,6 +248,7 @@ export default function ViewResultGrid({
   meta,
   emptyHint,
   footnote,
+  actions,
 }: ViewResultGridProps) {
   const shown = columns ?? result.columns.filter((column) => !column.hidden);
   const hasNull = result.rows.some((row) => row.some((cell) => cell === null));
@@ -348,6 +360,10 @@ export default function ViewResultGrid({
             </>
           )}
         </span>
+        {/* ★ THE ACTIONS SIT IN THE COUNT LINE, AFTER THE META, because they act
+            on the result the line is describing. Putting them in the panel head
+            would separate "200 rows" from the link that opens those 200 rows. */}
+        {actions !== undefined && <span className="vb-footer__actions">{actions}</span>}
       </p>
 
       {footnote}

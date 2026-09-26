@@ -359,7 +359,7 @@ const DENIED_REASON: ReadonlyMap<string, { why: string; fix: string | null }> = 
  *   5. first token SELECT/WITH  — so `EXPLAIN SELECT 1` is explained
  *   6. Oracle-only constructs   — so `FETCH FIRST` (V3) names `LIMIT n`
  */
-export function analyzeSql(sql: string, dialect: 'sqlite' | 'oracle' = 'sqlite'): SqlAnalysis {
+export function analyzeSql(sql: string, dialect: 'sqlite' | 'oracle' | 'sqlserver' = 'sqlite'): SqlAnalysis {
   const raw = typeof sql === 'string' ? sql : '';
 
   // Step 2. One trailing `;` is punctuation, not a second statement. Anything
@@ -675,15 +675,404 @@ export function dialectFindings(masked: string): GuardFinding[] {
 export function wrapForRowCap(
   statement: string,
   maxRows: number,
-  dialect: 'sqlite' | 'oracle' = 'sqlite',
+  dialect: 'sqlite' | 'oracle' | 'sqlserver' = 'sqlite',
 ): string {
   const n = Math.max(1, Math.trunc(maxRows));
   // The inner statement has already had its trailing `;` stripped by
   // `analyzeSql`; `trimStatement` is belt-and-braces for a caller that did not.
   const inner = trimStatement(statement);
-  return dialect === 'oracle'
-    ? `SELECT * FROM (\n${inner}\n) WHERE ROWNUM <= ${n + 1}`
-    : `SELECT * FROM (\n${inner}\n) LIMIT ${n + 1}`;
+  if (dialect === 'oracle') {
+    return `SELECT * FROM (\n${inner}\n) WHERE ROWNUM <= ${n + 1}`;
+  }
+  if (dialect === 'sqlserver') {
+    // ★★ THE INNER `ORDER BY` IS REMOVED, AND THAT IS THE WHOLE FIX.
+    //
+    //    T-SQL forbids an `ORDER BY` in a derived table *outright* — the message
+    //    is Msg 1033, "The ORDER BY clause is invalid in views, inline functions,
+    //    derived tables, subqueries, and common table expressions, unless TOP,
+    //    OFFSET or FOR XML is also specified". Measured on the live instance,
+    //    **all three** obvious shapes fail:
+    //
+    //      SELECT * FROM ( … ORDER BY x ) OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY  → Msg 10744
+    //      SELECT * FROM ( … ORDER BY x ) ORDER BY (SELECT NULL) OFFSET 0 …     → Msg 10744
+    //      SELECT TOP (5) * FROM ( … ORDER BY x ) AS capped                      → Msg 1033
+    //
+    //    ★ THE FIRST TWO ARE WORTH READING TWICE, because they are the shapes a
+    //      reasonable person writes. Adding an outer `ORDER BY` does NOT rescue
+    //      the inner one — the derived table is still illegal, and the error just
+    //      changes number. There is no arrangement of the wrapper that keeps the
+    //      author's `ORDER BY` where they wrote it.
+    //
+    //    ★ AND DROPPING IT LOSES NOTHING, WHICH IS WHY THIS IS A FIX RATHER THAN
+    //      A COMPROMISE. A derived table's ordering has never been guaranteed to
+    //      survive into the outer query — SQLite does not promise it either, and
+    //      the row cap is applied to "the first n+1 rows the engine produces",
+    //      which is exactly what the cap's own documentation says it means. The
+    //      ordering that *matters* is the one on the statement the caller actually
+    //      reads, and `applyReadCap` (which orders before wrapping) is the path
+    //      that provides it.
+    const { body: ordered, orderBy } = splitTrailingOrderBy(inner);
+    // ★★ A `WITH` CLAUSE CANNOT GO INSIDE A DERIVED TABLE, SO IT IS HOISTED OUT.
+    //
+    //    T-SQL rejects `SELECT … FROM (WITH x AS (…) SELECT …) AS capped`, and the
+    //    message is **`Incorrect syntax near ')'`** — naming the closing paren
+    //    rather than the `WITH` that caused it, so it reads like an unbalanced
+    //    bracket. Measured on the live instance, all three shapes:
+    //
+    //      SELECT TOP (3) * FROM (WITH t AS (…) SELECT …) AS capped   → Incorrect syntax near ')'
+    //      WITH t AS (…) SELECT TOP (3) * FROM (SELECT …) AS capped   → ok, 3 rows
+    //      WITH t AS (…) SELECT TOP (3) … FROM t                      → ok, 3 rows
+    //
+    //    ★ THIS IS THE SHAPE EVERY VIEW-BUILDER VIEW HITS. The View Builder is
+    //      built on CTEs — `WITH code_period AS (…), ranked AS (…) SELECT …` is the
+    //      idiom its own seeded view uses — so without this hoist the row cap
+    //      breaks the majority of saved views on SQL Server, and it breaks them
+    //      with a message that points at a parenthesis.
+    //
+    //    ★ THE HOIST IS A SPLIT, NOT A REWRITE. Everything up to and including the
+    //      CTE preamble stays outside; only the final `SELECT` is wrapped. The
+    //      preamble is found by scanning for the first top-level `SELECT` — the one
+    //      that is NOT inside the `WITH` list — which is the same depth-tracking
+    //      the `ORDER BY` strip already does.
+    //
+    //    ★ AND LEADING COMMENTS GO OUTSIDE TOO. A saved view opens with its own
+    //      documentation block, and a comment between `FROM (` and the `WITH` puts
+    //      the `WITH` off the front of the statement — which is the same failure
+    //      with the same misleading message. `splitCte` skips them to find the
+    //      `WITH`, and they land in `cte`, so they are emitted before the wrapper.
+    const { cte, body } = splitCte(ordered);
+    // ★★ THE AUTHOR'S `ORDER BY` IS RE-APPLIED OUTSIDE — WITH ITS REFERENCES
+    //    MAPPED TO THE OUTPUT COLUMNS, WHICH IS THE WHOLE DIFFICULTY.
+    //
+    //    Stripping the clause is required (T-SQL forbids it inside a derived
+    //    table), but stripping it and stopping there leaves the result UNORDERED
+    //    and the engine returns rows in whatever order it produced them. MEASURED
+    //    on `first-fundings`: 2022/p1, 2022/p2, 2023/p10, 2022/p1 … while the
+    //    statement asked for period descending.
+    //
+    //    ★ AND RE-EMITTING IT VERBATIM DOES NOT WORK EITHER. The clause names the
+    //      INNER aliases — `ORDER BY r.period_year DESC, k.combination_key` — and
+    //      those are not in scope outside the derived table. Measured, the server
+    //      says exactly that: `The multi-part identifier "k.combination_key" could
+    //      not be bound.` A derived table exposes its SELECT-list aliases and
+    //      nothing else.
+    //
+    //    ★ SO EACH REFERENCE IS MAPPED THROUGH THE INNER SELECT LIST. That list is
+    //      the only thing the wrapper can see, so a reference is resolvable exactly
+    //      when the inner query projects it: `r.period_year` (unaliased) exposes
+    //      `period_year`, and `k.combination_key AS fund_code` exposes `fund_code`.
+    //      When a reference cannot be mapped the clause is DROPPED rather than
+    //      emitted broken — an unordered result is a lesser fault than a statement
+    //      that will not parse, and guessing a name is how a wrong order becomes
+    //      invisible.
+    const outerOrder = remapOrderBy(orderBy, body);
+    const capped = `SELECT TOP (${n + 1}) * FROM (\n${body}\n) AS capped${outerOrder === '' ? '' : `\n${outerOrder}`}`;
+    return cte === '' ? capped : `${cte}\n${capped}`;
+  }
+  return `SELECT * FROM (\n${inner}\n) LIMIT ${n + 1}`;
+}
+
+/**
+ * Remove a trailing `ORDER BY …` from a statement, for use inside a derived table.
+ *
+ * ★ THIS IS NOT A GENERAL SQL REWRITER AND MUST NOT BECOME ONE. It removes the
+ *   LAST top-level `ORDER BY` clause and everything after it, which is exact for
+ *   the statements this codebase wraps (a single `SELECT … ORDER BY x`, possibly
+ *   with `LIMIT` already stripped). A statement whose `ORDER BY` is followed by
+ *   another top-level clause would be mangled — but T-SQL has no clause that may
+ *   follow `ORDER BY` except `OFFSET`/`FETCH`, and those are the paging the
+ *   caller's own dialect rewrite already removed.
+ *
+ * ★ A `LIMIT` IS STRIPPED TOO. The wrapper supplies its own cap, and a nested
+ *   `LIMIT` would be a second, contradictory one — and in T-SQL it would not
+ *   parse at all, since `LIMIT` is not T-SQL.
+ *
+ * Depth-aware, so an `ORDER BY` inside a subquery is left alone: only the clause
+ * belonging to the statement being wrapped is removed.
+ *
+ * Exported because `read-cap.ts` wraps statements the same way and needs the same
+ * removal — a second copy of this scan is a second place for it to drift.
+ */
+export function stripTrailingOrderBy(statement: string): string {
+  return splitTrailingOrderBy(statement).body;
+}
+
+/**
+ * The trailing `ORDER BY …` clause, separated from the statement that carries it.
+ *
+ * ★★ THE CLAUSE MUST BE RE-APPLIED OUTSIDE THE WRAPPER, NOT JUST REMOVED.
+ *
+ *   `stripTrailingOrderBy` exists because T-SQL forbids an `ORDER BY` in a derived
+ *   table. But removing it and emitting `SELECT TOP (n+1) * FROM (…) AS capped`
+ *   leaves the result with NO ORDERING AT ALL — the engine returns rows in
+ *   whatever order it happens to produce them, and the author's `ORDER BY` is
+ *   silently discarded.
+ *
+ *   MEASURED, on the `first-fundings` view: the endpoint returned
+ *   2022/p1, 2022/p2, 2023/p10, 2022/p1, 2023/p9 … — not period order, not
+ *   combination order, just the engine's own. Re-applying the clause on the outer
+ *   query returned 2027/p1 first, which is what the statement asked for.
+ *
+ *   ★ THE CLAUSE IS LEGAL THERE. T-SQL permits `ORDER BY` on the outermost query
+ *     of a statement, which is exactly where the wrapper's own `SELECT` sits — so
+ *     the ordering moves rather than being lost. That is the whole fix.
+ *
+ * ★ A `LIMIT` IS DROPPED RATHER THAN RETURNED. The wrapper supplies its own cap,
+ *   and a nested `LIMIT` would be a second, contradictory one — and in T-SQL it
+ *   would not parse at all, since `LIMIT` is not T-SQL.
+ *
+ * Depth-aware, so an `ORDER BY` inside a subquery is left alone: only the clause
+ * belonging to the statement being wrapped is separated.
+ */
+export function splitTrailingOrderBy(statement: string): { body: string; orderBy: string } {
+  // ★ `maskKeepingIdentifiers` RATHER THAN A NEW SCANNER. This file is deliberately
+  //   import-free (see the header), and it already owns a masker that blanks
+  //   string literals and comments while leaving identifiers and punctuation in
+  //   place — which is exactly the view this scan needs. Blanking the literals is
+  //   what stops `WHERE note = 'order by date'` from being read as a clause.
+  const masked = maskKeepingIdentifiers(statement);
+  let depth = 0;
+  let cut = -1;
+
+  for (let i = 0; i < masked.length; i += 1) {
+    const ch = masked[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (ch === 'O' || ch === 'o')) {
+      if (/^order\b/i.test(masked.slice(i)) && /^\s+by\b/i.test(masked.slice(i + 5))) {
+        // The LAST one wins: only a trailing clause is removable.
+        cut = i;
+      }
+    }
+  }
+
+  if (cut === -1) return { body: statement, orderBy: '' };
+  // ★ THE CLAUSE IS TAKEN FROM THE ORIGINAL TEXT, NOT THE MASKED ONE. The mask
+  //   blanks literals, so slicing the masked string would return a clause with its
+  //   string literals replaced by spaces — a subtly different ORDER BY.
+  const tail = statement.slice(cut).trimEnd().replace(/;\s*$/, '');
+  // A `LIMIT`/`OFFSET … FETCH` after the ordering is paging, not ordering, and the
+  // wrapper replaces it. Cut the clause at the paging keyword so only the ordering
+  // is carried out.
+  const paging = tail.search(/\b(LIMIT|OFFSET|FETCH)\b/i);
+  return {
+    body: statement.slice(0, cut).trimEnd(),
+    orderBy: paging === -1 ? tail : tail.slice(0, paging).trimEnd(),
+  };
+}
+
+/**
+ * Rewrite an `ORDER BY` clause's references so they name the derived table's
+ * OUTPUT columns instead of the inner query's aliases.
+ *
+ * ★ WHY THE REFERENCES CANNOT BE USED AS WRITTEN. `ORDER BY r.period_year DESC,
+ *   k.combination_key` is written against the inner query, where `r` and `k` are
+ *   in scope. Once that query becomes `FROM ( … ) AS capped`, only its SELECT-list
+ *   names are visible, and the server refuses the clause outright:
+ *
+ *     `The multi-part identifier "k.combination_key" could not be bound.`
+ *
+ * ★ THE MAPPING IS READ OFF THE SELECT LIST, NOT GUESSED. Each select item is
+ *   reduced to `(expression, outputName)`:
+ *
+ *       `r.period_year`                 → expression `r.period_year`,  name `period_year`
+ *       `k.combination_key AS fund_code`→ expression `k.combination_key`, name `fund_code`
+ *       `r.net_amount AS first_allocation_amount` → name `first_allocation_amount`
+ *
+ *   An `ORDER BY` reference matches an item when it equals the item's expression,
+ *   or equals its last dotted component (`period_year` matching `r.period_year`).
+ *   The first match wins, which is the leftmost projection of that expression —
+ *   and a select list that projects the same expression twice under different
+ *   names is ambiguous by construction, so no rule can be right for both.
+ *
+ * ★ AN UNMAPPABLE REFERENCE DROPS THE WHOLE CLAUSE. Emitting a clause with one
+ *   unresolvable name is a statement that will not parse, and dropping just that
+ *   term would silently change the ordering. Returning nothing leaves the result
+ *   unordered, which is the honest lesser fault and is what the wrapper did before
+ *   this function existed.
+ *
+ * ★ `ASC`/`DESC` AND THE COMMA STRUCTURE ARE PRESERVED. Only the reference text is
+ *   replaced, so `DESC` survives and a multi-term clause keeps its order of terms.
+ */
+function remapOrderBy(orderBy: string, inner: string): string {
+  if (orderBy === '') return '';
+
+  const items = selectItems(inner);
+  if (items.length === 0) return '';
+
+  const terms = orderBy.replace(/^\s*order\s+by\b/i, '').split(',');
+  const mapped: string[] = [];
+
+  for (const term of terms) {
+    const trimmed = term.trim();
+    if (trimmed === '') continue;
+    // Split the reference from its direction, keeping the direction verbatim.
+    const m = /^([A-Za-z_][\w$.]*|"[^"]+")(\s+(?:asc|desc))?$/i.exec(trimmed);
+    if (m === null) return '';
+    const ref = m[1]!;
+    const dir = m[2] ?? '';
+    const bare = ref.replace(/"/g, '').split('.').pop()!.toLowerCase();
+
+    const hit = items.find(
+      (it) =>
+        it.expression.toLowerCase() === ref.replace(/"/g, '').toLowerCase() ||
+        it.expression.replace(/"/g, '').split('.').pop()!.toLowerCase() === bare,
+    );
+    if (hit === undefined) return '';
+    mapped.push(`${hit.name}${dir}`);
+  }
+
+  return mapped.length === 0 ? '' : `ORDER BY ${mapped.join(', ')}`;
+}
+
+/**
+ * The `(expression, outputName)` pairs of a statement's outermost select list.
+ *
+ * ★ DEPTH-AWARE, because a select list can contain a subquery — `(SELECT MAX(x)
+ *   FROM t) AS m` is one item, not three. Splitting on commas without tracking
+ *   parentheses would cut it in half and produce two nonsense names.
+ *
+ * ★ THE OUTERMOST `SELECT` IS THE BODY'S, NOT THE CTE'S. `splitCte` has already
+ *   separated the `WITH` preamble, so the first top-level `SELECT` in `inner` is
+ *   the one whose list this is.
+ */
+function selectItems(inner: string): { expression: string; name: string }[] {
+  const masked = maskKeepingIdentifiers(inner);
+  const selectIdx = masked.search(/\bselect\b/i);
+  if (selectIdx === -1) return [];
+
+  // Walk to the matching `FROM` at depth 0 — that is where the list ends.
+  let depth = 0;
+  let fromIdx = -1;
+  for (let i = selectIdx + 'select'.length; i < masked.length; i += 1) {
+    const ch = masked[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (ch === 'F' || ch === 'f') && /^from\b/i.test(masked.slice(i))) {
+      fromIdx = i;
+      break;
+    }
+  }
+  if (fromIdx === -1) return [];
+
+  const list = inner.slice(selectIdx + 'select'.length, fromIdx);
+  const items: { expression: string; name: string }[] = [];
+  let d = 0;
+  let start = 0;
+  const parts: string[] = [];
+
+  for (let i = 0; i < list.length; i += 1) {
+    const ch = list[i];
+    if (ch === '(') d += 1;
+    else if (ch === ')') d = Math.max(0, d - 1);
+    else if (ch === ',' && d === 0) {
+      parts.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(list.slice(start));
+
+  for (const raw of parts) {
+    const text = raw.replace(/\s+/g, ' ').trim();
+    if (text === '') continue;
+    // `expr AS name` — the alias is the last identifier after a top-level `AS`.
+    const asMatch = /^(.*?)\s+as\s+("?[A-Za-z_][\w$]*"?)$/i.exec(text);
+    if (asMatch !== null) {
+      items.push({ expression: asMatch[1]!.trim(), name: asMatch[2]!.replace(/"/g, '') });
+      continue;
+    }
+    // No alias: the output name is the expression's own last component.
+    const bare = text.replace(/"/g, '').split('.').pop()!.trim();
+    if (/^[A-Za-z_][\w$]*$/.test(bare)) items.push({ expression: text, name: bare });
+  }
+
+  return items;
+}
+
+/**
+ * Split a statement into its `WITH` preamble and the `SELECT` that follows it.
+ *
+ * ★ WHY THIS EXISTS. T-SQL refuses a `WITH` clause inside a derived table, so a
+ *   statement that uses CTEs cannot simply be wrapped in `SELECT … FROM ( … )`.
+ *   The preamble has to stay outside the wrapper. Measured on the live instance:
+ *
+ *     `SELECT TOP (3) * FROM (WITH t AS (…) SELECT …) AS capped`
+ *        → `Incorrect syntax near ')'`   ← names the paren, not the `WITH`
+ *     `WITH t AS (…) SELECT TOP (3) * FROM (SELECT …) AS capped`
+ *        → ok, and still caps (3 rows of a 5-row CTE)
+ *
+ * ★ IT FINDS THE FIRST TOP-LEVEL `SELECT`, WHICH IS THE ONE AFTER THE CTE LIST.
+ *   `WITH a AS (SELECT …), b AS (SELECT …) SELECT …` has three `SELECT`s and only
+ *   the last is the body; the first two are inside parentheses and are skipped by
+ *   the depth counter. A statement with no `WITH` returns an empty preamble and is
+ *   wrapped exactly as before — so this is a no-op for every non-CTE statement.
+ *
+ * ★ THE `WITH` MUST BE THE FIRST TOKEN. `WITH` is also a table hint (`FROM t WITH
+ *   (NOLOCK)`) and the start of `WITH RECURSIVE`-style constructs, so matching the
+ *   word anywhere would split a statement that merely mentions it. Requiring it at
+ *   the very start of the trimmed text is what keeps this exact.
+ *
+ * ★ RECURSIVE CTEs ARE HANDLED BY THE SAME SCAN. `WITH RECURSIVE t AS (…)` — or
+ *   T-SQL's plain `WITH t AS (…)` that references itself — puts the inner
+ *   `SELECT`s inside parentheses just the same, so the depth rule finds the right
+ *   boundary without knowing anything about recursion.
+ */
+function splitCte(statement: string): { cte: string; body: string } {
+  // ★★ LEADING COMMENTS ARE SKIPPED, AND THAT IS NOT COSMETIC.
+  //
+  //    A CTE is legal only at the START of a statement, and a `--` comment before
+  //    it does not count as "before it" to the parser — but it does to a naive
+  //    `startsWith('with')` test. The View Builder's saved views open with a
+  //    documentation block (the seeded `first-fundings` body has 40 lines of it),
+  //    so without this skip the hoist never fires and the wrap fails with
+  //    `Incorrect syntax near ')'`. Measured, live instance:
+  //
+  //      SELECT TOP (3) * FROM ( -- comment\n WITH t AS (…) SELECT … ) AS capped  → Incorrect syntax near ')'
+  //      SELECT TOP (3) * FROM ( WITH t AS (…) SELECT … ) AS capped               → Incorrect syntax near ')'
+  //      -- comment\n WITH t AS (…) SELECT TOP (3) * FROM (SELECT …) AS capped    → ok, 3 rows
+  //
+  //    ★ THE COMMENTS STAY IN THE PREAMBLE, NOT IN THE BODY. Keeping them attached
+  //      to the hoisted `WITH` is what makes the output readable — the alternative
+  //      (dropping them) would strip the author's own documentation from the
+  //      statement the server runs, and the trace shows that text.
+  const masked = maskKeepingIdentifiers(statement);
+  let start = 0;
+  // Skip whitespace and `--` line comments only. A block comment is left in place
+  // because `maskKeepingIdentifiers` blanks it, so the `WITH` test below would see
+  // through it anyway.
+  for (;;) {
+    while (start < masked.length && /\s/.test(masked[start]!)) start += 1;
+    if (masked.startsWith('--', start)) {
+      const nl = masked.indexOf('\n', start);
+      if (nl === -1) return { cte: '', body: statement };
+      start = nl + 1;
+      continue;
+    }
+    break;
+  }
+
+  if (!/^with\b/i.test(masked.slice(start))) return { cte: '', body: statement };
+
+  // Track depth from the beginning so the `WITH` list's own parentheses are
+  // counted; `start` only moves where the keyword test begins.
+  let depth = 0;
+  for (let i = 0; i < masked.length; i += 1) {
+    const ch = masked[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && i >= start && (ch === 'S' || ch === 's')) {
+      // Anchored so `SELECT` must start a word, and followed by a word boundary so
+      // `SELECTED_COUNT` cannot match.
+      if (/^select\b/i.test(masked.slice(i))) {
+        return { cte: statement.slice(0, i).trimEnd(), body: statement.slice(i) };
+      }
+    }
+  }
+
+  // A `WITH` with no top-level `SELECT` is not a shape this codebase produces;
+  // returning it whole lets the caller wrap it and the server report the real
+  // fault rather than this helper inventing a split.
+  return { cte: '', body: statement };
 }
 
 /**

@@ -1,0 +1,75 @@
+/* ============================================================================
+   One project, as a page — `/projects/:level`.
+
+   ★ THIS REPLACED A SLIDING PANEL, AND THE STYLES IT NEEDS ARE MOSTLY NOT HERE.
+     The content is `ProjectDetail`, which reuses the panel's own primitives —
+     `.dsec`, `.spine`, `.usage-head`, `.stats`, `.legend`, `.notice` — all of
+     which live in `panel.css` and none of which are redeclared. What this file
+     adds is only the *frame*: the page head, the action row, and the reading
+     measure.
+
+   ★ THE READING MEASURE IS THE ONE THING A PAGE NEEDS THAT A PANEL DID NOT.
+     The panel was 440–520px wide, so its content was narrow by construction. A
+     page is as wide as the viewport, and the same content stretched to 1,400px
+     would put a stat tile a foot away from the figure it belongs to. `max-width`
+     on the body keeps the panel's proportions without keeping its width.
+   ============================================================================ */
+
+.projpage__back {
+  margin-bottom: -4px;
+  font-size: 0.8125rem;
+}
+
+/* The head is a flex row so the actions sit opposite the identity. `wrap` because
+   four buttons beside a long project name is the ordinary case, not the edge. */
+.projpage .page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.projpage__id {
+  min-width: 0;
+}
+
+.projpage__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ★ THE BODY KEEPS THE PANEL'S MEASURE. See the file header. */
+.projpage__body {
+  max-width: 820px;
+}
+
+/* The page's own sections are `.dsec`, which spaces itself against the NEXT `.dsec`
+   (`panel.css`). On a page the first one follows the head rather than another
+   section, so it needs the gap the head does not provide. */
+.projpage__body > .dsec:first-child {
+  margin-top: 0;
+}
+
+/* The close button's slot in the panel head was 44px of reserved space; a page has
+   no close button, so the head's right padding can go back to normal. */
+.projpage .drawer__eyebrow,
+.projpage .drawer__meta,
+.projpage .drawer__chips {
+  padding-right: 0;
+}
+
+/* The panel's head centred its chips under a close button; on a page they sit
+   under the name at the head's own left edge. */
+.projpage .drawer__chips {
+  margin-top: 10px;
+}
+
+@media (max-width: 700px) {
+  .projpage .page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

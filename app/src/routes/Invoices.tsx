@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { loadInvoices, type Invoice, type InvoiceAccount, type InvoiceCheck, type InvoicesExtract, type PoCoverage } from '../data/invoices';
+import { loadFiscalYears, loadInvoices, type FiscalYear, type Invoice, type InvoiceAccount, type InvoiceCheck, type InvoicesExtract, type PoCoverage } from '../data/invoices';
 import ErrorNotice from '../components/ErrorNotice';
+import FilterCombo, { type ComboOption } from '../components/FilterCombo';
 import PinButton from '../components/PinButton';
 import { SqlNote } from '../components/SqlNote';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
@@ -400,13 +401,30 @@ export default function Invoices() {
    * register still headed 861/862/863 with no explanation, which is the app asserting something it
    * has no way to know.
    */
-  const { scope: liveScope, scopeTenant } = useStore();
+  const { scope: liveScope, scopeTenant, projects } = useStore();
   const [data, setData] = useState<InvoicesExtract | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
+  /**
+   * The fiscal years the ledger carries, and the range the reader has chosen.
+   *
+   * ★★ THIS IS THE FIX FOR "THE HIDDEN INVOICE", AND IT IS A DISCLOSURE PROBLEM RATHER THAN A
+   *    FILTER PROBLEM. The register was always bounded to one fiscal year and the page never said
+   *    so, so a reader who filtered to Athens Drive saw "1 of 126" and reported a bug — because
+   *    that project's level `0450` has **52 in-scope invoices** and exactly **1** of them falls in
+   *    the newest year. The other 51 run back to 2024-05-31.
+   *
+   * ★ `null` MEANS "THE SERVER'S DEFAULT", NOT "NO FILTER". Sending no params lets the server pick
+   *   the newest year it carries, so a ledger that gains a year moves the default with it. A
+   *   hard-coded newest year in the client would freeze it.
+   */
+  const [years, setYears] = useState<FiscalYear[]>([]);
+  const [fyRange, setFyRange] = useState<{ start: number; end: number } | null>(null);
+
   const [query, setQueryRaw] = useState('');
   const [account, setAccountRaw] = useState('');
+  const [project, setProjectRaw] = useState('');
   const [page, setPage] = useState(1);
 
   // The order the table is in. Always a real column rather than a "no sort"
@@ -462,17 +480,30 @@ export default function Invoices() {
   const wantedAmount = params.get('amount');
   const [arrival, setArrival] = useState<Arrival | null>(null);
 
+  // The year list, once. A failure here is survivable and silent: the picker renders without it
+  // and the register still loads on the server's default, which is the state the page was in
+  // before this control existed. A missing year list must not block the register.
+  useEffect(() => {
+    const controller = new AbortController();
+    loadFiscalYears(controller.signal)
+      .then(setYears)
+      .catch(() => {
+        if (!controller.signal.aborted) setYears([]);
+      });
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
-    loadInvoices(controller.signal)
+    loadInvoices(controller.signal, fyRange ?? undefined)
       .then(setData)
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, fyRange]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -517,12 +548,73 @@ export default function Invoices() {
     );
   }, [data]);
 
+  /**
+   * The Project filter's options — **only projects that have invoices here.**
+   *
+   * ★ WHY THIS IS NOT JUST `projects` FROM THE STORE. The store's list is every
+   *   level the *purchase-order* extract carries, which is 139 levels. This
+   *   register holds 126 invoices, and only some of their accounts land on a
+   *   level a project is named after. Offering all 139 would put ~120 options in
+   *   the list that provably cannot match a row — a list plus an argument, which
+   *   is the failure mode `LevelPicker` already refuses for held levels.
+   *
+   * ★ THE JOIN IS THE LEVEL SEGMENT, AND THAT IS THE ONLY LINK THERE IS. An
+   *   invoice carries GL accounts and nothing else; a project is bound to
+   *   `SEGMENT5` of the accounts it owns (`SEGMENT_ROLE.LEVEL_` — "the level,
+   *   the thing a project is named after"). So an invoice matches a project when
+   *   any of its accounts carries that project's level. There is no project
+   *   column on the invoice to read instead.
+   *
+   * ★ A LEVEL WITH NO REGISTRY ROW IS NOT OFFERED, per the reader's decision.
+   *   Ten of the levels here have names; the rest are unclaimed, and an option
+   *   labelled `0453` with no name is a code, not a project. The count of
+   *   invoices is what makes the option useful — it is the number the reader is
+   *   about to filter to.
+   */
+  const projectOptions = useMemo<ComboOption[]>(() => {
+    if (!data) return [];
+    // Level → how many invoices carry it, counted once per invoice.
+    const byLevel = new Map<string, number>();
+    for (const inv of data.invoices) {
+      const levels = new Set<string>();
+      for (const a of inv.accounts) {
+        const level = a.segments[4];
+        if (level) levels.add(level);
+      }
+      for (const level of levels) byLevel.set(level, (byLevel.get(level) ?? 0) + 1);
+    }
+    const out: ComboOption[] = [];
+    for (const p of projects) {
+      const invoices = byLevel.get(p.level);
+      // No invoices on this project's level means the option could never match.
+      if (invoices === undefined) continue;
+      out.push({
+        value: p.level,
+        label: p.name,
+        detail: `${p.code} · ${num(invoices)}`,
+        // The level is searchable as well as the name, because a reader arriving
+        // from a report has the four digits and not the school's name.
+        keywords: `${p.level} ${p.code}`,
+        count: invoices,
+      });
+    }
+    return out.sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.label.localeCompare(b.label));
+  }, [data, projects]);
+
   const matches = useMemo(() => {
     const byTerm = terms.length === 0 ? index : index.filter((r) => terms.every((t) => r.hay.includes(t)));
-    if (!account) return byTerm;
-    if (account === NO_ACCOUNT) return byTerm.filter((r) => r.invoice.accounts.length === 0);
-    return byTerm.filter((r) => r.invoice.accounts.some((a) => a.code === account));
-  }, [index, terms, account]);
+    let rows = byTerm;
+    if (account) {
+      rows =
+        account === NO_ACCOUNT
+          ? rows.filter((r) => r.invoice.accounts.length === 0)
+          : rows.filter((r) => r.invoice.accounts.some((a) => a.code === account));
+    }
+    if (project) {
+      rows = rows.filter((r) => r.invoice.accounts.some((a) => a.segments[4] === project));
+    }
+    return rows;
+  }, [index, terms, account, project]);
 
   const setQuery = (next: string) => {
     setQueryRaw(next);
@@ -534,9 +626,15 @@ export default function Invoices() {
     setPage(1);
   };
 
+  const setProject = (next: string) => {
+    setProjectRaw(next);
+    setPage(1);
+  };
+
   const clear = () => {
     setQueryRaw('');
     setAccountRaw('');
+    setProjectRaw('');
     setPage(1);
   };
 
@@ -596,6 +694,7 @@ export default function Invoices() {
   // make the click look like it did nothing.
   const openAccount = useCallback((code: string) => {
     setAccountRaw(code);
+    setProjectRaw('');
     setQueryRaw('');
     setPage(1);
     setOpen(false);
@@ -662,6 +761,7 @@ export default function Invoices() {
     // invoice they are looking at.
     setQueryRaw(wantedNumber);
     setAccountRaw('');
+    setProjectRaw('');
     setPage(1);
     setArrival(found.length > 1 ? { kind: 'several', number: wantedNumber, count: found.length } : null);
     openInvoice(found[0]);
@@ -824,6 +924,7 @@ export default function Invoices() {
                 ? `${num(matches.length)} of ${num(index.length)} invoices match ${
                     [
                       terms.length > 0 ? `“${query.trim()}”` : '',
+                      project ? `project ${project}` : '',
                       account === NO_ACCOUNT
                         ? 'having no account'
                         : account
@@ -854,7 +955,7 @@ export default function Invoices() {
               id="invoice-filter"
               type="search"
               autoComplete="off"
-              placeholder="Search by invoice number, vendor, check number or account — e.g. 30JUN-2026SES"
+              placeholder="Search invoices — number, vendor, check number or account"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -866,6 +967,26 @@ export default function Invoices() {
             />
           </div>
 
+          {/* ★ THE PROJECT FILTER, AND WHY IT SITS BEFORE THE ACCOUNT ONE.
+              A reader arrives with a project in mind far more often than with a
+              seven-segment combination: "what did we spend on Athens Drive" is a
+              question, and `04-6570-862-526-0450-0840-000` is its answer. The
+              account filter is the precision tool for the reader who already has
+              the code, so it follows.
+
+              It matches on the LEVEL segment of the invoice's accounts — the only
+              link there is between an invoice and a project — and it offers only
+              projects that actually have invoices here, so every option leads
+              somewhere. See `projectOptions`. */}
+          <FilterCombo
+            label="Filter by project"
+            anyLabel="Any project"
+            placeholder="Any project — type a name or level"
+            options={projectOptions}
+            value={project}
+            onChange={setProject}
+          />
+
           {/* The exact-match control, and a different question from the box above:
               the box finds one SEGMENT of an account (`1110`), this finds the whole
               combination. The list is ordered busiest-first rather than
@@ -873,61 +994,184 @@ export default function Invoices() {
               jumps, and a reader who does not meets the accounts that carry money
               before the ones that carry $0.00.
 
+              ★ IT IS NOW A FILTER-AS-YOU-TYPE COMBO RATHER THAN A `<select>`. With
+                71 combinations the native control was a list nobody reads: typing
+                into a `<select>` jumps to the first option starting with that
+                character, which is a different feature wearing the same gesture.
+                The combo searches the code, the row count and the account's own
+                label, so `862` and `construction` both reach the right rows.
+
               A combination outside the register's scope still appears here: two of
               them are reached through invoices that are in scope, and a reader who
               sees such a code on a panel has to be able to filter to it. It is
               labelled rather than hidden, which is the same rule the panel follows. */}
-          <div className="invfilter__pick">
-            <label className="sr" htmlFor="invoice-account">
-              Filter by GL account
-            </label>
-            <select
-              id="invoice-account"
-              className="fselect"
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-              title="Show only invoices booked to one account combination, or only those with no account"
-            >
-              <option value="">Any account</option>
-              {/* Offered only when such an invoice can exist. The scope removes them
-                  upstream — no distribution means no fund to test — so on the current
-                  extract this option is absent, and a select that offers a filter
-                  matching nothing is worse than one that does not offer it. */}
-              {(data?.noAccount ?? 0) > 0 ? (
-                <option value={NO_ACCOUNT}>
-                  No account recorded ({num(data?.noAccount ?? 0)})
-                </option>
-              ) : null}
-              {accountOptions.map((o) => (
-                <option key={o.code} value={o.code}>
-                  {o.code} · {num(o.invoices)}
-                  {o.inScope ? '' : ' · outside the scope'}
-                </option>
-              ))}
-            </select>
-          </div>
+          <FilterCombo
+            label="Filter by GL account"
+            anyLabel="Any account"
+            placeholder="Any account — type a code"
+            options={accountOptions.map((o) => ({
+              value: o.code,
+              label: o.code,
+              detail: `${num(o.invoices)}${o.inScope ? '' : ' · outside the scope'}`,
+              count: o.invoices,
+            }))}
+            value={account}
+            onChange={setAccount}
+            /* Offered only when such an invoice can exist. The scope removes them
+               upstream — no distribution means no fund to test — so on the current
+               extract this option is absent, and a control that offers a filter
+               matching nothing is worse than one that does not offer it. */
+            special={
+              (data?.noAccount ?? 0) > 0
+                ? {
+                    value: NO_ACCOUNT,
+                    label: `No account recorded (${num(data?.noAccount ?? 0)})`,
+                  }
+                : null
+            }
+          />
 
-          {query || account ? (
+          {/* ★★ THE FISCAL-YEAR RANGE, WHICH IS THE FIX FOR "THE HIDDEN INVOICE".
+              The register is bounded to a fiscal year, and it always was — but the
+              page never said so. A reader who filtered to Athens Drive saw "1 of
+              126" and reported a bug, because that project's level `0450` has 52
+              in-scope invoices and exactly 1 of them falls in the newest year. The
+              other 51 run back to 2024-05-31.
+
+              ★ THE FIX IS TO LET THE READER MOVE THE BOUND AND SEE IT, not to remove
+                it: the underlying view holds 1,246,676 checks, so an unbounded read
+                is a way to ask for a hang. Two selects rather than a free-text range
+                because the years come from the ledger, so a value the control offers
+                is a value the server accepts — the two cannot drift.
+
+              ★ IT SITS LAST BECAUSE IT IS THE COARSEST QUESTION. Project and account
+                narrow *within* a year; this decides which years exist to narrow. */}
+          {years.length > 0 ? (
+            <div className="fyrange" role="group" aria-label="Fiscal year range">
+              <label className="sr" htmlFor="invoice-fy-start">
+                First fiscal year
+              </label>
+              <select
+                id="invoice-fy-start"
+                className="fselect fselect--fy"
+                value={fyRange ? String(fyRange.start) : ''}
+                onChange={(e) => {
+                  const start = Number(e.target.value);
+                  // ★ THE END FOLLOWS THE START UNLESS THE READER HAS WIDENED IT PAST IT.
+                  //   Picking a start later than the current end would otherwise send a
+                  //   reversed range, which the server refuses — a 400 for a gesture the
+                  //   control itself invited.
+                  setFyRange((prev) => {
+                    const end = prev && prev.end >= start ? prev.end : start;
+                    return { start, end };
+                  });
+                  setPage(1);
+                }}
+                title="The first fiscal year to include"
+              >
+                {years.map((y) => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    FY{y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+              <span className="fyrange__dash" aria-hidden="true">
+                –
+              </span>
+              <label className="sr" htmlFor="invoice-fy-end">
+                Last fiscal year
+              </label>
+              <select
+                id="invoice-fy-end"
+                className="fselect fselect--fy"
+                value={fyRange ? String(fyRange.end) : ''}
+                onChange={(e) => {
+                  const end = Number(e.target.value);
+                  setFyRange((prev) => {
+                    const start = prev && prev.start <= end ? prev.start : end;
+                    return { start, end };
+                  });
+                  setPage(1);
+                }}
+                title="The last fiscal year to include"
+              >
+                {years.map((y) => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    FY{y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {query || account || project ? (
             <button
               type="button"
               className="fchip"
               onClick={clear}
-              title="Clear the search and the account filter"
+              title="Clear the search, the project and the account filter"
             >
-              {/* The account itself is deliberately NOT repeated here: the select
-                  beside this chip already shows the chosen combination, and a
-                  29-character mono code in a chip stretches it to half the bar. */}
+              {/* The account and the project are deliberately NOT repeated here:
+                  the two combos beside this chip already show what is chosen, and
+                  a 29-character mono code in a chip stretches it to half the bar. */}
               Clear{query ? ` “${query.trim()}”` : ''}
-              {query && account ? ' and' : ''}
+              {query && (account || project) ? ' and' : ''}
+              {project ? ' the project filter' : ''}
+              {project && account ? ' and' : ''}
               {account ? ' the account filter' : ''}
             </button>
           ) : null}
         </div>
 
+        {/* ★★ THE WINDOW, STATED — AND THIS LINE IS THE ACTUAL FIX FOR THE REPORTED BUG.
+            The register is bounded to a fiscal year and always was. The page never said
+            so, so a reader who filtered to Athens Drive saw "1 of 126" and reported a
+            bug: that project's level `0450` has 52 in-scope invoices and exactly 1 of
+            them falls in the newest year. The filter was right; the page was silent
+            about the one fact that made it look wrong.
+
+            ★ IT IS UNCONDITIONAL, NOT GATED ON "DID IT COST ANYTHING". A note shown
+              only when rows were removed would be absent on the default view — which is
+              exactly the view the reader was on when they concluded the data was
+              missing. The window is always a fact about the register, so it is always
+              stated.
+
+            ★ IT NAMES THE DATES, NOT JUST THE YEARS. "FY2027" is a label; "2026-07-01 –
+              2027-06-30" is the thing a reader can check an invoice date against. */}
+        {data ? (
+          <p className="invwindow">
+            <span className="invwindow__flag">Window</span>
+            <span className="invwindow__text">
+              {data.window.fiscalYear > 0 ? (
+                <>
+                  <strong>
+                    {data.window.fiscalYearEnd > data.window.fiscalYear
+                      ? `FY${data.window.fiscalYear}–${data.window.fiscalYearEnd}`
+                      : `FY${data.window.fiscalYear}`}
+                  </strong>{' '}
+                  — invoices dated{' '}
+                  <strong>{data.window.from}</strong> to <strong>{data.window.to}</strong>.{' '}
+                </>
+              ) : (
+                <>
+                  Invoices dated <strong>{data.window.from}</strong> to{' '}
+                  <strong>{data.window.to}</strong>.{' '}
+                </>
+              )}
+              {/* ★ THE SENTENCE THAT PREVENTS THE FALSE CONCLUSION, AND IT NAMES THE
+                  CONTROL. A reader who has not noticed the year selects needs to be told
+                  where the rest of the data is, not merely that a bound exists. */}
+              {data.window.fiscalYearEnd > data.window.fiscalYear
+                ? 'Widen the year range above to include more.'
+                : `Invoices dated before ${data.window.from} are outside this window — widen the year range above to include them.`}
+            </span>
+          </p>
+        ) : null}
+
         {/* A filter changes the row count silently; the same sentence in a live
             region is how a screen reader learns it did anything. */}
         <p className="sr" role="status">
-          {terms.length > 0 || account
+          {terms.length > 0 || account || project
             ? `${num(matches.length)} of ${num(index.length)} invoices shown.`
             : ''}
         </p>
@@ -950,7 +1194,12 @@ export default function Invoices() {
                 <>
                   No invoice of the {num(index.length)} in this window matches{' '}
                   <strong>{query.trim()}</strong>
-                  {account ? ' with that account filter.' : '.'}
+                  {project || account ? ' with those filters.' : '.'}
+                </>
+              ) : project ? (
+                <>
+                  No invoice of the {num(index.length)} in this window is booked to an account on
+                  project <strong>{projectOptions.find((o) => o.value === project)?.label ?? project}</strong>.
                 </>
               ) : (
                 <>No invoice of the {num(index.length)} in this window is booked to {account === NO_ACCOUNT ? 'no account at all' : account}.</>

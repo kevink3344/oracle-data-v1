@@ -228,12 +228,19 @@ export interface InvoicesEnvelope {
   /**
    * The window the register covers.
    *
-   * ★ OPTIONAL NOW THAT THE ROUTE SERVES IT, BECAUSE THE ROUTE'S `to` IS EMPTY BY DESIGN. The live
-   *   read runs from the fiscal year's July start to the present, so there is no end date to state
-   *   — the loader takes `to` from the newest invoice it actually received. See the note at the
-   *   read site.
+   * ★ IT CARRIES THE WHOLE RANGE NOW, INCLUDING `to` AND THE END YEAR. It used to be
+   *   `{ from, to: '', fiscalYear: 0 }` — the route left `to` and `fiscalYear` as stubs and the
+   *   page did not render the block at all, so a reader filtering to a project saw "1 of 126" with
+   *   nothing on screen saying a year boundary had been applied. Measured: level `0450` (Athens
+   *   Drive) has **52 in-scope invoices**, and exactly **1** of them falls in the newest fiscal
+   *   year. The reader reported that as a bug, and the report was right about the *page* even
+   *   though the filter was correct.
+   *
+   * ★ `fiscalYearEnd` IS THE LAST YEAR INCLUDED, and it differs from `fiscalYear` only when a
+   *   reader asks for a range. Both are carried so the page can say "FY2025–2027" without
+   *   recomputing anything.
    */
-  window?: { from: string; to: string; fiscalYear: number };
+  window?: { from: string; to: string; fiscalYear: number; fiscalYearEnd?: number };
   /** Absent on an extract written before the register was narrowed. */
   scope?: RawInvoiceScope;
   /** Absent on an extract written before the purchase order was read. */
@@ -608,8 +615,14 @@ export interface PoCoverage {
 export interface InvoicesExtract {
   /** Newest first. */
   invoices: Invoice[];
-  /** The fiscal year the pull was bounded to, carried on the file itself. */
-  window: { from: string; to: string; fiscalYear: number };
+  /**
+   * The fiscal years the register was bounded to, carried on the response itself.
+   *
+   * ★ `fiscalYearEnd` DIFFERS FROM `fiscalYear` ONLY FOR A RANGE, and the page needs both to say
+   *   "FY2025–2027" without recomputing. `0` on either means the server did not declare a year,
+   *   which the page treats as "no year to name" rather than as year zero.
+   */
+  window: { from: string; to: string; fiscalYear: number; fiscalYearEnd: number };
   /** The dates actually present, which are narrower than the bound. */
   observed: { from: string; to: string };
   links: number;
@@ -673,6 +686,24 @@ export interface InvoicesExtract {
  *   predicate it filters by, which is what stops the flag and the filter from disagreeing.
  */
 const URL = '/api/ap/invoices';
+
+/**
+ * The register URL for a fiscal-year range.
+ *
+ * ★ THE RANGE IS A QUERY PARAM, NOT A SECOND ENDPOINT, so the trace flag and the window compose
+ *   in one URL. `sqlUrl` owns the trace flag; this adds the years and leaves that alone.
+ *
+ * ★ AN ABSENT RANGE SENDS NO PARAMS AT ALL, which is what makes the server's own default (the
+ *   newest fiscal year) the one the page opens on. Sending `fyStart=<newest>` explicitly would
+ *   work but would freeze the default in the client, so a ledger that gains a year would keep
+ *   opening on the old one.
+ */
+function registerUrl(fy?: { start: number; end: number }): string {
+  const base = sqlUrl(URL);
+  if (!fy) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}fyStart=${fy.start}&fyEnd=${fy.end}`;
+}
 
 /**
  * The register's order numbers, from the route that serves them.
@@ -829,12 +860,45 @@ async function loadOrderRegister(signal?: AbortSignal): Promise<OrderRegisterLoo
   }
 }
 
-export async function loadInvoices(signal?: AbortSignal): Promise<InvoicesExtract> {
+/**
+ * The fiscal years the register can be scoped to.
+ *
+ * ★ THE OPTIONS COME FROM THE LEDGER, NOT FROM A HARD-CODED RANGE. A year offered in the picker is
+ *   a year `GL_PERIODS` really carries, so the server can never refuse a value the UI itself put
+ *   in the list. A hand-written `<option>` list would drift from the ledger the first time a year
+ *   was added, and the failure would be a 400 on a value the page had just offered.
+ *
+ * ★ IT ALSO CARRIES THE DATES, so the page can say what a year MEANS without recomputing `fy - 1`
+ *   and guessing the calendar convention — this ledger's fiscal year is Jul→Jun, which is a fact
+ *   about the periods rather than about the number.
+ */
+export interface FiscalYear {
+  fiscalYear: number;
+  from: string;
+  to: string;
+}
+
+export async function loadFiscalYears(signal?: AbortSignal): Promise<FiscalYear[]> {
+  const res = await fetch(sqlUrl('/api/ap/fiscal-years'), { signal });
+  if (!res.ok) throw new Error(`The fiscal years could not be read (HTTP ${res.status}).`);
+  const body = (await res.json()) as { data?: { years?: FiscalYear[] } };
+  const years = body?.data?.years;
+  if (!Array.isArray(years)) throw new Error('The fiscal-years response carried no list.');
+  return years;
+}
+
+export async function loadInvoices(
+  signal?: AbortSignal,
+  fy?: { start: number; end: number },
+): Promise<InvoicesExtract> {
   // ★ BOTH REQUESTS START TOGETHER, AND THE REGISTER'S FAILURE IS NOT THE PAGE'S.
   //   The register list is ~60 KB against the ledger payload's ~11 MB, so it is not a request
   //   worth serialising behind the other — and `loadOrderRegister` answers `null`
   //   instead of throwing, so a register that is down still renders the invoices.
-  const [res, lookup] = await Promise.all([fetch(sqlUrl(URL), { signal }), loadOrderRegister(signal)]);
+  const [res, lookup] = await Promise.all([
+    fetch(registerUrl(fy), { signal }),
+    loadOrderRegister(signal),
+  ]);
   if (!res.ok) {
     /**
      * ★ THE REFUSAL NAMES THE LEDGER, BECAUSE THAT IS NOW THE ONLY SOURCE.
@@ -877,19 +941,21 @@ export async function loadInvoices(signal?: AbortSignal): Promise<InvoicesExtrac
 
   // ★ THE WINDOW COMES FROM THE SERVER'S BLOCK, AND FALLS BACK TO THE ROWS THEMSELVES.
   //
-  //   The frozen file declared its window; the live route declares `from` (the fiscal year's own
-  //   July start, derived from `GL_PERIODS`) and leaves `to` empty, because the window has no end
-  //   — it runs to the present. So `to` is taken from the newest invoice actually returned, which
-  //   is the same thing the page means by it and cannot disagree with the rows on screen.
+  //   ★ THE SERVER NOW SENDS THE WHOLE RANGE. It used to send `{ from, to: '', fiscalYear: 0 }`
+  //     — a stub — and the page did not render the block, so a reader who filtered to a project
+  //     saw "1 of 126" with nothing saying a year boundary was applied. The block is complete
+  //     now and the page states it, which is the fix for that report.
   //
-  //   An absent window marks nothing as out of window, which is the existing behaviour and the
-  //   safe direction: a badge that says "before the window" must never fire on a guess.
+  //   The row-derived fallback stays for an extract written before the server sent a window: an
+  //   absent window marks nothing as out of window, which is the safe direction — a badge that
+  //   says "before the window" must never fire on a guess.
   const rawWindow = envelope?.window ?? null;
   const observedDates = table1.map((r) => text(r.INVOICE_DATE).slice(0, 10)).filter(Boolean).sort();
   const window = {
     from: rawWindow?.from || observedDates[0] || '',
     to: rawWindow?.to || observedDates[observedDates.length - 1] || '',
     fiscalYear: rawWindow?.fiscalYear ?? 0,
+    fiscalYearEnd: rawWindow?.fiscalYearEnd ?? rawWindow?.fiscalYear ?? 0,
   };
   const inside = (d: string) => !!window.from && d >= window.from && d <= window.to;
 

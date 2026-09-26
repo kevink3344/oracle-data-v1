@@ -333,6 +333,31 @@ interface ObjectProbe {
 const probeCache = new Map<string, Promise<ObjectProbe>>();
 
 /**
+ * A one-row read of `object`, spelled for the ledger's dialect.
+ *
+ * ★ THE THREE SPELLINGS ARE NOT INTERCHANGEABLE, AND THE PROBE IS THE WORST PLACE
+ *   FOR A DIALECT GUESS. It exists to *discover* what an object looks like, so a
+ *   syntax error here is reported as "this object cannot be read" — a claim about
+ *   the data, made on the strength of a claim about the engine. That is how
+ *   `ROWNUM` turned two readable tables into 503s under `DB_MODE=sqlserver`.
+ *
+ * ★ `TOP (1)` RATHER THAN `OFFSET … FETCH NEXT 1 ROWS ONLY`. `FETCH` requires an
+ *   `ORDER BY` in its own query block, and this probe deliberately has none — the
+ *   row's contents are never read, only its column metadata. `TOP` carries no such
+ *   requirement, so it is the only T-SQL form that fits a statement with no
+ *   ordering.
+ *
+ * The row itself is never used: the caller reads `res.columns`. Any one row will
+ * do, which is why an unordered limit is the right tool rather than a compromise.
+ */
+function oneRowSelect(object: string): string {
+  const dialect = storeDriver('ledger').dialect;
+  if (dialect === 'sqlserver') return `SELECT TOP (1) * FROM ${q(object)}`;
+  if (dialect === 'oracle') return `SELECT * FROM ${q(object)} WHERE ROWNUM <= 1`;
+  return `SELECT * FROM ${q(object)} LIMIT 1`;
+}
+
+/**
  * Which columns an object actually has, or why it cannot be read.
  *
  * Read through the *ledger store* rather than the routed driver on purpose: the
@@ -348,7 +373,18 @@ function probeObject(object: string): Promise<ObjectProbe> {
   const pending = (async (): Promise<ObjectProbe> => {
     try {
       const res = await storeDriver('ledger').execute({
-        sql: `SELECT * FROM ${q(object)} WHERE ROWNUM <= 1`,
+        // ★★ THE ROW LIMIT IS DIALECT-SPELLED, AND `ROWNUM` IS NOT PORTABLE.
+        //
+        //   Measured under `DB_MODE=sqlserver`: every probe failed with
+        //   `Invalid column name 'ROWNUM'`, so `GL_CODE_COMBINATIONS` and
+        //   `PO_HEADERS_ALL` — two tables that exist and read perfectly — were
+        //   reported as "cannot be read on this deployment" and their endpoints
+        //   answered 503. The failure named a *column*, which reads like a schema
+        //   problem rather than a dialect one.
+        //
+        //   All three return one row, which is all this probe wants — it reads
+        //   `res.columns`, never the row.
+        sql: oneRowSelect(object),
         args: {},
       });
       const cols = res.columns ?? [];
@@ -540,7 +576,11 @@ async function resolve(
  *   this helper is for unqualified projections.
  */
 export function ledgerIdent(table: string, column: string): string {
-  if (config.db.mode !== 'oracle') return q(column);
+  // ★ libSQL ONLY, for the same reason as `ledgerPlan` above: `DIVERGENCES`
+  //   records the columns the *live* instance spells differently, and a SQL Server
+  //   copy of the same tables has the same divergences. Under `local`/`turso` the
+  //   sample already holds the logical names, so this stays a no-op there.
+  if (config.db.mode === 'local' || config.db.mode === 'turso') return q(column);
   return DIVERGENCES[table]?.at?.[column] ?? q(column);
 }
 
@@ -568,7 +608,25 @@ const planCache = new Map<string, Promise<LedgerResolution>>();
 export function ledgerPlan(d: LedgerShapeRequest): Promise<LedgerResolution> {
   const identity: LedgerResolution = { ok: true, from: q(d.table), unavailable: [] };
 
-  if (config.db.mode !== 'oracle') return Promise.resolve(identity);
+  // ★★ THE GATE IS "IS THE LEDGER libSQL", NOT "IS IT ORACLE" — the same
+  //    correction `derivedPlan` needed, and this is the copy that actually
+  //    mattered. `resource.ts` resolves its read source through *this* function,
+  //    not through `derivedPlan`, so under `DB_MODE=sqlserver` the identity plan
+  //    was returned and the raw view name went to the server:
+  //
+  //      /api/spend/encumbrances → Invalid object name 'V_ACCOUNT_POSITION'
+  //      /api/coa/levels         → Invalid object name 'FND_FLEX_VALUES'
+  //
+  //    ★ `FND_FLEX_VALUES` IS NOT ONE OF THE THREE DERIVED VIEWS, AND THAT IS THE
+  //      POINT. It is a real table that the *live instance* lacks — `coa.ts` reads
+  //      it through `ledgerIdent`, which substitutes a readable source. So the
+  //      "not libSQL" condition has to hold for the whole module, not just for the
+  //      three composed views below: every branch here exists to cope with an
+  //      object the live ledger does not present the way the sample does.
+  //
+  //    Under `local`/`turso` the real views and tables are present, so the identity
+  //    plan is correct and the emitted SQL stays byte-identical to before.
+  if (config.db.mode === 'local' || config.db.mode === 'turso') return Promise.resolve(identity);
 
   /**
    * ★ THE THREE DERIVED VIEWS ARE CHECKED FIRST, AND BEFORE THE STORE LOOKUP.
