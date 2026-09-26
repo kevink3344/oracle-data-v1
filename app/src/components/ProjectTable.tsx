@@ -215,15 +215,24 @@ export default function ProjectTable() {
                  ★ A `<tr onClick>` IS NOT KEYBOARD-REACHABLE, WHICH IS WHY THE NAME IS ALSO A
                    LINK. The row click is a mouse convenience; the name carries the real anchor, so
                    Tab reaches it, Enter follows it, and a screen reader announces a link rather
-                   than a row that happens to respond to a click. This was already true of the
-                   claimed-name branch below; the unclaimed branch was a `<button>` that opened the
-                   panel and is now the same link.
+                   than a row that happens to respond to a click. The name used to be the split
+                   one — a `<button>` that opened the drawer for an unclaimed level, an edit link
+                   for a claimed one — and it is now a single link pointed at the row's own
+                   destination, which is the state the reasoning above always wanted.
 
-                 ★ THE NAME'S LINK GOES TO THE EDIT PAGE WHEN THERE IS SOMETHING TO EDIT, AND TO
-                   THE DETAIL PAGE WHEN THERE IS NOT. A claimed level has an app record, so
-                   `/projects/:slug/edit` is the more useful destination — it is the one screen that
-                   can change the name, the note or the level. An unclaimed level has no registry
-                   row, so there is no slug to give and the detail page is the only destination. */
+                 ★ THE NAME NOW GOES TO THE DETAIL PAGE WHATEVER THE ROW'S STATE — ONE
+                   DESTINATION, SAID ONCE. It used to split: a *claimed* level (one with an app
+                   record) sent the name to `/projects/:slug/edit`, on the reasoning that the edit
+                   screen was "the more useful destination". It is not — it is a form, and the
+                   user's instruction was that clicking a project should open the project. The row
+                   click, the name link and the keyboard path all land on `/projects/<level>` now.
+
+                 ★ EDIT IS STILL ONE CLICK AWAY, AND FROM A BETTER PLACE. `ProjectDetail` carries
+                   its own "Edit project" button (`/projects/:slug/edit`) in the cost-centre
+                   section — the screen that shows what the level gathers, which is where a reader
+                   is actually in a position to decide to change it. The uncoded queue in
+                   `Projects` keeps its own Edit link, because a project with no level has no
+                   detail page to reach it from. */
               const claimed = registry.find((r) => (r.levelCode ?? '').trim() === p.level);
               /* ★ NO CLAIMED ROW, NO BADGE — AND THAT IS NOT A GAP. The badge says a
                  project was recorded in this app today, so a level nobody has recorded
@@ -239,24 +248,23 @@ export default function ProjectTable() {
                   <td>
                     <div className="pcell__code">{p.code}</div>
                     <div className="pcell__name">
-                      {claimed ? (
-                        <Link
-                          className="linkish"
-                          to={`/projects/${claimed.slug}/edit`}
-                          title={`Edit ${p.name}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {p.name}
-                        </Link>
-                      ) : (
-                        <Link
-                          className={`linkish${p.unclaimed ? ' linkish--muted' : ''}`}
-                          to={detailHref}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {p.name}
-                        </Link>
-                      )}
+                      {/*
+                        ★ ONE DESTINATION FOR EVERY ROW, AND THAT IS WHY THE BRANCH IS GONE.
+                          The two arms of this ternary were both links to a page; the only
+                          difference between them was *which* page. Written as one link, a later
+                          edit cannot reintroduce the divergence by changing one arm and not the
+                          other — which is exactly how the edit-page destination got in.
+
+                          The muted class still matters: an unclaimed level's name is a weaker
+                          claim than a recorded project's, and `linkish--muted` is what says so.
+                      */}
+                      <Link
+                        className={`linkish${p.unclaimed && !claimed ? ' linkish--muted' : ''}`}
+                        to={detailHref}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {p.name}
+                      </Link>
                       {/*
                         ★ THE MARK IS ON THE NAME BECAUSE IT IS A FACT ABOUT THE PROJECT.
                           A level can be years old and its project recorded this morning;
