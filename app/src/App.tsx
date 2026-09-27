@@ -24,6 +24,7 @@ import SignIn from './routes/SignIn';
 import Budgets from './routes/Budgets';
 import PurchaseOrders from './routes/PurchaseOrders';
 import Encumbrances from './routes/Encumbrances';
+import JournalEntries from './routes/JournalEntries';
 import VendorCompanies from './routes/VendorCompanies';
 import VendorSites from './routes/VendorSites';
 import Pending from './routes/Pending';
@@ -118,6 +119,20 @@ const SCREENS: Record<string, ReactElement> = {
   // $11,511.12 differently, and two figures for one thing is the failure this app
   // is built to avoid.
   '/procurement/purchase-orders': <PurchaseOrders />,
+  // The journal register. ★ The only screen in the app whose *unfiltered* read is
+  // refused by the server rather than truncated: `GL_JE_HEADERS` holds more rows
+  // than `ALL_MAX_RECORDS` and `refuseIfOverCeiling` declines to count them, so
+  // this page is built around a narrowing that is mandatory rather than optional.
+  // Its primary control is therefore `ACTUAL_FLAG` — measured 143,587 budget /
+  // 564,101 encumbrance / 303,771 actual, each under the ceiling and the three
+  // together over it — and the refusal is rendered as a state that explains
+  // itself, naming the ceiling and the variable that sets it, rather than as an
+  // error. It is also the only screen here that reads a journal's lines through
+  // the header:
+  // `/journals/{id}/detail` resolves the id server-side, because the line
+  // register's `je_header_id` filter is typed as an integer while the column is
+  // text.
+  '/funding/journals': <JournalEntries />,
   // ★ The only screen in the app that reads two populations and refuses to add
   // them up. The purchasing extract carries a commitment against 335 account
   // combinations and the custom report's ledger side carries four, and the schema

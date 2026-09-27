@@ -4,6 +4,7 @@ import type { Api } from '../http/api.js';
 import { AppError } from '../http/errors.js';
 import { findRow, listRows, queryFor, registerResource, type ResourceDescriptor, type SegmentFilter } from './resource.js';
 import { bindable, columnNumber, one, quoteIdent, rows } from '../db/sql.js';
+import { refuseIfOverCeiling } from '../db/row-budget.js';
 import { defaultTenant } from '../auth/session.js';
 import { derivedPlan } from '../db/derived.js';
 import { ledgerPlan } from '../db/ledger-shape.js';
@@ -707,6 +708,7 @@ export function registerFunding(api: Api): void {
 
   registerBudgetVersionDetail(api);
   registerJournalDetail(api);
+  registerAccountJournals(api);
   registerFundingSummary(api);
 }
 
@@ -938,6 +940,257 @@ function registerJournalDetail(api: Api): void {
         extraWhere: [`${quoteIdent('JE_HEADER_ID')} = :parent_id`],
         extraArgs: { parent_id: bindable(id) },
       });
+    },
+  });
+}
+
+/** The three balance types, in the order a reader compares them. */
+const BALANCE_TYPES = ['A', 'B', 'E'] as const;
+
+/**
+ * One posting to one account: a `GL_JE_LINES` row with the journal it belongs to.
+ *
+ * ★ EVERY JOINED COLUMN IS ALIASED, AND THAT IS NOT COSMETIC. `GL_JE_LINES` and
+ *   `GL_JE_HEADERS` both carry `STATUS`, `DESCRIPTION` and `LEDGER_ID`, so a join
+ *   that selected either bare would return two columns of the same name and the
+ *   driver would keep whichever it saw last — silently, and possibly differently
+ *   between the two arms. The aliases say which side each field came from, and
+ *   `HEADER_NAME` exists for the same reason: both tables call it `NAME` on one
+ *   side only, but Oracle's own Account Inquiry column is headed *Journal Entry*,
+ *   so the field is named for what it is rather than the column it came from.
+ */
+const accountJournalRow = rowObject(
+  {
+    JE_HEADER_ID: intReq('The journal this posting belongs to.'),
+    JE_LINE_NUM: intReq('Line number within that journal. The pair is the line’s key.'),
+    LEDGER_ID: intReq('The ledger, read from the header.'),
+    CODE_COMBINATION_ID: intReq('The one account this line hits.'),
+    EFFECTIVE_DATE: date('The line’s effective date.'),
+    ENTERED_DR: realReq('Debit in the ledger currency. Not null, defaulting to 0.'),
+    ENTERED_CR: realReq('Credit in the ledger currency. Not null, defaulting to 0.'),
+    HEADER_NAME: text('The journal’s free-text name — Oracle’s “Journal Entry” column.'),
+    JE_SOURCE: text('The journal source, such as `WCPSS BUDGET`.'),
+    JE_CATEGORY: text('The journal category.'),
+    PERIOD_NAME: text('The period the journal posts to, read from the header.'),
+    ACTUAL_FLAG: actualFlag,
+    DEFAULT_EFFECTIVE_DATE: date('The journal’s action date, from the header.'),
+    POSTED_DATE: date('When the journal was posted.'),
+    ENCUMBRANCE_TYPE_ID: int('Set only on an encumbrance journal.'),
+    HEADER_STATUS: text('`U` unposted · `P` posted — from the header.'),
+    LINE_STATUS: text('`U` unposted · `P` posted — from the line.'),
+    LINE_DESCRIPTION: text('Free-text line description.'),
+    LINE_PERIOD_NAME: text('The line’s own period name, where the deployment carries one.'),
+    LINE_TYPE_CODE: text('Line type. Null throughout this deployment.'),
+    INVOICE_IDENTIFIER: text('Invoice reference. Null throughout this deployment.'),
+    INVOICE_AMOUNT: real('Invoice amount. Null throughout this deployment.'),
+  },
+  'One journal line hitting one account, with the journal header it belongs to.',
+);
+
+/**
+ * The journal entries tied to one account — Oracle's Account Inquiry → Journals.
+ *
+ * ─── THE ACCOUNT IS ON THE LINE, NOT ON THE JOURNAL ──────────────────────────
+ *
+ * `GL_JE_HEADERS` has no account column at all: thirteen columns, and not one
+ * segment among them. The account a journal hits is
+ * `GL_JE_LINES.CODE_COMBINATION_ID`, so a journal of N lines touches N accounts,
+ * and *which journals hit this account* is a question about **lines**. The
+ * register at `/api/funding/journals` structurally cannot answer it — a
+ * `code_combination_id` filter there would name a column the header table does not
+ * have — which is why the answer here is a join rather than a filter.
+ *
+ * ─── WHY THE JOIN IS SERVER-SIDE ─────────────────────────────────────────────
+ *
+ * A reader's table wants one row per posting with the journal's own name, source
+ * and balance type beside it. The account, the amount and the line number are on
+ * the line; the name, the source and `ACTUAL_FLAG` are on the header. Splitting
+ * those across two requests would move the join to the client, where the **balance
+ * type could not be filtered at all** — the flag is on one side of the join and
+ * the account on the other, so only the join can answer *this account, budget
+ * journals only*, which is the reading that matches Oracle's own screen.
+ *
+ * ─── WHY THE PER-FLAG SPLIT ARRIVES WITH THE ROWS ────────────────────────────
+ *
+ * `flags` is one grouped query over the same join, so a caller can offer the three
+ * balance types with their counts without three further round trips — and so the
+ * counts and the rows can never be computed from different predicates. It is
+ * returned even when `actual_flag` is already applied, because the counts are what
+ * let a reader move between the readings. The same grouping is what produces
+ * `totals` and `total`: summing the selected flags is exactly the filtered set, so
+ * no third query is needed to keep the two in step.
+ *
+ * ★ NO 404 WHEN THE COMBINATION IS UNKNOWN. Postings are keyed by
+ *   `CODE_COMBINATION_ID` whether or not this deployment's `GL_CODE_COMBINATIONS`
+ *   carries a row for that id, so an id the chart does not know returns
+ *   `account: null` with whatever lines exist rather than an error. The chart of
+ *   combinations is the narrowed side of the extract; the lines are the wide side,
+ *   and it is the lines that are being asked about.
+ */
+function registerAccountJournals(api: Api): void {
+  api.route({
+    method: 'get',
+    path: '/api/funding/accounts/{id}/journals',
+    operationId: 'funding_accountJournals',
+    summary: 'The journal entries hitting one account',
+    description:
+      'Every journal line posted to one `CODE_COMBINATION_ID`, joined to the header it belongs to, ' +
+      'newest action date first. The account lives on the line and the balance type on the header, so ' +
+      'this is the only shape that can answer *this account, budget journals only* — the reading ' +
+      'Oracle’s Account Inquiry → Journals shows.\n\n' +
+      '`flags` splits those same lines by `ACTUAL_FLAG` (`A` actual · `B` budget · `E` encumbrance) so ' +
+      'a caller can move between the three readings without re-asking, and `totals` is summed from the ' +
+      'selected flags rather than from the page. `account` is `null` when this deployment’s ' +
+      '`GL_CODE_COMBINATIONS` holds no row for the id — the postings are still returned.',
+    tags: ['Funding'],
+    params: z.object({ id: IntParam }),
+    query: z.object({
+      actual_flag: z.enum(['A', 'B', 'E']).optional().openapi({
+        description: 'The balance type. Omit for all three.',
+      }),
+      limit: z.coerce.number().int().min(1).max(500).optional().openapi({
+        description: 'Rows to return. Default 200, maximum 500.',
+      }),
+      offset: z.coerce.number().int().min(0).optional().openapi({
+        description: 'Rows to skip.',
+      }),
+    }),
+    response: z
+      .object({
+        account: z
+          .object({
+            CODE_COMBINATION_ID: intReq('The account key.'),
+            SEGMENT1: text('Fund.'),
+            SEGMENT2: text('Purpose.'),
+            SEGMENT3: text('Program.'),
+            SEGMENT4: text('Object.'),
+            SEGMENT5: text('Level — what this app calls a project.'),
+            SEGMENT6: text('Cost center.'),
+            SEGMENT7: text('Reserved for future use.'),
+            ACCOUNT_TYPE: text('`A` asset · `L` liability · `O` owner’s equity · `R` revenue · `E` expense.'),
+            ENABLED_FLAG: text('`Y` or `N`.'),
+            SUMMARY_FLAG: text('`Y` marks a parent account in the chart.'),
+          })
+          .nullable()
+          .openapi({ description: 'The chart-of-accounts row, when this deployment has one.' }),
+        rows: z.array(accountJournalRow),
+        lineCount: z.number().int().openapi({ description: 'Length of `rows` — the window, not the account.' }),
+        total: z
+          .number()
+          .int()
+          .openapi({ description: 'Lines this account has under the filter, counted live.' }),
+        limit: z.number().int(),
+        offset: z.number().int(),
+        totals: z
+          .object({
+            debits: realReq('Sum of `ENTERED_DR` over every filtered line, not just the page.'),
+            credits: realReq('Sum of `ENTERED_CR` over every filtered line, not just the page.'),
+            difference: realReq('`debits − credits`. Reported rather than asserted — a partial extract cannot balance.'),
+          })
+          .openapi('AccountJournalTotals'),
+        flags: z
+          .array(
+            z.object({
+              value: z.enum(['A', 'B', 'E']).openapi({ description: 'The `ACTUAL_FLAG`.' }),
+              lines: z.number().int().openapi({ description: 'Lines this account has in that balance type.' }),
+              debits: realReq('Debits this account has in that balance type.'),
+              credits: realReq('Credits this account has in that balance type.'),
+            }),
+          )
+          .openapi({ description: 'The same lines split by balance type. All three, always.' }),
+      })
+      .openapi('AccountJournals'),
+    errors: [400, 500],
+    handler: async (ctx) => {
+      const id = bindable(ctx.params.id);
+      const wanted = ctx.query.actual_flag ?? null;
+      const limit = ctx.query.limit ?? 200;
+      const offset = ctx.query.offset ?? 0;
+
+      const account = await one(
+        `SELECT ${['CODE_COMBINATION_ID', 'SEGMENT1', 'SEGMENT2', 'SEGMENT3', 'SEGMENT4', 'SEGMENT5', 'SEGMENT6', 'SEGMENT7', 'ACCOUNT_TYPE', 'ENABLED_FLAG', 'SUMMARY_FLAG']
+          .map(quoteIdent)
+          .join(', ')} FROM ${quoteIdent('GL_CODE_COMBINATIONS')} WHERE ${quoteIdent('CODE_COMBINATION_ID')} = :id`,
+        { id },
+      );
+
+      // Every column is qualified with `l.`/`h.`. Leaving them bare is an
+      // ORA-00918 on `LEDGER_ID`, which exists on both sides.
+      const join =
+        `${quoteIdent('GL_JE_LINES')} l JOIN ${quoteIdent('GL_JE_HEADERS')} h ` +
+        `ON h.${quoteIdent('JE_HEADER_ID')} = l.${quoteIdent('JE_HEADER_ID')}`;
+      const onAccount = `l.${quoteIdent('CODE_COMBINATION_ID')} = :id`;
+      const onFlag = `h.${quoteIdent('ACTUAL_FLAG')} = :flag`;
+
+      const select =
+        `SELECT l.${quoteIdent('JE_HEADER_ID')}, l.${quoteIdent('JE_LINE_NUM')}, ` +
+        `h.${quoteIdent('LEDGER_ID')}, l.${quoteIdent('CODE_COMBINATION_ID')}, ` +
+        `l.${quoteIdent('EFFECTIVE_DATE')}, l.${quoteIdent('ENTERED_DR')}, l.${quoteIdent('ENTERED_CR')}, ` +
+        `h.${quoteIdent('NAME')} AS ${quoteIdent('HEADER_NAME')}, ` +
+        `h.${quoteIdent('JE_SOURCE')}, h.${quoteIdent('JE_CATEGORY')}, h.${quoteIdent('PERIOD_NAME')}, ` +
+        `h.${quoteIdent('ACTUAL_FLAG')}, h.${quoteIdent('DEFAULT_EFFECTIVE_DATE')}, h.${quoteIdent('POSTED_DATE')}, ` +
+        `h.${quoteIdent('ENCUMBRANCE_TYPE_ID')}, ` +
+        `h.${quoteIdent('STATUS')} AS ${quoteIdent('HEADER_STATUS')}, ` +
+        `l.${quoteIdent('STATUS')} AS ${quoteIdent('LINE_STATUS')}, ` +
+        `l.${quoteIdent('DESCRIPTION')} AS ${quoteIdent('LINE_DESCRIPTION')}, ` +
+        `l.${quoteIdent('PERIOD_NAME')} AS ${quoteIdent('LINE_PERIOD_NAME')}, ` +
+        `l.${quoteIdent('LINE_TYPE_CODE')}, l.${quoteIdent('INVOICE_IDENTIFIER')}, l.${quoteIdent('INVOICE_AMOUNT')} ` +
+        `FROM ${join} WHERE ${onAccount}`;
+
+      // The balance-type split, grouped rather than three counted requests. This
+      // is also where `total` and `totals` come from, so neither can drift from
+      // the other or from the rows: A + B + E is every line of the account.
+      const byFlag = await rows(
+        `SELECT h.${quoteIdent('ACTUAL_FLAG')} AS FLAG, COUNT(*) AS N, ` +
+          `COALESCE(SUM(l.${quoteIdent('ENTERED_DR')}), 0) AS DEBITS, ` +
+          `COALESCE(SUM(l.${quoteIdent('ENTERED_CR')}), 0) AS CREDITS ` +
+          `FROM ${join} WHERE ${onAccount} GROUP BY h.${quoteIdent('ACTUAL_FLAG')}`,
+        { id },
+      );
+
+      // `ACTUAL_FLAG` is a `CHAR(1)`, so the grouped value can come back padded.
+      const flags = BALANCE_TYPES.map((value) => {
+        const hit = byFlag.find(
+          (r) => String((r as Record<string, unknown>).FLAG ?? '').trim().toUpperCase() === value,
+        ) as Record<string, unknown> | undefined;
+        return {
+          value,
+          lines: hit ? columnNumber(hit, 'N') : 0,
+          debits: hit ? columnNumber(hit, 'DEBITS') : 0,
+          credits: hit ? columnNumber(hit, 'CREDITS') : 0,
+        };
+      });
+
+      // The account is the bound on this read, so this only fires on an id that
+      // is not an account at all — but it is the same refusal the register gives,
+      // which is what makes the two comparable when one of them does fire.
+      refuseIfOverCeiling(
+        flags.reduce((sum, f) => sum + f.lines, 0),
+        'GL_JE_LINES',
+      );
+
+      const scoped = wanted ? flags.filter((f) => f.value === wanted) : flags;
+      const debits = scoped.reduce((sum, f) => sum + f.debits, 0);
+      const credits = scoped.reduce((sum, f) => sum + f.credits, 0);
+
+      const page = await rows(
+        `${select}${wanted ? ` AND ${onFlag}` : ''} ` +
+          `ORDER BY h.${quoteIdent('DEFAULT_EFFECTIVE_DATE')} DESC, ` +
+          `l.${quoteIdent('JE_HEADER_ID')} DESC, l.${quoteIdent('JE_LINE_NUM')} ASC ` +
+          `LIMIT :limit OFFSET :offset`,
+        wanted ? { id, flag: wanted, limit, offset } : { id, limit, offset },
+      );
+
+      return {
+        account: account ?? null,
+        rows: page,
+        lineCount: page.length,
+        total: scoped.reduce((sum, f) => sum + f.lines, 0),
+        limit,
+        offset,
+        totals: { debits, credits, difference: debits - credits },
+        flags,
+      };
     },
   });
 }

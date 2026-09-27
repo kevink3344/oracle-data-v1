@@ -118,7 +118,23 @@ export function positionalToNamed(sqlText: string): string {
 // is not swallowed into the bound value.
 const LIMIT_OFFSET_RE = /\bLIMIT\s+([^\s;]+)\s+OFFSET\s+([^\s;]+)\s*;?\s*$/;
 const LIMIT_ONLY_RE = /\bLIMIT\s+([^\s;]+)\s*;?\s*$/;
-const IFNULL_RE = /\bIFNULL\s*\(/g;
+// ★ THE `i` FLAG IS NOT OPTIONAL, AND ITS ABSENCE WAS A LIVE BUG.
+//
+//   Written without it, only the *upper-case* spelling was rewritten. Measured
+//   against the live instance, in the same statement shape, differing only in
+//   case:
+//
+//       SELECT IFNULL(NULL, 2) AS x   →  rewritten to ISNULL(…)   →  OK
+//       SELECT ifnull(NULL, 2) AS x   →  NOT rewritten            →
+//           500, "'ifnull' is not a recognized built-in function name"
+//
+//   ★ SQL IS CASE-INSENSITIVE ABOUT FUNCTION NAMES, SO A REWRITE THAT ONLY SEES
+//     ONE SPELLING IS NOT A REWRITE. `TO_CHAR`/`TO_DATE` next door use `/gi` and
+//     are correct for exactly this reason; this one was an oversight, and it
+//     survived because every hand-written site happened to shout. The guard now
+//     routes `sqlserver` away from the SQLite table, so it no longer *tells*
+//     anyone to write `ifnull` — but a stored view may already.
+const IFNULL_RE = /\bIFNULL\s*\(/gi;
 
 /**
  * ★★ IS THERE AN `ORDER BY` AT DEPTH 0 — i.e. belonging to THIS query block?
@@ -635,7 +651,27 @@ function toSqlServerBinds(
     //      would leave the `?` in place for a statement that has one and no args,
     //      which is exactly the shape that produced
     //      `Invalid usage of the option NEXT in the FETCH statement`.
-    const placeholders = (rawSql.match(/\?/g) ?? []).length;
+    //
+    //    ★★ AND IT COUNTS THE SAME `?`s THE REWRITE DOES — THE ONES IN *CODE*.
+    //
+    //       `positionalToNamed` walks `segmentSql` and rewrites a `?` only where
+    //       `segment.code` is true, so a `?` inside a string literal or a comment is
+    //       left alone. This count used to be a flat `match(/\?/g)` over the raw
+    //       text, which includes both — so a statement that *mentions* a `?` in a
+    //       comment and *uses* one as a placeholder counted 2 against 1 value and
+    //       threw:
+    //
+    //           SQL has 2 positional placeholder(s) but 1 value(s) were supplied.
+    //
+    //       ★ A VIEW WHOSE SQL CARRIES A COMMENT IS THE NORMAL CASE, not a corner:
+    //         the View Builder stores authored SQL verbatim, and `-- is this the
+    //         right join?` is a realistic thing for it to contain. Counting through
+    //         the same scanner the rewrite uses is what makes the two agree by
+    //         construction rather than by coincidence.
+    const placeholders = segmentSql(rawSql).reduce(
+      (n, s) => n + (s.code ? (s.text.match(/\?/g) ?? []).length : 0),
+      0,
+    );
     if (placeholders !== values.length) {
       // The arity check that makes the `?`-rewrite safe. A mismatch means a stray
       // placeholder was consumed or one was never one.

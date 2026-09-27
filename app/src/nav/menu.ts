@@ -291,10 +291,12 @@ const FUNDING: MenuBlock = {
       to: '/funding/journals',
       reads: 'GL_JE_HEADERS, GL_JE_LINES',
       api: '/api/funding/journals',
-      built: false,
+      built: true,
       note:
-        'The unfiltered journal. Adjustments and Changes are two readings of this list; this leaf ' +
-        'is the list itself, with a per-journal detail route already served.',
+        'The journal register. Adjustments and Changes are two readings of this list; this leaf ' +
+        'is the list itself, with a per-journal detail route already served. ★ An unfiltered read ' +
+        'of it is refused rather than truncated — GL_JE_HEADERS is over ALL_MAX_RECORDS — so the ' +
+        'screen lands on one ACTUAL_FLAG rather than on everything.',
       plan: '§4.2',
     },
     {

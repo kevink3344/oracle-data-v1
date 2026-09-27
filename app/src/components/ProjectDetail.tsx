@@ -369,56 +369,36 @@ export default function ProjectDetail({ project }: { project: Project }) {
               The committed figure is shown on its own rather than as 0% of nothing.
             </p>
           </div>
-        ) : (
-          <div className="notice notice--info" style={{ marginTop: 14 }}>
-            <p>
-              <strong>WCPSS budget is Oracle&rsquo;s own, and it is held per account.</strong> The
-              figure above is{' '}
-              {budgetRows.length === p.accounts.length
-                ? `all ${num(p.accounts.length)} of this level’s accounts added together`
-                : `${num(budgetRows.length)} of this level’s ${num(
-                    p.accounts.length,
-                  )} accounts added together`}
-              , one Oracle budget row per account <em>combination</em> — where an account spans
-              two purposes it has two rows, and both are counted. Commitments have the finer
-              grain — a budget is held per account, a commitment per purchase-order line — so
-              the two are read side by side and never subtracted.
-            </p>
-          </div>
-        )}
+        ) : null}
 
-        <div className="stats">
-          <div className="stat">
-            <div className="stat__k">Committed</div>
-            <div className="stat__v">{money0(p.committed)}</div>
-          </div>
-          {oracleBudget === null ? null : (
-            <>
-              <div className="stat">
-                <div className="stat__k">WCPSS budget</div>
-                <div className="stat__v">{money0(oracleBudget)}</div>
-              </div>
-              <div className="stat">
-                <div className="stat__k">Remaining</div>
-                <div className="stat__v">{money0(Math.max(oracleRemaining ?? 0, 0))}</div>
-              </div>
-            </>
-          )}
-          <div className="stat">
-            <div className="stat__k">Orders</div>
-            <div className="stat__v">{num(p.orders)}</div>
-          </div>
-          <div className="stat">
-            <div className="stat__k">Vendors</div>
-            <div className="stat__v">{num(p.vendors)}</div>
-          </div>
-          <div className="stat">
-            <div className="stat__k">Quiet for</div>
-            <div className="stat__v">
-              {p.quietDays} {p.quietDays === 1 ? 'day' : 'days'}
-            </div>
-          </div>
-        </div>
+        {/*
+          ★ THE PER-ACCOUNT NOTE AND THE SIX STAT CARDS ARE GONE, ON STAFF'S INSTRUCTION.
+            The cards read: committed, Oracle's WCPSS budget, the subtraction of one from the
+            other, orders, vendors, and days quiet. Five of the six repeat something this
+            section already says — the headline above is the committed figure and names the
+            budget it is measured against, the legend's "Unallocated" row is the remainder,
+            and the page head states lines, orders and vendors off the same row. A card that
+            restates a figure two lines above it is not a second measurement.
+
+          ★ THE TWO NOTICES THAT REMAIN ARE NOT THE SAME KIND OF THING AS THE ONE REMOVED.
+            Neither summarises a figure: one reports a *failed read* and the other reports an
+            *absent* budget. Drop the second and "no bar, no percentage" becomes
+            indistinguishable from a screen that simply broke. The removed note was neither —
+            it defined the grain of figures that are still on screen.
+
+          ★ ⚠ "QUIET FOR n DAYS" WAS THE ONE FIGURE THAT HAD NO OTHER VISIBLE HOME, and
+            removing the card did not give it one. It is still *reachable* — StatusChip puts
+            the day count in the title of the active/dormant chip in the page head — but a
+            value that exists only in a tooltip is not displayed, and this comment says so
+            rather than leaving a later reader to assume it survived somewhere on the page. If
+            it needs to be visible again it belongs on the page head's meta line, not in a
+            card that restates four other figures to carry it.
+
+          ★ AND WITH "REMAINING" GONE, NOTHING HERE OFFERS THE TWO AS SUBTRACTABLE. The
+            removed note closed by saying the budget and the commitments are read side by
+            side and never subtracted — a warning aimed at the card one line below it, which
+            did exactly that subtraction and labelled the difference "Remaining".
+        */}
       </section>
 
       <section className="dsec">

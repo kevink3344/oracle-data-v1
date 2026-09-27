@@ -3375,6 +3375,92 @@ async function main(): Promise<void> {
       );
     });
 
+    // ---- The guard on the SQL Server arm ---------------------------------
+    //
+    // ★ THE TWO ARMS MAKE OPPOSITE MISTAKES, SO THEY NEED OPPOSITE LINTS. Before
+    //   this split, `analyzeSql(sql, 'sqlserver')` fell through to the Oracle→SQLite
+    //   rules — measured on the live instance, it **rejected valid T-SQL**
+    //   (`OFFSET … FETCH n ROWS ONLY`) and **accepted every SQLite spelling that
+    //   fails**: `datetime('now')`, `NULLS LAST`, `COLLATE NOCASE`, `WHERE true`,
+    //   `sqlite_master` and an unaliased derived table. That last one is not
+    //   hypothetical: it is the 500 that `GET /api/views/subscriptions` returned.
+    await check('V4b: the SQL Server arm flags what fails, and passes what runs', async () => {
+      const arm = (sql: string): ReturnType<typeof viewGuard.analyzeSql> =>
+        viewGuard.analyzeSql(sql, 'sqlserver');
+
+      // Refused, each one measured to fail on the live instance.
+      for (const sql of [
+        "SELECT datetime('now') AS x FROM t",
+        "SELECT strftime('%Y', a) AS x FROM t",
+        'SELECT length(a) AS x FROM t',
+        "SELECT substr(a, 1, 2) AS x FROM t",
+        'SELECT group_concat(a) AS x FROM t',
+        'SELECT NVL(a, 0) AS x FROM t',
+        'SELECT SYSDATE AS x FROM t',
+        'SELECT a FROM t ORDER BY a DESC NULLS LAST',
+        "SELECT a FROM t WHERE a = 'x' COLLATE NOCASE",
+        'SELECT a FROM t WHERE true',
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+        'SELECT name FROM pragma_table_info',
+      ]) {
+        const a = arm(sql);
+        assert.ok(a.rejection, `the SQL Server arm must refuse: ${sql}`);
+        assert.equal(a.rejection?.code, 'SQLSERVER_DIALECT', `${sql} must report the SQL Server code`);
+      }
+
+      // ★ The unaliased derived table — the bug that was already found in anger.
+      const unaliased = arm('SELECT * FROM (SELECT 1 AS a) WHERE a = 1');
+      assert.ok(unaliased.rejection, 'an unaliased derived table is a T-SQL syntax error (Msg 156)');
+      assert.equal(
+        unaliased.findings.find((f) => f.code === 'DERIVED_TABLE_ALIAS')?.severity,
+        'error',
+        'and it must be an error, not a warning',
+      );
+      assert.equal(
+        arm('SELECT * FROM (SELECT 1 AS a) AS t WHERE a = 1').rejection,
+        null,
+        'the same statement *with* an alias must run',
+      );
+      assert.equal(
+        arm('SELECT * FROM (SELECT 1 AS a) sub WHERE a = 1').rejection,
+        null,
+        'a bare alias without `AS` must be accepted too',
+      );
+
+      // Accepted — every one of these was measured to work on SQL Server, and
+      // `OFFSET … FETCH` is the false positive that motivated the split.
+      for (const sql of [
+        'SELECT TOP 5 a FROM t',
+        'SELECT a FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY',
+        'SELECT SUBSTRING(a, 1, 2) AS x FROM t',
+        'SELECT LEN(a) AS x FROM t',
+        "SELECT CHARINDEX('b', a) AS x FROM t",
+        'SELECT COALESCE(a, 0) AS x FROM t',
+        "SELECT STRING_AGG(a, ',') AS x FROM t",
+        "SELECT TO_CHAR(a,'YYYY-MM-DD') AS x FROM t",
+        'SELECT a FROM t LIMIT 5',
+      ]) {
+        assert.equal(arm(sql).rejection, null, `the SQL Server arm must not refuse valid T-SQL: ${sql}`);
+      }
+
+      // A double-quoted token is a warning, not a refusal: it is valid T-SQL for
+      // an *identifier*, and the author is the one who knows which they meant.
+      const quoted = arm('SELECT "abc" AS x FROM t');
+      assert.equal(quoted.rejection, null, 'a quoted identifier must not block the preview');
+      assert.equal(
+        quoted.findings.find((f) => f.code === 'DOUBLE_QUOTED_STRING')?.severity,
+        'warning',
+        'but it must be reported, because on SQL Server it is not a string',
+      );
+
+      // And the SQLite arm is untouched by all of the above.
+      assert.equal(
+        viewGuard.analyzeSql("SELECT datetime('now') AS x").rejection,
+        null,
+        'the SQLite arm must keep accepting `datetime(\'now\')` — it is correct there',
+      );
+    });
+
     await check('V5: a smuggled second statement is refused, and the schema is untouched', async () => {
       const objectCount = async (): Promise<number> =>
         Number(

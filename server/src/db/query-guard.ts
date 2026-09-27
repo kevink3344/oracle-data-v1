@@ -62,7 +62,11 @@ export interface SqlRejection {
     | 'MULTIPLE_STATEMENTS'
     | 'NOT_A_SELECT'
     | 'DENIED_KEYWORD'
-    | 'ORACLE_DIALECT';
+    // ★ ONE CODE PER ARM THE LINT READ AGAINST, because "you wrote Oracle at
+    //   SQLite" and "you wrote SQLite at SQL Server" are different mistakes with
+    //   different fixes. A single `DIALECT_DIALECT` code could not say which.
+    | 'ORACLE_DIALECT'
+    | 'SQLSERVER_DIALECT';
   message: string;
   /** Extra machine-readable context for the response body's `details`. */
   details: Record<string, unknown>;
@@ -435,9 +439,9 @@ export function analyzeSql(sql: string, dialect: 'sqlite' | 'oracle' | 'sqlserve
     };
   }
 
-  // Step 6.
+  // Step 6. The dialect lint.
   //
-  // ★ SKIPPED ENTIRELY ON ORACLE. Every rule in `DIALECT_RULES` says "this is
+  // ★ SKIPPED ENTIRELY ON ORACLE. Every rule in the SQLite table says "this is
   //   Oracle-only, and the backend is SQLite". Pointed at Oracle for real, all of
   //   them are false: `FETCH FIRST` is correct there and `LIMIT` would be the
   //   mistake. A lint that fires on correct SQL is worse than no lint, because
@@ -452,12 +456,20 @@ export function analyzeSql(sql: string, dialect: 'sqlite' | 'oracle' | 'sqlserve
     return { rejection: null, statement, findings: [], params };
   }
 
-  const findings = dialectFindings(masked);
+  // ★★ AND `sqlserver` GETS ITS OWN TABLE, NOT THIS ONE. Until this split, the
+  //    `sqlserver` arm fell through to the Oracle→SQLite rules — so the guard both
+  //    missed every SQLite-only spelling *and* refused valid T-SQL (measured:
+  //    `OFFSET … FETCH n ROWS ONLY` was rejected as Oracle-only). The rule tables
+  //    are "wrong for this engine" tables, not universal ones, so the engine picks
+  //    the table.
+  const findings = dialectFindings(masked, dialect, statement);
   const blocking = findings.find((f) => f.severity === 'error');
   if (blocking) {
     return {
       rejection: {
-        code: 'ORACLE_DIALECT',
+        // The code names the arm the statement was read against, so a caller can
+        // tell "you wrote Oracle at SQLite" from "you wrote SQLite at SQL Server".
+        code: dialect === 'sqlserver' ? 'SQLSERVER_DIALECT' : 'ORACLE_DIALECT',
         message: `${blocking.message}${blocking.fix ? ` Use ${blocking.fix} instead.` : ''}`,
         details: { construct: blocking.construct, code: blocking.code, fix: blocking.fix },
       },
@@ -521,6 +533,18 @@ interface DialectRule {
  *   database. This guard therefore does NOT advertise a compatibility mode: the
  *   same SQL that works there fails here, and pretending otherwise would make
  *   the builder's preview disagree with its run.
+ */
+/**
+ * ★ THIS TABLE IS THE **SQLITE** ARM ONLY, AND SAYING SO IS NOT BOOKKEEPING.
+ *
+ *   It answers "you wrote Oracle, but the backend is SQLite" — which is why
+ *   every `fix` in it names `LIMIT`, `date('now')`, `printf` and `strftime`.
+ *   Those are *correct advice for this arm* and **wrong for SQL Server**, where
+ *   `date('now')`, `printf` and `strftime` are themselves errors. Before the
+ *   split, `analyzeSql` ran this table on the `sqlserver` arm too, so the guard
+ *   told authors to write SQL that cannot run.
+ *
+ *   The SQL Server arm has its own table — `SQLSERVER_RULES`, below.
  */
 const DIALECT_RULES: readonly DialectRule[] = [
   {
@@ -606,17 +630,277 @@ const DIALECT_RULES: readonly DialectRule[] = [
   },
 ];
 
+/* ------------------------------------------------------------------------- *
+ * The SQL Server arm
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Constructs that are valid SQLite — and invalid on SQL Server.
+ *
+ * ★ EVERY RULE HERE CITES A MESSAGE MEASURED AGAINST THE LIVE INSTANCE, WITH THE
+ *   PAIRED CONTROL THAT PROVES THE MESSAGE MEANS WHAT IT APPEARS TO MEAN. The
+ *   controls are the whole point: `length('abc')` fails while `len('abc')`
+ *   succeeds, so the failure is the *name*, not the shape of the call.
+ *
+ *     construct                  control          what SQL Server says
+ *     -------------------------  ---------------  ---------------------------------------
+ *     datetime('now')            GETUTCDATE()     'datetime' is not a recognized built-in…
+ *     strftime(…)                FORMAT(…)        'strftime' is not a recognized built-in…
+ *     length(x)                  len(x)           'length' is not a recognized built-in…
+ *     substr(x,1,2)              substring(…)     'substr' is not a recognized built-in…
+ *     instr(x,'b')               charindex(…)     'instr' is not a recognized built-in…
+ *     printf('%d',1)             FORMAT(…)        'printf' is not a recognized built-in…
+ *     group_concat(x)            string_agg(…)    Incorrect syntax near the keyword 'AS'
+ *     x COLLATE NOCASE           —                Invalid collation 'NOCASE'
+ *     ORDER BY x NULLS LAST      —                Incorrect syntax near 'NULLS'
+ *     WHERE true                 WHERE 1 = 1      An expression of non-boolean type…
+ *     "abc" (meaning a string)   'abc'            **parses** — read as an *identifier*
+ *     (SELECT …) with no alias   alias it         Incorrect syntax near ')'
+ *     sqlite_master, pragma_x    sys.tables       Invalid object name 'sqlite_master'
+ *
+ * ★ `group_concat` IS WORTH READING TWICE. It fails with a *syntax* error rather
+ *   than an unknown-function error, because T-SQL parses `GROUP_CONCAT` as an
+ *   alias on a column called `CONCAT` — so the message blames `AS`, which is
+ *   correct and unhelpful in equal measure. That is the same trap that makes an
+ *   unaliased derived table report `near the keyword 'WHERE'`:
+ *   **a syntax error naming a token that is itself valid usually means a token is
+ *   missing before it.**
+ *
+ * ★ WHAT IS DELIBERATELY ABSENT is as important as what is here. `TOP`,
+ *   `OFFSET … FETCH`, `SUBSTRING`, `LEN`, `CHARINDEX`, `COALESCE`, `ISNULL`,
+ *   `STRING_AGG`, `CONVERT` and `||` were all measured to work. `LIMIT`,
+ *   `TO_CHAR` and `TO_DATE` were measured to work too, because the driver
+ *   rewrites them — so linting them would fire on SQL that runs.
+ *
+ *   `FETCH FIRST` is the cautionary case: the SQLite table's rule matches
+ *   `FETCH NEXT n ROWS ONLY` as well, which is *exactly correct T-SQL*. Carrying
+ *   that rule over rejected valid SQL. It is absent here on purpose.
+ */
+const SQLSERVER_RULES: readonly DialectRule[] = [
+  {
+    code: 'SQLITE_DATE_FUNC',
+    severity: 'error',
+    test: /\b(DATETIME|DATE|STRFTIME|JULIANDAY|SQLITE_VERSION)\s*\(/i,
+    message:
+      'This is a SQLite date/time function. SQL Server has never heard of it, so the statement ' +
+      'fails with "… is not a recognized built-in function name".',
+    fix:
+      '`GETUTCDATE()` for a timestamp, `CONVERT(varchar(19), GETUTCDATE(), 120)` for the ' +
+      '`YYYY-MM-DD HH:MM:SS` **string** this schema stores, and `CONVERT(date, …)` for a day',
+  },
+  {
+    code: 'SQLITE_AGG_FUNC',
+    severity: 'error',
+    test: /\bGROUP_CONCAT\s*\(/i,
+    message:
+      '`group_concat` does not exist on SQL Server. It fails as a *syntax* error rather than an ' +
+      'unknown function, because T-SQL reads it as an alias on a column called `CONCAT`.',
+    fix: "`STRING_AGG(x, ',')`",
+  },
+  {
+    code: 'SQLITE_FUNC',
+    severity: 'error',
+    test: /\b(PRINTF|LENGTH|INSTR|SUBSTR|HEX|TOTAL)\s*\(/i,
+    message:
+      'This is a SQLite function and SQL Server does not have it — measured, each of these ' +
+      'returns "not a recognized built-in function name".',
+    fix:
+      'the T-SQL spelling — `LEN`, `CHARINDEX`, `SUBSTRING(x, 1, 2)`, `CONCAT`/`FORMAT` ' +
+      '(note `CONCAT` takes two or more arguments and is null-safe, unlike `+`)',
+  },
+  {
+    code: 'ORACLE_FUNC',
+    severity: 'error',
+    test: /\b(NVL|DECODE|TRUNC|TO_NUMBER|LPAD|RPAD|INITCAP|ADD_MONTHS|MONTHS_BETWEEN)\s*\(/i,
+    message:
+      'This is an Oracle function and SQL Server does not have it. (`TO_CHAR` and `TO_DATE` are ' +
+      'exempt: the driver rewrites those for you.)',
+    fix: '`ISNULL` or `COALESCE` for `NVL`, and a `CASE` expression for `DECODE`',
+  },
+  {
+    code: 'SYSDATE',
+    severity: 'error',
+    test: /\bSYSDATE\b/i,
+    message:
+      '`SYSDATE` does not exist on SQL Server. Unlike the SQLite arm there is no shim here, so ' +
+      'this fails outright rather than returning NULL.',
+    fix: '`GETUTCDATE()`',
+  },
+  {
+    code: 'ROWNUM',
+    severity: 'error',
+    test: /\bROWNUM\b/i,
+    message: 'SQL Server has no `ROWNUM`, and its Oracle semantics — assigned before `ORDER BY` — ' + 'are not the same as a row limit anyway.',
+    fix: '`TOP (n)` on the `SELECT`, or `OFFSET 0 ROWS FETCH NEXT n ROWS ONLY` with an `ORDER BY`, or `ROW_NUMBER() OVER (…)`',
+  },
+  {
+    code: 'CONNECT_BY',
+    severity: 'error',
+    test: /\bCONNECT\s+BY\b/i,
+    message: 'Hierarchical `CONNECT BY` has no equivalent on SQL Server.',
+    fix: 'a recursive CTE — WITH t AS (SELECT … UNION ALL SELECT … FROM t …), i.e. no `RECURSIVE` keyword',
+  },
+  {
+    code: 'ORACLE_OUTER_JOIN',
+    severity: 'error',
+    test: /\(\s*\+\s*\)/,
+    message: "Oracle's `(+)` outer-join marker is not valid syntax on SQL Server, and left in place " + 'it changes which rows come back rather than failing loudly.',
+    fix: 'an explicit `LEFT JOIN`',
+  },
+  {
+    code: 'SYS_CONTEXT',
+    severity: 'error',
+    test: /\bSYS_CONTEXT\s*\(/i,
+    message: '`SYS_CONTEXT` reads Oracle session state, which does not exist on SQL Server.',
+    fix: 'a literal, or a declared `:parameter` the caller supplies',
+  },
+  {
+    code: 'SQLITE_CATALOGUE',
+    severity: 'error',
+    test: /\b(SQLITE_MASTER|SQLITE_SCHEMA|SQLITE_TEMP_MASTER|SQLITE_TEMP_SCHEMA|PRAGMA_[A-Z_]+)\b/i,
+    message:
+      'This is SQLite introspection. SQL Server has no `sqlite_master`/`sqlite_schema` and no ' +
+      '`pragma_*` table-valued functions — the statement parses and then reports ' +
+      '"Invalid object name".',
+    fix: '`INFORMATION_SCHEMA.TABLES` and `INFORMATION_SCHEMA.COLUMNS`, or `sys.tables`, `sys.views`, `sys.columns`',
+  },
+  {
+    code: 'NULLS_LAST',
+    severity: 'error',
+    test: /\bNULLS\s+(FIRST|LAST)\b/i,
+    message:
+      'SQL Server has no `NULLS FIRST`/`NULLS LAST`. It sorts nulls first when ascending and last ' +
+      'when descending, and there is no clause to change that.',
+    fix: 'an explicit sort key — `ORDER BY CASE WHEN x IS NULL THEN 1 ELSE 0 END, x` (this is what `sql.ts` already does)',
+  },
+  {
+    code: 'COLLATE_NOCASE',
+    severity: 'error',
+    test: /\bCOLLATE\s+NOCASE\b/i,
+    message:
+      "SQL Server does not know the `NOCASE` collation — it fails with `Invalid collation 'NOCASE'`. " +
+      'Case-insensitive comparison is normally already the default.',
+    fix: 'nothing, if the column is an ordinary `varchar`/`nvarchar` (their default collation is case-insensitive); otherwise an explicit one such as `Latin1_General_CI_AS`',
+  },
+  {
+    code: 'BOOLEAN_LITERAL',
+    severity: 'error',
+    test: /\b(WHERE|AND|OR|HAVING|ON|WHEN)\s+(TRUE|FALSE)\b/i,
+    message:
+      'SQL Server has no boolean literal. `WHERE true` fails with "An expression of non-boolean ' +
+      'type specified in a context where a condition is expected".',
+    fix: '`1 = 1` (or `1 = 0` for `false`)',
+  },
+];
+
+// ★ THE DOUBLE-QUOTE CHECK CANNOT LIVE IN THE TABLE ABOVE, AND THE REASON IS THE
+//   MASK. Every rule in `SQLSERVER_RULES` is matched against `masked` — the
+//   statement with literals *and quoted identifiers* blanked to spaces — which is
+//   right for keyword rules and fatal for this one: blanking removes the very `"`
+//   it is looking for. Measured: the rule as written in the table matched
+//   **nothing**, including `SELECT "abc" AS x`.
+//
+//   So it runs against `maskKeepingIdentifiers(statement)` instead, which blanks
+//   `'…'` and comments while leaving `"…"`, `` `…` `` and `[…]` visible. That is
+//   the exact discrimination the check needs: a `"` inside a string literal is
+//   blanked and cannot produce a false positive, while a quoted identifier or a
+//   legacy double-quoted string stays and is reported.
+
+/**
+ * Positions of the `(` in `FROM (` / `JOIN (` where the derived table has no alias.
+ *
+ * ★ THIS IS THE RULE THAT PAYS FOR ITSELF, because it is the bug that was already
+ *   found once in anger: `GET /api/views/subscriptions` returned 500 with
+ *   `Msg 156` on a `FROM ( SELECT … )` that had no alias. SQLite accepts an
+ *   unaliased derived table; T-SQL requires one. The engine blames the *next*
+ *   keyword, so the author reads `Incorrect syntax near the keyword 'WHERE'` and
+ *   goes looking for a problem with `WHERE` — which is correct.
+ *
+ * A regex cannot do this: the alias sits after a *balanced* closing paren, so the
+ * scanner walks parens from each `FROM (`/`JOIN (`. Comments and literals are
+ * already gone — `masked` is passed in.
+ */
+function unaliasedDerivedTables(code: string): number[] {
+  // Words that can legitimately follow a derived table and are therefore *not*
+  // aliases. Without this list `GROUP`, `WHERE`, `ORDER` and friends would each
+  // read as a usable alias and every one of them would be missed.
+  const NOT_AN_ALIAS = new Set([
+    'WHERE', 'GROUP', 'ORDER', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT', 'ON',
+    'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'OUTER', 'LIMIT',
+    'OFFSET', 'FETCH', 'FOR', 'WINDOW', 'AND', 'OR', 'SET', 'VALUES', 'SELECT', 'WITH',
+  ]);
+
+  const out: number[] = [];
+  const opener = /\b(FROM|JOIN)\s*\(/gi;
+  let m: RegExpExecArray | null;
+  while ((m = opener.exec(code)) !== null) {
+    const start = m.index + m[0].length - 1; // the `(` itself
+    let depth = 0;
+    let close = -1;
+    for (let i = start; i < code.length; i += 1) {
+      const ch = code[i];
+      if (ch === '(') depth += 1;
+      else if (ch === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          close = i;
+          break;
+        }
+      }
+    }
+    if (close === -1) continue; // unbalanced: the engine's problem, not the guard's
+
+    // Only a derived table needs the alias. `FROM (a, b)` and `JOIN (…)` over a
+    // function call are not derived tables.
+    if (!/^\s*(SELECT|WITH)\b/i.test(code.slice(start + 1, close))) continue;
+
+    const after = code.slice(close + 1);
+    const asAlias = /^\s*AS\s+[A-Za-z_][A-Za-z0-9_]*/.test(after);
+    if (asAlias) continue;
+    const bare = /^\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(after);
+    const word = bare?.[1];
+    if (word !== undefined && !NOT_AN_ALIAS.has(word.toUpperCase())) continue; // a bare alias
+
+    out.push(start);
+  }
+  return out;
+}
+
 /**
  * The dialect rules that match, against masked text so a literal `'ROWNUM'`
  * does not trip them.
+ *
+ * ★ THE DIALECT SELECTS THE TABLE, AND THAT IS THE FIX, NOT A REFACTOR. The
+ *   rules are not "bad SQL" in the abstract — each one is "bad SQL *for this
+ *   engine*", and the two engines are wrong about opposite things:
+ *
+ *     sqlite     Oracle spellings are the mistake; `LIMIT` is the answer
+ *     sqlserver  SQLite spellings are the mistake; `OFFSET … FETCH` is the answer
+ *
+ *   Pointed at the wrong engine, a rule fires on correct SQL *and* recommends
+ *   correct-for-the-other-engine SQL. Both halves were measured on the live
+ *   instance before this split existed: on the `sqlserver` arm the guard rejected
+ *   `OFFSET … FETCH` and accepted `datetime('now')`, `NULLS LAST`, `COLLATE
+ *   NOCASE`, `WHERE true` and an **unaliased derived table**.
+ *
+ * ★ `oracle` HAS NO TABLE AND THAT IS DELIBERATE — see the note in `analyzeSql`.
+ *   Callers on that arm must not reach here; the signature keeps it honest by
+ *   refusing the value at the type level.
  *
  * Exported because the run path re-checks findings after a driver error: an
  * error the driver reports ("no such function: TRUNC") is much more useful when
  * the named port travels with it.
  */
-export function dialectFindings(masked: string): GuardFinding[] {
+export function dialectFindings(
+  masked: string,
+  dialect: 'sqlite' | 'sqlserver' = 'sqlite',
+  /** The statement *unmasked*, needed only by the double-quote check. */
+  statement?: string,
+): GuardFinding[] {
+  const rules = dialect === 'sqlserver' ? SQLSERVER_RULES : DIALECT_RULES;
+
   const out: GuardFinding[] = [];
-  for (const rule of DIALECT_RULES) {
+  for (const rule of rules) {
     const m = rule.test.exec(masked);
     if (m === null) continue;
     out.push({
@@ -629,8 +913,53 @@ export function dialectFindings(masked: string): GuardFinding[] {
     });
   }
 
-  // `TRUNC(SYSDATE)` matches two rules. One finding — the more specific one — is
-  // more useful than two that disagree about which is the headline.
+  // ★ THE TWO CHECKS BELOW ARE NOT REGEXES OVER `masked`, for one reason each.
+  if (dialect === 'sqlserver') {
+    // 1. The offending text is after a *balanced* paren rather than at a fixed
+    //    shape, so a regex cannot find it.
+    const positions = unaliasedDerivedTables(masked);
+    const first = positions[0];
+    if (first !== undefined) {
+      out.push({
+        code: 'DERIVED_TABLE_ALIAS',
+        severity: 'error',
+        construct: 'FROM ( SELECT … )',
+        message:
+          'This derived table has no alias, which SQLite allows and T-SQL does not (Msg 156). ' +
+          'T-SQL blames the token *after* the closing paren, so the error names a keyword that is ' +
+          'itself correct — `Incorrect syntax near the keyword \'WHERE\'` is this bug.',
+        fix: 'an alias after the closing paren — `FROM ( SELECT … ) AS sub`, or in older T-SQL just `) sub`',
+        index: first,
+      });
+    }
+
+    // 2. The character being looked for is blanked by `maskLiterals`, so this one
+    //    needs the statement with quoted identifiers intact. See the note above
+    //    `SQLSERVER_RULES`.
+    if (statement !== undefined) {
+      const identifiersKept = maskKeepingIdentifiers(statement);
+      const quote = identifiersKept.indexOf('"');
+      if (quote !== -1) {
+        const closeQuote = identifiersKept.indexOf('"', quote + 1);
+        out.push({
+          code: 'DOUBLE_QUOTED_STRING',
+          severity: 'warning',
+          construct:
+            closeQuote === -1 ? '"' : identifiersKept.slice(quote, closeQuote + 1).replace(/\s+/g, ' '),
+          message:
+            'SQL Server reads `"…"` as a **quoted identifier**, not as a string. So `SELECT "abc"` ' +
+            'becomes a reference to a column called `abc` — which fails with `Invalid column name`, ' +
+            'or, worse, silently returns a *different column* than you meant. It behaves as a string ' +
+            'only where `QUOTED_IDENTIFIER` happens to be OFF, which is not the default.',
+          fix: "`'…'` for a string literal; for an identifier that genuinely needs quoting, use `[Order Date]`",
+          index: quote,
+        });
+      }
+    }
+  }
+
+  // `TRUNC(SYSDATE)` matches two rules on the SQLite arm. One finding — the more
+  // specific one — is more useful than two that disagree about the headline.
   const specific = out.find((f) => f.code === 'TRUNC_SYSDATE');
   return specific ? out.filter((f) => f.code !== 'SYSDATE') : out;
 }

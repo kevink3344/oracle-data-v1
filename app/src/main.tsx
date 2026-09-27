@@ -49,6 +49,12 @@ import './styles/purchaseorders.css';
 // reuses `.scopenote__text` from budgets.css — so it comes after both. Before
 // rail.css, which is the last word on the shell.
 import './styles/encumbrances.css';
+// The journal register and its drill-in. Extends `table.data` and the panel
+// primitives, reuses `.scopenote__text` from budgets.css, and is the only sheet
+// in the app that gives a `table.data td` a `white-space: pre-line` — the
+// ledger's journal descriptions carry embedded newlines. So it comes after the
+// ones it extends. Before rail.css, which is the last word on the shell.
+import './styles/journals.css';
 // Editing a project: the level picker (`LevelPicker`) and the budgets a level
 // already carries. It extends `.combo*` / `.listbox*` / `.opt*` from
 // newproject.css and `.field*` from the same file, so it has to come after it.

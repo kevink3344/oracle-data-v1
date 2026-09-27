@@ -1214,6 +1214,23 @@ export function registerViewBuilder(api: Api): void {
        * `ran_at <= s.created_at` in the baseline above is a string comparison on
        * `datetime('now')`-formatted TEXT, which is what makes it a comparison of
        * instants — the same format sorts and compares as time.
+       *
+       * ★★ `) AS seq` IS NOT DECORATION — SQL SERVER WILL NOT PARSE WITHOUT IT.
+       *
+       *    Every derived table needs an alias in T-SQL. SQLite does not, so
+       *    `FROM ( … )` followed by `WHERE` is a statement SQLite runs happily and
+       *    SQL Server rejects with **Msg 156, "Incorrect syntax near the keyword
+       *    'WHERE'"** — the parser finishes the `)` , finds no alias, and reports
+       *    the fault at the next keyword rather than at the missing name.
+       *
+       *    ★ THE ERROR NAMES A KEYWORD THAT IS FINE, WHICH IS WHY IT READS AS A
+       *      MYSTERY. `WHERE prior IS NOT NULL` is correct SQL; the statement is
+       *      missing a token *before* it. This endpoint answered 500 on the SQL
+       *      Server arm alone while the same statement ran on SQLite, and nothing
+       *      in the message pointed at the derived table.
+       *
+       *    It is aliased `seq` because that is what it is — the run sequence, which
+       *    is exactly what `LAG` reads across.
        */
       const changes = await rows<{ view_id: number; last_change_at: string }>(
         `SELECT view_id, MAX(ran_at) AS last_change_at FROM (
@@ -1225,7 +1242,7 @@ export function registerViewBuilder(api: Api): void {
                SELECT view_id FROM saved_view_subscription
                WHERE subscriber = ? AND channel = 'in_app'
              )
-         )
+         ) AS seq
          WHERE prior IS NOT NULL AND fingerprint <> prior
          GROUP BY view_id`,
         [query.subscriber],

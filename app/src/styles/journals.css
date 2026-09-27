@@ -1,0 +1,795 @@
+/*
+  ==================================================================
+  Journal entries — the register and its drill-in
+  ==================================================================
+
+  Loaded after `encumbrances.css` in `main.tsx` and before `rail.css`, like every
+  other feature sheet, so the shell gets the last word on anything shared. It
+  extends `table.data`, `.panel` / `.panel__*`, `.filterbar`, `.pager`, `.fchip`,
+  `.input`, `.notice--warn`, `.chart-note` and `.scopenote__text` and redeclares
+  none of them.
+
+  ── WHAT THE STYLES HAVE TO DO THAT THE MARKUP CANNOT ──────────────
+
+  1. **The flag control has to read as the population selector, not as a tab
+     strip.** It is the first thing on the bar and it is the widest, because the
+     page's whole argument is that an unfiltered read of this register is refused
+     — a control that looked like the category selects beside it would hide the
+     one decision the ledger forces on the reader.
+
+  2. **The three flags have to be tellable apart at a glance in a column of 200
+     rows.** Encumbrance is a commitment and Actual is a posting, and a reader
+     scanning the register for one of them should not have to read the word. The
+     tints are the informational / primary / warning families rather than three
+     invented colours, so a flag reads the same here as it does anywhere else.
+
+  3. **The drill-in is a panel beside the register, not a page.** It sticks, so a
+     reader can walk down the register opening journals without losing their
+     place in the list — the same reasoning `panel.css` records for the drawer,
+     reached with a two-column flex rather than the slide-over, because this
+     detail is a *second reading of the row above* rather than a different view.
+
+  ⚠ SPECIFICITY. `table.data`'s cell rules are (0,1,2) and `table.data
+  td:first-child` is higher still, so every override below is written against
+  `.data.jrntable` (0,2,1 at least) and none of them needs `!important`. The free
+  text columns are the reason any override is needed at all: a `td` inheriting the
+  table's `nowrap` will push a journal's description — which the ledger stores
+  with embedded newlines — out to a single 900px line and take the whole table
+  with it.
+*/
+
+/* --- the panel and its layout ----------------------------------------- */
+
+.jrnpanel .panel__head {
+  flex-wrap: wrap;
+}
+
+/*
+  ★ THE TWO COLUMNS APPEAR ONLY WHEN THERE IS A SECOND ONE. The register is the
+  page; the drill-in is an addition. A grid with a permanently empty second track
+  would leave the table 320px narrower with nothing in the space, which is the
+  layout bug that makes a screen feel broken without anything being wrong.
+*/
+.jrn-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.jrn-main {
+  flex: 1 1 460px;
+  min-width: 0;
+}
+
+.jrn-detail {
+  flex: 0 0 clamp(340px, 32vw, 560px);
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+/*
+  ★ BELOW THE WIDTH WHERE TWO COLUMNS FIT, THE DETAIL BECOMES A FIXED DRAWER RATHER
+  THAN A SECOND ROW, AND THE FIRST VERSION OF THIS SHEET GOT THAT WRONG. Stacking
+  is the obvious fallback and it is unusable here: the register is 200 rows tall —
+  measured at 16,871px for one month of Budget journals — so a panel appended after
+  it opens some seventeen thousand pixels below the row that was clicked, and the
+  click looks like it did nothing at all. Pinned to the viewport it is visible
+  whatever the table's height.
+
+  The metrics are the app's shared `.drawer` (`panel.css`): z-index 90, because the
+  shell's own fixed pieces are 60 and 70, and `--shadow-drawer`, so this reads as
+  the same kind of surface as every other panel in the app rather than as a new one.
+*/
+@media (max-width: 1100px) {
+  .jrn-layout {
+    display: block;
+  }
+
+  .jrn-detail {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(560px, 92vw);
+    max-height: none;
+    z-index: 90;
+    border-radius: 0;
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: var(--shadow-drawer);
+  }
+}
+
+.jrnwrap {
+  overflow-x: auto;
+}
+
+.jrn-pad {
+  padding: 0 12px;
+}
+
+/* --- the flag control -------------------------------------------------- */
+
+.jrnfilter {
+  align-items: flex-end;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+}
+
+.jrnflags {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.jrnflags__label {
+  padding: 0 10px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  align-self: center;
+}
+
+.jrnflag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jrnflag:hover {
+  background: var(--surface-hover);
+}
+
+.jrnflag:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+.jrnflag[aria-pressed='true'] {
+  background: var(--surface-active);
+  color: var(--primary-color);
+  box-shadow: inset 0 -3px 0 var(--primary-color);
+}
+
+/*
+  ★ THE COUNT IS A LABEL ON THE CONTROL, NOT A MEASUREMENT OF THE PAGE. It is the
+  size of that flag in the whole ledger, which is what makes "Encumbrance is four
+  times Budget" visible before the reader commits — so it is muted, tabular, and
+  never styled as if it were the figure the screen is reporting.
+*/
+.jrnflag__n {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.jrnflag[aria-pressed='true'] .jrnflag__n {
+  color: var(--primary-color);
+}
+
+/* The value that is always refused gets the warning family rather than a fourth
+   neutral chip: it is selectable, and selecting it is how a reader finds out why
+   the register has to be narrowed. */
+.jrnflag--all {
+  color: var(--warn-fg);
+}
+
+.jrnflag--all .jrnflag__n {
+  color: var(--warn-fg);
+  opacity: 0.75;
+}
+
+/* --- the filter fields ------------------------------------------------- */
+
+.jrnfield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.jrnfield__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.jrnfield__input {
+  max-width: 15rem;
+}
+
+.jrnsearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 22rem;
+  min-width: 0;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.jrnsearch svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.jrnsearch input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.jrnsearch input:focus {
+  outline: none;
+}
+
+.jrnsearch:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--info-bg);
+}
+
+.jrnfilter__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* --- the register table ------------------------------------------------ */
+
+.data.jrntable {
+  width: 100%;
+}
+
+.data.jrntable th,
+.data.jrntable td {
+  vertical-align: top;
+}
+
+/* The sortable headers. `aria-sort` is on the `th`; the affordance is the mark. */
+.jrn-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jrn-sort:hover {
+  color: var(--primary-color);
+}
+
+.jrn-sort__mark {
+  font-size: 0.5625rem;
+  color: var(--text-faint);
+}
+
+.data.jrntable th[aria-sort] .jrn-sort__mark {
+  color: var(--primary-color);
+}
+
+.data.jrntable th[aria-sort] .jrn-sort {
+  color: var(--primary-color);
+}
+
+.jrntable__row {
+  cursor: pointer;
+}
+
+.jrntable__row.is-open {
+  background: var(--surface-active);
+}
+
+.jrntable__row.is-open td {
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+}
+
+.jrn-id {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.jrn-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Dates, periods and status codes never wrap: a broken date reads as two values. */
+.data.jrntable td.jrnn {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.jrn-id .jrn-link {
+  color: var(--link);
+}
+
+/*
+  ★ THE FREE-TEXT COLUMN GUARDS ITS OWN WIDTH, AND IT IS THE ONLY CELL THAT HAS TO.
+  `table.data` lays out automatically and gives the widest cell the space, and a
+  `GL_JE_HEADERS.NAME` on this ledger runs to several hundred characters with
+  embedded newlines in it. Left as it arrives, one row sets the table's width and
+  the seven columns behind it are pushed off the right edge — so the wrap is
+  stated here rather than hoped for from the table rules.
+*/
+.data.jrntable td.jrn-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 18ch;
+  max-width: 44ch;
+  color: var(--text-heading);
+}
+
+.data.jrntable td.jrncat,
+.data.jrntable td.jrnsrc {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+
+/*
+  ★ THE COLGROUP IS WHAT ACTUALLY STOPS THE NAME COLUMN FROM SETTING THE TABLE'S
+  WIDTH, AND WITHOUT RULES IT IS DEAD MARKUP. `table.data` is auto-laid-out, and in
+  auto layout a `max-width` on a `td` is a hint a browser is free to disregard when
+  the content is wider — which `GL_JE_HEADERS.NAME` always is (it runs to several
+  hundred characters and contains embedded newlines). A width on a `col` is a
+  stronger signal than anything on the cell, so the seven narrow columns are pinned
+  and `c-jrn-name` is left `auto`: the free-text column takes what is left after
+  the seven that have a known shape, and never more, because the `td` above still
+  caps it.
+
+  The pinned widths are sized to their *widest real value*, not their widest
+  heading — `Aug-26-FY-27` and `Purchase Invoices` are the long ones, and `Ledger`
+  needs room for the chip plus its `type 1020` note, which is why it is the widest
+  of the seven despite being the shortest word.
+*/
+.data.jrntable col.c-jrn-id {
+  width: 7.5rem;
+}
+
+.data.jrntable col.c-jrn-date {
+  width: 7rem;
+}
+
+.data.jrntable col.c-jrn-period {
+  width: 9rem;
+}
+
+.data.jrntable col.c-jrn-flag {
+  width: 10.5rem;
+}
+
+.data.jrntable col.c-jrn-cat {
+  width: 9.5rem;
+}
+
+.data.jrntable col.c-jrn-src {
+  width: 9.5rem;
+}
+
+.data.jrntable col.c-jrn-status {
+  width: 6.5rem;
+}
+
+.data.jrntable col.c-jrn-name {
+  width: auto;
+}
+
+/* --- the chips --------------------------------------------------------- */
+
+.jrnflagchip,
+.jrnstatus {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* ★ THREE FAMILIES, FROM THE TOKEN SET, SO A FLAG HERE READS LIKE THE SAME FLAG
+   ELSEWHERE. Actual is the ledger's own record of what happened (informational);
+   Budget is what the Funding section is about (primary); Encumbrance is a
+   commitment that has not become a payment (warning). */
+.jrnflagchip--a {
+  background: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info-border);
+}
+
+.jrnflagchip--b {
+  background: var(--series-capital-soft);
+  color: var(--primary-color);
+  border-color: var(--border-strong);
+}
+
+.jrnflagchip--e {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+
+.jrnflagchip--x {
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  border-color: var(--border);
+}
+
+.jrnstatus--p {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+}
+
+.jrnstatus--u {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+
+.jrnstatus--x {
+  background: var(--neu-bg);
+  color: var(--neu-fg);
+  border-color: var(--border);
+}
+
+.jrnsub {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* --- the empty states -------------------------------------------------- */
+
+.jrnempty {
+  padding: 24px 12px 28px;
+  max-width: 76ch;
+}
+
+.jrnempty--tight {
+  padding: 12px 0 16px;
+}
+
+.jrnempty p {
+  margin: 0;
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.jrnempty__hint {
+  margin-top: 6px !important;
+  font-weight: 400 !important;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.jrnempty .btn {
+  margin-top: 12px;
+}
+
+.jrnempty + .jrnempty {
+  padding-top: 8px;
+}
+
+/* --- the drill-in ------------------------------------------------------ */
+
+.jrn-detail__body {
+  padding: 16px;
+}
+
+.jrn-detail__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.jrn-detail__head .panel__title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.jrn-detail__tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.jrn-detail__close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.jrn-detail__close:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+.jrn-detail__err {
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  background: var(--err-bg);
+  color: var(--err-fg);
+  border: 1px solid var(--err-border);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+}
+
+.jrn-detail__h3 {
+  margin: 16px 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.jrn-detail__h3n {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+.jrndl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.jrndl > div {
+  min-width: 0;
+}
+
+.jrndl dt {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.jrndl dd {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/*
+  ★ THE LEDGER'S FREE TEXT KEEPS ITS NEWLINES. `GL_JE_HEADERS.DESCRIPTION` and a
+  line's description are stored with embedded `\n`, and the difference between a
+  description printed as one paragraph and the same text printed as the three
+  lines somebody wrote is the difference between readable and not. `pre-line`
+  keeps the breaks and still collapses runs of spaces and wraps, which `pre` would
+  not.
+*/
+.jrn-detail__freetext {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.jrn-detail__desc p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+/* --- the totals and the verdict ---------------------------------------- */
+
+.jrn-totals {
+  margin-top: 16px;
+}
+
+.jrn-totals__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  padding: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.jrn-totals__grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jrn-totals__k {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.jrn-totals__v {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.jrn-totals__note {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.jrn-totals__v--diff.is-zero {
+  color: var(--ok-fg);
+}
+
+.jrn-totals__v--diff.is-out {
+  color: var(--err-fg);
+}
+
+.jrn-verdict {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-sunken);
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.jrn-verdict--ok {
+  border-left-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.jrn-verdict--out {
+  border-left-color: var(--err-border);
+  background: var(--err-bg);
+  color: var(--err-fg);
+}
+
+/* --- the lines table --------------------------------------------------- */
+
+.jrnlines {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.jrnlinetable {
+  width: 100%;
+}
+
+.data.jrnlinetable {
+  font-size: 0.8125rem;
+}
+
+/*
+  ★ THE LINE TABLE'S NUMBERS ARE THE SUBSTANCE, SO THEY DO NOT INHERIT THE
+  REGISTER'S MUTED COLOUR. `.jrnn` is grey in the header register on purpose — a
+  date and a period are context for the row. In the line table the same class sits
+  on the debit and the credit, which are the two numbers the whole panel exists to
+  show, so they are set back to the body colour here rather than being carried
+  along by a class name that was chosen for a different table.
+*/
+.data.jrnlinetable td.jrnn {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-body);
+}
+
+.data.jrnlinetable td.jrn-acct {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.data.jrnlinetable td.jrnlinedesc {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 16ch;
+  max-width: 40ch;
+  color: var(--text-muted);
+}
+
+/* --- the refusal, which is a state rather than a fault ----------------- */
+
+.jrnrefuse {
+  align-items: flex-start;
+}
+
+.jrnrefuse__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 20px;
+  margin: 14px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+}
+
+.jrnrefuse__facts dt {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.jrnrefuse__facts dd {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+.jrnrefuse__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

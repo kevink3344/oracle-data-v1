@@ -12,6 +12,14 @@ import {
   objectTitle,
 } from '../data/taxonomy';
 import { money, money0, num, pluralise } from '../data/format';
+import {
+  DEFAULT_FLAG,
+  flagLabel,
+  isAbort,
+  loadAccountJournals,
+  loadCombinationId,
+  type AccountJournals,
+} from '../data/journals';
 
 /**
  * Combination search.
@@ -717,6 +725,19 @@ function CombinationPanel({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  /*
+    ★ THIS HOOK MUST STAY ABOVE THE EARLY RETURN BELOW. It used to sit under it, next to
+      `fixedNames`, which read well but ran it only once `shown` was set: the closed panel
+      called eight hooks and the open one called nine, and React said so — "change in the
+      order of Hooks called by CombinationPanel … 9. undefined → useContext". The panel's
+      exit transition works by keeping `shown` after `open` goes false, so the count went
+      8 → 9 on the first open and never came back, which is why it survived casual use
+      while still being undefined behaviour. `useStore` reads the account scope and the
+      segment constants, neither of which depends on which combination is shown, so it is
+      unconditional.
+  */
+  const { constants, scopeStats } = useStore();
+
   if (!shown) return <aside ref={panelRef} className="drawer" aria-hidden="true" />;
 
   const c = shown;
@@ -729,7 +750,6 @@ function CombinationPanel({
       FUND and PROGRAM as fixed while the reader was looking at two funds and three programs.
       `constants` comes from the store, measured against the lines actually being shown.
   */
-  const { constants, scopeStats } = useStore();
   const fixedNames = SEGMENT_ORDER.filter((s) => constants[s]);
   const movingNames = SEGMENT_ORDER.filter((s) => !constants[s]);
   const fixedCount = fixedNames.length;
@@ -993,6 +1013,8 @@ function CombinationPanel({
             ))}
           </ul>
         </section>
+
+        <AccountJournals comboKey={c.key} />
       </div>
 
       <div className="drawer__foot">
@@ -1004,5 +1026,292 @@ function CombinationPanel({
         </button>
       </div>
     </aside>
+  );
+}
+
+/** The balance types, in the order Oracle's own screen offers them. */
+const FLAG_VALUES: string[] = ['A', 'B', 'E'];
+
+/**
+ * How many lines the drawer asks for.
+ *
+ * The same 200 the register uses, for the same reason: it is more than any account in
+ * this deployment carries, so the note under the table that says *showing the newest
+ * n* is a guard against a future where that stops being true rather than something a
+ * reader will meet today.
+ */
+const ACCOUNT_JOURNAL_LIMIT = 200;
+
+/**
+ * The journal entries tied to one account — Oracle's Account Inquiry → Journals.
+ *
+ * ─── WHY THIS BELONGS IN THE COMBINATION DRAWER ───────────────────────────────
+ *
+ * The journal register starts from a journal, and a journal cannot tell you which
+ * account it touched: `GL_JE_HEADERS` has no account column, so the account lives on
+ * the line and the journal is the wrong end to ask from. This panel already holds an
+ * account — all seven segments of it, the thing a reader clicked to get here — so it
+ * is the one place in this app where *and what has been posted to it* can be asked
+ * and answered. The two screens read the same two tables from opposite ends, joined
+ * on `CODE_COMBINATION_ID`.
+ *
+ * ─── THE DEFAULT IS BUDGET, AND IT IS SHOWN AS A CHOICE ───────────────────────
+ *
+ * Oracle's screen opens here on the `Budget` balance type, and the screenshot that
+ * prompted this panel was a budget reading: eight postings out of thirty-two on the
+ * account. So the default matches the reading, and the control is a segmented list
+ * carrying each balance type's **line count**, which makes the default visible as a
+ * choice rather than an assumption — `All three` is one click, and so is either of
+ * the other two.
+ *
+ * ─── THE COPY IS PARTIAL AND THAT IS STATED, NOT HIDDEN ───────────────────────
+ *
+ * `GL_JE_LINES` is copied for fund `04` and programs `861`/`862`/`863` — 294,855
+ * lines — while `GL_JE_HEADERS` is copied in full, all 1,011,459 journals. A journal
+ * whose lines fell outside that scope therefore has a header and no lines, and no
+ * list built from the line table can show it. That makes an empty list here mean
+ * *no lines were copied for this account*, which is a much narrower claim than
+ * *nothing was posted to it* — so the scope note is printed unconditionally, under
+ * the table and under the empty state alike, rather than only when the account looks
+ * quiet. A reader must not be able to read a blank panel as a zero.
+ */
+function AccountJournals({ comboKey }: { comboKey: string }) {
+  const [ccid, setCcid] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(true);
+  const [flag, setFlag] = useState<string | null>(DEFAULT_FLAG);
+  const [data, setData] = useState<AccountJournals | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // One lookup per combination: the panel holds seven segments and the postings are
+  // keyed by the surrogate id, so this is the crossing between the two. It is also
+  // the question *does the chart of accounts know this combination at all*, which is
+  // worth being able to answer out loud when the answer is no.
+  useEffect(() => {
+    const controller = new AbortController();
+    setResolving(true);
+    setCcid(null);
+    setData(null);
+    setError(null);
+    loadCombinationId(comboKey, controller.signal)
+      .then((id) => {
+        setCcid(id);
+        setResolving(false);
+      })
+      .catch((err: unknown) => {
+        if (isAbort(err)) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setResolving(false);
+      });
+    return () => controller.abort();
+  }, [comboKey]);
+
+  // ★ RE-ASKED WHENEVER THE BALANCE TYPE CHANGES, BECAUSE IT HAS TO BE. The account
+  //   is on the line and `ACTUAL_FLAG` on the header, so no amount of client-side
+  //   filtering can separate budget postings from actual ones — the split exists
+  //   only where the two tables meet, on the server.
+  useEffect(() => {
+    if (ccid === null) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    loadAccountJournals(ccid, { flag, limit: ACCOUNT_JOURNAL_LIMIT }, controller.signal)
+      .then((next) => {
+        setData(next);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (isAbort(err)) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
+    return () => controller.abort();
+  }, [ccid, flag]);
+
+  const splits = data?.flags ?? [];
+  const counted = splits.length > 0;
+  const allLines = splits.reduce((sum, split) => sum + split.lines, 0);
+  const rows = data?.rows ?? [];
+
+  // ★ THE TOTALS ARE NULLABLE ON THE WIRE, because the shared `JournalTotals` is
+  //   also used for a journal whose totals the server could not aggregate. Here
+  //   they are always present — the server sums the same grouping that produced
+  //   the balance-type counts — so the coalesce is the type's shape, not a
+  //   possibility being handled: a missing total reads as 0 rather than as `NaN`,
+  //   which is the one wrong answer a sum can give.
+  const debits = data?.totals.debits ?? 0;
+  const credits = data?.totals.credits ?? 0;
+  const difference = data?.totals.difference ?? 0;
+
+  const options: { value: string | null; label: string; lines: number | null }[] = [
+    ...FLAG_VALUES.map((value) => ({
+      value: value as string | null,
+      label: flagLabel(value),
+      lines: counted ? (splits.find((split) => split.value === value)?.lines ?? 0) : null,
+    })),
+    { value: null, label: 'All three', lines: counted ? allLines : null },
+  ];
+
+  return (
+    <section className="dsec">
+      <div className="dsec__head">
+        <h3 className="dsec__title">Journal entries</h3>
+        <span className="dsec__hint">
+          {resolving
+            ? 'resolving the account'
+            : ccid === null
+              ? 'no such account'
+              : data
+                ? pluralise(data.total, 'line')
+                : 'reading…'}
+        </span>
+      </div>
+
+      {resolving ? (
+        <p className="chart-note">Looking these seven segments up in the chart of accounts…</p>
+      ) : ccid === null ? (
+        <p className="chart-note">
+          The chart of accounts holds no combination with these seven segments, so there is no
+          account here for a journal to have been posted to. Postings are keyed by{' '}
+          <code>CODE_COMBINATION_ID</code> and this deployment's combination list comes from the
+          purchase-order extract, so a combination the chart does not know cannot be looked up
+          by its segments — which is a limit of this app, not a statement that nothing was
+          posted.
+        </p>
+      ) : (
+        <>
+          <div className="acctjrn-flags" role="group" aria-label="Balance type">
+            {options.map((option) => {
+              const on = flag === option.value;
+              return (
+                <button
+                  key={option.value ?? 'all'}
+                  type="button"
+                  className={`acctjrn-flag${on ? ' is-on' : ''}`}
+                  aria-pressed={on}
+                  onClick={() => setFlag(option.value)}
+                  title={
+                    option.lines === null
+                      ? undefined
+                      : `${pluralise(option.lines, 'line')} on this account`
+                  }
+                >
+                  {option.label}
+                  <span className="acctjrn-flag__n">
+                    {option.lines === null ? '—' : num(option.lines)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {error ? (
+            <p className="notice notice--warn" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          {!error && rows.length === 0 ? (
+            <p className="chart-note">
+              {loading ? (
+                'Reading…'
+              ) : allLines === 0 ? (
+                // ★ A QUIET ACCOUNT IS NOT A GAP, and most accounts here are quiet: the
+                //   copy holds journal lines for a handful of funds and programs, so a
+                //   combination the chart knows can easily have none. The server counts
+                //   all three balance types in the same read that produced the flag
+                //   counts, so `allLines === 0` is the true total rather than the total
+                //   for the balance type on screen — which is what makes it safe to say
+                //   nothing is posted here at all, instead of accusing the copy of
+                //   dropping lines that were never there.
+                <>
+                  No journal lines were copied for this account — none in any of the three
+                  balance types, so nothing is hidden behind another balance type. The scope
+                  note below says which lines the copy holds.
+                </>
+              ) : (
+                <>
+                  No {flag ? flagLabel(flag).toLowerCase() : ''} lines were copied for this
+                  account, though {num(allLines)} exist across all three balance types — so this
+                  is a gap in the copied lines rather than a quiet account. The scope note below
+                  says which lines were copied.
+                </>
+              )}
+            </p>
+          ) : null}
+
+          {rows.length > 0 ? (
+            <table className="data acctjrn">
+              <caption className="sr">
+                Journal lines posted to account {comboKey},{' '}
+                {flag ? flagLabel(flag) : 'all balance types'}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Journal</th>
+                  <th scope="col">Period</th>
+                  <th scope="col" className="acctjrn__n">
+                    Line
+                  </th>
+                  <th scope="col" className="acctjrn__n">
+                    Debit
+                  </th>
+                  <th scope="col" className="acctjrn__n">
+                    Credit
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((line) => (
+                  <tr key={`${line.JE_HEADER_ID}-${line.JE_LINE_NUM}`}>
+                    <td className="acctjrn__who">
+                      <Link to={`/funding/journals?journal=${line.JE_HEADER_ID}`}>
+                        {line.HEADER_NAME ?? `Journal ${line.JE_HEADER_ID}`}
+                      </Link>
+                      <span className="acctjrn__id">
+                        #{line.JE_HEADER_ID}
+                        {line.JE_SOURCE ? ` · ${line.JE_SOURCE}` : ''}
+                      </span>
+                    </td>
+                    <td className="acctjrn__period">{line.PERIOD_NAME ?? '—'}</td>
+                    <td className="acctjrn__n">{line.JE_LINE_NUM}</td>
+                    {/* Oracle prints the empty side blank rather than as a zero, and a
+                        zero here is an absence, not a figure worth printing. */}
+                    <td className="acctjrn__n">{line.ENTERED_DR ? money(line.ENTERED_DR) : ''}</td>
+                    <td className="acctjrn__n">{line.ENTERED_CR ? money(line.ENTERED_CR) : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+
+          {data && rows.length > 0 ? (
+            <p className="chart-note">
+              {pluralise(data.total, 'line')} on this account
+              {counted && allLines > data.total ? (
+                <> · {num(allLines)} across all three balance types</>
+              ) : null}{' '}
+              · debits <b>{money0(debits)}</b> · credits <b>{money0(credits)}</b>
+              {Math.abs(difference) > 0.005 ? (
+                <>
+                  {' '}
+                  · difference <b>{money0(Math.abs(difference))}</b>{' '}
+                  {difference > 0 ? 'more debited than credited' : 'more credited than debited'}
+                </>
+              ) : null}
+              {data.total > rows.length ? <> · showing the newest {num(rows.length)}</> : null}
+            </p>
+          ) : null}
+
+          <p className="chart-note">
+            Journal <b>lines</b> are copied for fund <code>04</code> and programs{' '}
+            <code>861</code>/<code>862</code>/<code>863</code> only, while journal <b>headers</b> are
+            copied in full — so a journal whose lines fell outside that scope has a header and no
+            line here. This list is therefore what the copy holds for this account, not every
+            posting Oracle has against it.
+          </p>
+        </>
+      )}
+    </section>
   );
 }

@@ -340,3 +340,163 @@
     gap: 2px;
   }
 }
+
+/* --- the journals posted to this account -------------------------------- */
+/* Oracle's Account Inquiry → Journals, as close to it as a 470px drawer allows.
+
+   ★ EVERY CELL RULE BELOW IS DELIBERATELY OVER-QUALIFIED, AND THAT IS THE POINT.
+   Written the obvious way — `.acctjrn { font-size: .6875rem }`, `.acctjrn__period
+   { white-space: normal }` — they are all (0,1,0), while `table.data` sets
+   `font-size`, `table.data td` sets `white-space: nowrap` at (0,1,2) and
+   `table.data td:first-child` sets `white-space: normal` at (0,2,2). Measured in
+   the browser, all four of those obvious rules were inert: the cells rendered at
+   the shared 13px with the shared 12px padding and never wrapped. Prefixing with
+   `table.data.acctjrn tbody td.…` reaches (0,3,3), which wins without `!important`
+   and without editing the shared rules twenty other registers depend on.
+
+   ★ AND THE TABLE IS FIVE COLUMNS, NOT THE SEVEN ORACLE SHOWS. At the shared 13px
+   the two money columns alone need ~116px of the 406px a `.dsec` leaves, so seven
+   columns cannot fit however they are divided. `Batch` and `Source` on Oracle's
+   screen are the same constant string on every budget line ("Budget Journal"), so
+   `Source` rides in the meta line under the journal name instead; `Date` is dropped
+   because the period carries the chronology and Oracle's own screen has neither
+   column. What is left — Journal, Period, Line, Debit, Credit — is every fact the
+   screenshot actually distinguishes, at a width where the money never wraps. The
+   amounts are the constraint the widths are solved around: a figure broken across
+   two lines stops being a figure. */
+
+.acctjrn-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 9px;
+}
+
+.acctjrn-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-body);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.acctjrn-flag:hover {
+  background: var(--surface-hover);
+}
+
+/* The chosen balance type. The count beside it is the reason the control is here
+   at all — it is what makes "Budget" a reading of the account rather than a
+   default nobody chose. */
+.acctjrn-flag.is-on {
+  border-color: var(--primary-color);
+  background: var(--surface-active);
+  color: var(--primary-color);
+}
+
+.acctjrn-flag__n {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.acctjrn-flag.is-on .acctjrn-flag__n {
+  color: var(--primary-color);
+}
+
+table.data.acctjrn {
+  width: 100%;
+  table-layout: fixed;
+  font-size: 0.6875rem;
+}
+
+table.data.acctjrn th,
+table.data.acctjrn td {
+  padding: 5px 6px;
+  vertical-align: top;
+  /* ★ ON THE CELLS, NOT ON THE TABLE. `font-size` on `table.data.acctjrn` is a
+     correct-looking rule that does nothing: `table.data td` sets the size directly
+     on every cell, and a declaration on the element beats one inherited from its
+     ancestor at any specificity. Set here, it is a declaration on the cell too. */
+  font-size: 0.6875rem;
+}
+
+/* Declared widths rather than the browser's guess: left to itself a fixed-layout
+   table hands the journal name whatever the longest figure does not take, which on
+   this data is a name wrapped to four lines beside a figure on one.
+
+   ★ THE WIDTHS ARE SOLVED AROUND THE MONEY, AND ONLY AROUND THE MONEY, BECAUSE IT
+   IS THE ONE THING THAT CANNOT WRAP. Measured on the real rows at the 11px these
+   cells render at, the widest figure present needs 84px of the 406 — and a
+   thirteen-character `$13,040,284.32`, which no line here reaches but a budget line
+   elsewhere could, needs 90. At 23% each the two money columns get 93, so the
+   figures are safe with room to spare, and everything those twelve points were
+   previously holding goes to the journal name — the one column allowed to spend
+   lines, and the one that reads badly when it has too few. The period is left to
+   wrap: `Nov-25-FY-26` is hyphenated, so it breaks cleanly onto two lines, and it is
+   the least of the five facts here — the debit and the credit are the point. */
+table.data.acctjrn th:nth-child(1) {
+  width: 28%;
+}
+
+table.data.acctjrn th:nth-child(2) {
+  width: 15%;
+}
+
+table.data.acctjrn th:nth-child(3) {
+  width: 11%;
+}
+
+table.data.acctjrn th:nth-child(4) {
+  width: 23%;
+}
+
+table.data.acctjrn th:nth-child(5) {
+  width: 23%;
+}
+
+/* ★ A NAMED CELL INSIDE `table.data` NEEDS ITS OWN WRAPPING. The shared table rules
+   hold cells on one line, which is right for the codes and figures they were
+   written for and wrong here: "Carry Forward Correction Budget Amendments USD
+   1001" is a journal name, not a token, and holding it on one line would push the
+   drawer sideways instead of wrapping. */
+table.data.acctjrn tbody td.acctjrn__who {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.acctjrn__id {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+/* A period is a hyphenated token with real break opportunities in it, so it is
+   allowed to wrap here — `Nov-25-FY-26` at 11px is 83px and its column is 65. */
+table.data.acctjrn tbody td.acctjrn__period {
+  font-family: var(--font-mono);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+
+/* The figures. `nowrap` is load-bearing: a column wide enough for the money is a
+   column the money must stay inside, and a figure that wraps is no longer a figure. */
+table.data.acctjrn tbody td.acctjrn__n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
