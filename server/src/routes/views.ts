@@ -4,7 +4,7 @@ import { AppError } from '../http/errors.js';
 import { page } from '../http/respond.js';
 import { config } from '../config/env.js';
 import { storeDriver } from '../db/client.js';
-import { execute, one, pageMeta, rows } from '../db/sql.js';
+import { execute, one, pageMeta, rows, stampNow } from '../db/sql.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import {
   analyzeSql,
@@ -1353,7 +1353,7 @@ export function registerViewBuilder(api: Api): void {
       // `updated_at` is set by the statement, not by a trigger: a trigger is
       // invisible from the code that writes the row, and this timestamp is the
       // one the screen shows to say how old a definition is.
-      sets.push("updated_at = datetime('now')");
+      sets.push(`updated_at = ${stampNow()}`);
       args.push(path.id);
 
       const result = await execute(`UPDATE saved_view SET ${sets.join(', ')} WHERE id = ?`, args);

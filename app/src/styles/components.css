@@ -198,6 +198,62 @@ textarea {
   height: 14px;
 }
 
+/*
+── ★ A SECOND 30px ICON CONTROL, FOR THE PROJECT HEAD'S CORNER ────────────
+  The project page's `.projpage__actions` holds four labelled buttons; this is
+  not one of them. Since the user asked for it, the edit control sits in the
+  head's right corner with the pin, which is where the pin itself already lived
+  (`.pin-control` is absolute for the same reason: neither takes space in that
+  row). It joins the pin rather than the labels: the verb is one word, the glyph
+  is a pencil, and it now stands beside an icon with no caption, so a second one
+  is a pattern rather than an exception. The corner offset lives in
+  `projectpage.css` (`.projpage__actions .iconbtn`) and is derived from the
+  pin's own, not measured independently.
+
+  ★ IT IS THE SAME BOX AS `.pin-button`, AND THAT IS THE WHOLE STYLE. The two sit
+   8px apart, so 30×30, the same border, the same radius and the same hover are
+   the point — a control of visibly different weight beside this one reads as a
+   mistake, not as emphasis.
+
+  ★ THE OPAQUE `--surface` PLATE IS A CONTRAST DECISION, NOT A LOOK. A project
+    page's head can carry a photograph behind it, and `.btn--ghost` is
+    `background: transparent` — so the four labelled buttons are drawn straight
+    onto whatever the picture happens to be under them (measured at 3.45:1 light
+    / 3.72:1 dark on the one stored picture, both under AA). Giving this control
+    its own plate makes its contrast a fact about a token instead of a fact about
+    a photograph: `--text-muted` on `--surface`, the same pair `.pin-button`
+    rests on. An icon is a non-text graphic, so the floor is 3:1 and this clears
+    it in both themes — and it stays cleared whatever picture a project stores.
+
+  No `:focus-visible` rule: `base.css` already rings every focusable element.
+*/
+.iconbtn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition);
+}
+
+.iconbtn:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+
+/* 14px inside the 30px box, matching `.pin-button svg` for the reason above. */
+.iconbtn svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* ★ THE FAILURE NOTE CANNOT LIVE IN THE FLOW, BECAUSE THE CONTROL IS NOT IN IT.
    Pinned to the button's bottom-right corner: it only exists after a write the
    server refused (the message is the server's own words), so it is a note that

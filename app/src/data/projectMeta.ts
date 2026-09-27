@@ -52,6 +52,13 @@ export interface ProjectMeta {
  * same rows, because nothing has been written for them yet; leaving them empty is
  * the honest rendering, and inventing a site would produce a row no reader could
  * tell from a fact.
+ *
+ * ★ THE THREE BACKGROUND FIELDS ARE THE ROW'S, NOT THE IMAGE'S. A list that
+ * carried the bytes would be 640 KiB per row of `SELECT *` — so the list carries
+ * `hasBackground`, and the bytes come from their own endpoint on the one page that
+ * draws them. `hasBackground` is a boolean and not a truthy string because the
+ * server projects it as `CASE WHEN background_image IS NULL THEN 0 ELSE 1 END`;
+ * nothing here may test it with `=== 1`.
  */
 export interface RegistryRow {
   slug: string;
@@ -61,6 +68,25 @@ export interface RegistryRow {
   code: string | null;
   site: string | null;
   owner: string | null;
+  /** True when this project has a picture stored against it. Never the bytes. */
+  hasBackground: boolean;
+  /** The uploaded file's own name, or null. Shown beside the remove control. */
+  backgroundName: string | null;
+  backgroundUpdatedAt: string | null;
+  /**
+   * How strongly the header draws the picture, as a percent 0–100, or `null`.
+   *
+   * ★ `null` IS NOT `0`, AND NOTHING HERE MAY COLLAPSE THEM. `0` is a choice a
+   *   reader made and kept — the picture stored and deliberately not drawn. `null`
+   *   is the absence of a choice, and the *drawing* answers it with the application
+   *   default (`PROJECT_BACKGROUND_DEFAULT_STRENGTH`, 33, applied by `backgroundDraw`
+   *   at the moment the header is drawn). The server passes the
+   *   stored value through untouched for exactly this reason: a read path that
+   *   answered `33` would make "never chosen" and "chosen 33" the same answer here,
+   *   and a later change of default would then silently rewrite every project
+   *   nobody had touched, with nothing left in the payload to say it had happened.
+   */
+  backgroundStrength: number | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -250,6 +276,17 @@ export interface ProjectUpdate {
   owner?: string | null;
   levelCode?: string | null;
   code?: string | null;
+  /**
+   * How strongly the header draws this project's picture, as a percent 0–100, or
+   * `null` for the application default.
+   *
+   * The `undefined`-versus-`null` distinction documented above is load-bearing
+   * here in the same way, and with the same consequence if it is lost: absent
+   * leaves the reader's choice alone where `null` discards it. `0` is a third
+   * answer again — the picture held and deliberately not drawn — which is why the
+   * field is not a plain `number` defaulted to 33 on the way out.
+   */
+  backgroundStrength?: number | null;
 }
 
 async function readRow(res: Response, what: string): Promise<RegistryRow> {
@@ -321,6 +358,365 @@ export async function updateProject(slug: string, body: ProjectUpdate): Promise<
 export async function deleteProject(slug: string): Promise<void> {
   const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' });
   if (!res.ok) throw await readError(res);
+}
+
+/* ===== The project's background image ===================================== */
+
+/**
+ * The four types the server will store, and the same four in the same order as
+ * `BACKGROUND_TYPES` in `server/src/routes/projectRegistry.ts`.
+ *
+ * ★ THERE IS NO SVG, AND THAT IS NOT AN OVERSIGHT. An SVG is a document: it can
+ * carry `<script>` and external references, so a stored one is stored script
+ * served from this origin. Every type here is a raster format with no scripting
+ * model, and the server re-checks the bytes rather than trusting this list — a
+ * file renamed `.png` that is really something else is rejected by sniffing.
+ */
+export const PROJECT_BACKGROUND_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+
+export type ProjectBackgroundMime = (typeof PROJECT_BACKGROUND_TYPES)[number];
+
+/**
+ * 640 KiB of **decoded** bytes — the server's `BACKGROUND_MAX_BYTES`, restated
+ * here so the ceiling can be explained to a reader who has just picked a 4 MB
+ * photo, rather than only after the bytes have crossed the wire.
+ *
+ * The number is small on purpose. This picture is a backdrop behind one header —
+ * and it is drawn *through* a wash whatever strength it is set to, so there is no
+ * setting at which its finest detail is what the reader is looking at. At 640 KiB
+ * it is already several times more data than the whole rest of the page, and a
+ * project is not a photo library. A reader who wants to keep a large picture should
+ * downscale it first, and that is a thing they can do — silently re-encoding their
+ * file for them is not, because the result would be a picture they did not choose.
+ *
+ * ★ THE TWO CEILINGS ARE NOT THE SAME NUMBER AND BOTH ARE REAL. This one is
+ * measured on the file. `BACKGROUND_MAX_BASE64` on the server is 880,000 and is
+ * measured on the string, because base64 costs four characters for every three
+ * bytes and the body parser has to bound the *string* before it can decode it.
+ */
+export const PROJECT_BACKGROUND_MAX_BYTES = 640 * 1024;
+
+/**
+ * How strongly a picture is drawn when nobody has chosen — 33 percent, which is
+ * what every header drew before there was a control.
+ *
+ * ★ IT IS A PERCENT AND NOT A FRACTION, because that is what the slider shows and
+ *   what the column stores; the division into the two opacities the header actually
+ *   draws happens once, in `backgroundDraw` below. A constant here holding `0.33`
+ *   would be the same number in a different notation, and the rounding from one to
+ *   the other is the kind of thing that turns a "default" into a "default, roughly".
+ *
+ * ★ THERE IS NO "NOBODY HAS CHOSEN" STATE IN THE DRAWING, AND THAT IS DELIBERATE.
+ *   A `null` in the column means the reader never moved the control, and this
+ *   number is the answer for that case — but the answer is applied by the *client*
+ *   as it hands the stylesheet its two opacities, not on the wire. So a `null` stays
+ *   a `null` in every payload that crosses the API and a later change to this
+ *   constant moves every project nobody had touched, which is what a default is
+ *   supposed to do. (The stylesheet keeps the same two opacities as the fallback for
+ *   its custom properties; that copy exists so an unset property still draws, and
+ *   `backgroundDraw` is the one that decides.)
+ */
+export const PROJECT_BACKGROUND_DEFAULT_STRENGTH = 33;
+
+/**
+ * The strongest a picture may be drawn — 45 percent, in the **light** theme.
+ *
+ * ★ THE CEILING IS NOT A TASTE JUDGEMENT, IT IS THE CONTRAST FLOOR. The picture
+ *   and the wash between it and the header's text are two opacities chosen
+ *   together, and the measured result is that the header's heading colour holds
+ *   4.5:1 up to a visible strength of 0.45 and not beyond. This constant is that
+ *   number restated as a percent so the *control* stops where the contrast does,
+ *   rather than letting a reader drag past a limit the stylesheet would silently
+ *   apply anyway. A control that can be moved to a position with no effect is a
+ *   control that lies about what it did.
+ *
+ * ★ THE DARK THEME'S CEILING IS LOWER — 38 — and it is applied in the stylesheet
+ *   rather than here, because it cannot be expressed as a maximum on this slider:
+ *   the control is one scale, the theme is a property of the page it is drawn on,
+ *   and a slider whose range changed when the theme changed would move under the
+ *   reader's hand. So the reader may choose 45 and the dark header draws 38, which
+ *   is the strongest dark-mode-safe value. The derivation of both numbers is in
+ *   `projectpage.css`, beside the arithmetic it belongs to.
+ *
+ * ★ A STORED VALUE ABOVE THIS IS NOT AN ERROR AND IS NOT "CORRECTED". The API
+ *   accepts 0–100, so a value of 60 is storable by any client; it simply draws the
+ *   same as 45. See the note on `backgroundStrength` in `RegistryRow` for why the
+ *   stored number is left as it was chosen.
+ */
+export const PROJECT_BACKGROUND_MAX_STRENGTH = 45;
+
+/**
+ * Puts a strength back inside the range the control can express.
+ *
+ * ★ THE CONTROL'S BOUND IS THE **LIGHT** THEME'S CEILING, AND THE DARK THEME'S IS
+ *   NOT APPLIED HERE. Both ceilings exist (45 light, 38 dark) but only one of them
+ *   can be a bound on a control: the slider is one scale and the theme is a
+ *   property of the page it happens to be drawn on, so a range that changed when
+ *   the reader switched themes would move under their hand. The honest split is
+ *   that the reader chooses a strength and the *stylesheet* draws `min(chosen,
+ *   what the surface allows)` — which is also what keeps this function free of any
+ *   knowledge of theming, and therefore testable without a page.
+ *
+ * ★ IT CLAMPS RATHER THAN REJECTS, AND THE VALUE IT GETS MAY NOT BE ONE THE READER
+ *   CHOSE. The API accepts 0–100, so a row written by a script or an earlier build
+ *   can hold 60. That number is not an error and is not corrected in the row — it
+ *   simply cannot be *shown* on a control that stops at 45, so it is shown as the
+ *   strongest setting the control can reach, and the panel says so when it happens.
+ *   (See the note in `EditProject.tsx`: the reader is told, because a readout
+ *   printing 45 for a stored 60 would be the page stating a number it knows is not
+ *   the one in the database.)
+ */
+export function clampBackgroundStrength(value: number): number {
+  if (!Number.isFinite(value)) return PROJECT_BACKGROUND_DEFAULT_STRENGTH;
+  return Math.min(Math.max(Math.round(value), 0), PROJECT_BACKGROUND_MAX_STRENGTH);
+}
+
+/**
+ * The two opacities the header draws a picture at.
+ *
+ * ★ WHY THIS IS HERE AND NOT IN THE STYLESHEET, SINCE THE STYLESHEET IS WHERE IT
+ *   USED TO BE. The header's legibility is governed by two numbers — the picture's
+ *   own `opacity` and the alpha of the wash drawn over it — and by a third that is
+ *   the only one a reader cares about: how much of the picture they actually see,
+ *   which is `opacity × (1 − wash)`. The old stylesheet held the pair as two
+ *   literals, so the *third* number existed nowhere and could not be moved.
+ *
+ *   Making the slider set that visible strength means solving `opacity = u ÷
+ *   (1 − wash)` — a **division by an expression** — and CSS `calc()` cannot divide
+ *   by anything but a literal. That is the whole reason the arithmetic is not in
+ *   CSS: not a preference about where code belongs, a limit of the language. So one
+ *   function computes the pair and the stylesheet receives it as two custom
+ *   properties. The reader-facing sentence still holds — the two numbers are still
+ *   chosen in exactly one place — that place has merely moved to the file that can
+ *   do the sum.
+ *
+ * ★ THE NUMBERS, AND WHERE THEY COME FROM. The wash cannot be a constant: the
+ *   picture and the wash sit *between* the header's text and the surface, so
+ *   drawing the picture more strongly pushes the backdrop further from the surface
+ *   and eats the text's contrast. Measured on the light theme over the stored
+ *   picture — every pixel of the header box composited as the browser composites
+ *   it, worst one reported — the heading colour holds 4.5:1 up to a visible
+ *   strength of 0.45, where it measures 4.55:1, and holding it there takes a wash
+ *   of 0.55. Two points are therefore known exactly:
+ *
+ *       strength 0.33 → wash 0.34, picture opacity 0.50   (what every header drew
+ *                                                          before this control)
+ *       strength 0.45 → wash 0.55, picture opacity 1.00   (the ceiling: the wash
+ *                                                          alone is carrying the
+ *                                                          text, the picture is
+ *                                                          fully opaque and can go
+ *                                                          no further)
+ *
+ *   The wash is interpolated linearly between them, which is the shape the
+ *   measurement traced, and the picture's opacity is solved from it so that the
+ *   reader gets exactly the strength they asked for at every position rather than
+ *   approximately it. At the ceiling the solution is 1.00 — that is not a
+ *   coincidence and it is why 45 is the ceiling: past it the sum demands a picture
+ *   more opaque than one, and a wash past 0.55 leaves nothing to see.
+ *
+ * ★ BELOW 0.33 THE WASH FALLS AWAY, AND IT IS SAFE THAT IT DOES. Interpolating
+ *   backwards gives a wash under 0.34, reaching 0 at a strength of about 0.14 and
+ *   clamped there. A weaker picture needs less cover, not more — at zero the wash
+ *   and the opacity are both zero and the header is the plain surface, which is the
+ *   most legible state it has. So the floor is not a risk in the direction that
+ *   matters.
+ *
+ * ★ THE DARK THEME IS CORRECTED IN THE STYLESHEET, BECAUSE ITS CEILING IS LOWER.
+ *   The same light-toned text is being read against a darker surface, where the
+ *   wash removes contrast instead of adding it, and the measured crossover is
+ *   between 36 and 37: drawn raw, the dark header holds 4.64:1 at 36 and 4.47:1 at
+ *   37, and only 3.35:1 at this function's ceiling of 45. The control cannot
+ *   express that as a different range — it is one scale, and a slider whose end
+ *   moved when the theme changed would move under the reader's hand — so the
+ *   stylesheet compresses the opacity's excess above 0.5 by 45% for a dark header.
+ *   That correction is zero at the default and can only ever *reduce* the picture,
+ *   so it cannot push a dark header past the ceiling this function keeps it under;
+ *   it restores 4.70:1 at the far end and leaves no part of the range inert.
+ *   See the measured table and the arithmetic note in `projectpage.css`.
+ */
+export interface ProjectBackgroundDraw {
+  /** `opacity` for the picture layer, 0–1. */
+  opacity: number;
+  /** The alpha of the surface-coloured wash drawn over it, 0–1. */
+  wash: number;
+}
+
+/** The visible strength at which today's pair was measured — the calibration point. */
+const WASH_CALIBRATION_STRENGTH = PROJECT_BACKGROUND_DEFAULT_STRENGTH / 100;
+/** The wash measured at that point, and at the ceiling. */
+const WASH_AT_CALIBRATION = 0.34;
+const WASH_AT_CEILING = 0.55;
+const STRENGTH_AT_CEILING = PROJECT_BACKGROUND_MAX_STRENGTH / 100;
+
+export function backgroundDraw(percent: number): ProjectBackgroundDraw {
+  const u = clampBackgroundStrength(percent) / 100;
+
+  // The wash the measurement requires at this strength, as a straight line through
+  // the two measured points, floored at zero because a negative alpha is not a wash.
+  const slope = (WASH_AT_CEILING - WASH_AT_CALIBRATION) / (STRENGTH_AT_CEILING - WASH_CALIBRATION_STRENGTH);
+  const wash = Math.min(Math.max(WASH_AT_CALIBRATION + (u - WASH_CALIBRATION_STRENGTH) * slope, 0), WASH_AT_CEILING);
+
+  // ★ SOLVED, NOT GUESSED. `u = opacity × (1 − wash)` rearranged; the `min` at 1 is
+  //   unreachable for any strength this function accepts and is here so that a
+  //   future change to either constant cannot produce an opacity above 1, which
+  //   would clamp silently in the browser and make the drawn strength a number
+  //   neither of these constants says.
+  const opacity = Math.min(u / (1 - wash), 1);
+
+  return { opacity, wash };
+}
+
+/** The bytes and type of one uploaded picture, ready to be sent. */
+export interface ProjectBackgroundUpload {
+  /** Base64 of the decoded file, with no `data:` prefix and no line breaks. */
+  data: string;
+  mime: ProjectBackgroundMime;
+  name: string;
+}
+
+/** One stored picture, as the endpoint that serves the bytes returns it. */
+export interface ProjectBackgroundImage {
+  /** A `data:` URL, ready to be assigned to a CSS `background-image`. */
+  url: string;
+  mime: string;
+  name: string | null;
+  updatedAt: string | null;
+  /** The decoded size the server actually holds. */
+  bytes: number;
+}
+
+/**
+ * Turns a chosen file into the payload the upload endpoint wants, or explains why
+ * it cannot.
+ *
+ * ★ THE BYTE CEILING IS CHECKED HERE AND AGAIN ON THE SERVER, AND NEITHER CHECK
+ * IS REDUNDANT. This one exists so a 12 MB photo is refused in the time it takes
+ * to read it rather than by a request that carries it to Azure first; the
+ * server's exists because this code runs on a machine the server cannot see, and
+ * a browser is not a policy.
+ *
+ * ★ THE DECODED LENGTH IS MEASURED FROM THE BASE64, NOT FROM `file.size`. They
+ * are the same number when the round trip is honest, so checking the base64 is
+ * what proves the round trip was — `file.size` only says what was *offered*. The
+ * server re-decodes and bounds the same payload, so the two agree by construction
+ * rather than by assumption.
+ */
+export async function readProjectBackgroundFile(file: File): Promise<ProjectBackgroundUpload> {
+  const mime = file.type;
+  if (!isProjectBackgroundMime(mime)) {
+    throw new Error(
+      `${file.name || 'That file'} is ${mime || 'of an unknown type'}. ` +
+        `A project picture has to be ${listProjectBackgroundTypes()} — an SVG is a ` +
+        `document that can run script, so it is not accepted.`,
+    );
+  }
+  if (file.size > PROJECT_BACKGROUND_MAX_BYTES) {
+    throw new Error(
+      `${file.name || 'That file'} is ${formatKiB(file.size)}, over the ` +
+        `${formatKiB(PROJECT_BACKGROUND_MAX_BYTES)} ceiling. Downscale it and try again — ` +
+        `the picture is a faint wash behind one header, so nothing is gained by sending more.`,
+    );
+  }
+
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error(`${file.name || 'That file'} could not be read.`));
+    reader.readAsDataURL(file);
+  });
+
+  const comma = url.indexOf(',');
+  const data = comma >= 0 ? url.slice(comma + 1) : '';
+  if (!data) throw new Error(`${file.name || 'That file'} read back empty.`);
+
+  const decoded = atob(data).length;
+  if (decoded === 0) {
+    throw new Error(`${file.name || 'That file'} is empty — there is nothing to store.`);
+  }
+  if (decoded > PROJECT_BACKGROUND_MAX_BYTES) {
+    throw new Error(
+      `${file.name || 'That file'} decodes to ${formatKiB(decoded)}, over the ` +
+        `${formatKiB(PROJECT_BACKGROUND_MAX_BYTES)} ceiling.`,
+    );
+  }
+
+  return { data, mime, name: (file.name || 'picture').slice(0, 200) };
+}
+
+export function isProjectBackgroundMime(value: string): value is ProjectBackgroundMime {
+  return (PROJECT_BACKGROUND_TYPES as readonly string[]).includes(value);
+}
+
+/** The accepted types as prose, so a message and a control cannot list different ones. */
+export function listProjectBackgroundTypes(): string {
+  return PROJECT_BACKGROUND_TYPES.map((t) => t.slice('image/'.length).toUpperCase()).join(', ');
+}
+
+function formatKiB(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+/**
+ * Stores a picture against a project.
+ *
+ * PUT, not POST: a project has at most one background, so naming the resource and
+ * replacing it is the honest verb. The reply is the project row itself, so the
+ * caller can re-read the registry rather than guess what changed.
+ *
+ * Like every other write in this module the caller is expected to reload from the
+ * server afterwards — see the note on `updateProject`.
+ */
+export async function uploadProjectBackground(
+  slug: string,
+  upload: ProjectBackgroundUpload,
+): Promise<RegistryRow> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/background`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(upload),
+  });
+  return readRow(res, 'was asked to store a project picture');
+}
+
+/**
+ * Removes a project's picture.
+ *
+ * ★ THIS RETURNS `void` AND NEVER CALLS `res.json()`, for the same measured
+ * reason as `deleteProject` above: the endpoint answers 204 with no body, and
+ * reading the body of a successful delete throws `SyntaxError: Unexpected end of
+ * JSON input` — a failure reported *after* the write has already happened.
+ */
+export async function clearProjectBackground(slug: string): Promise<void> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/background`, { method: 'DELETE' });
+  if (!res.ok) throw await readError(res);
+}
+
+/**
+ * Reads a project's stored picture.
+ *
+ * The bytes travel as base64 inside JSON rather than as `image/png`, because the
+ * row also carries the name and the timestamp and a browser cannot read headers
+ * off a `background-image`. The ceiling is 640 KiB, so the cost of the encoding
+ * is bounded by construction.
+ */
+export async function loadProjectBackground(slug: string, signal?: AbortSignal): Promise<ProjectBackgroundImage> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/background`, { signal });
+  if (!res.ok) throw await readError(res);
+
+  const body = (await res.json()) as {
+    data?: { mime?: string; name?: string | null; updatedAt?: string | null; bytes?: number; data?: string };
+  };
+  const payload = body?.data;
+  if (!payload || typeof payload.data !== 'string' || typeof payload.mime !== 'string') {
+    throw new Error('The project picture response did not contain an image.');
+  }
+  return {
+    url: `data:${payload.mime};base64,${payload.data}`,
+    mime: payload.mime,
+    name: payload.name ?? null,
+    updatedAt: payload.updatedAt ?? null,
+    bytes: Number.isFinite(payload.bytes) ? Number(payload.bytes) : 0,
+  };
 }
 
 

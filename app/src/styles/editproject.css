@@ -356,3 +356,171 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* --- the project picture ---------------------------------------------- */
+
+/* ★ `.bgfield` IS A GRID WITH A GAP, SO EVERY PART OF THE PANEL IS ONE CHILD.
+   Same trap as `.notice` and `.del`: a bare text node between two elements
+   becomes its own grid item and the gap lands between the fragments, so the
+   panel renders ragged while every number in it is right. The component adds no
+   spacing of its own — this is the whole rhythm of the panel body. */
+.bgfield {
+  display: grid;
+  gap: 12px;
+}
+
+/* ★ THE GRID OWNS THE SPACING, SO THE CHILDREN'S MARGINS ARE ZEROED.
+   `.chart-note` carries `margin-top: 10px` and `.field__err` 6px, both written
+   for a field stack where that margin IS the gap between a field and its note.
+   Inside these grids they add to the gap instead, so every note would sit 22px
+   below the thing it explains — a rhythm nothing decided. Four selectors, all
+   literal, no `!important` and no global change to either class. The strength
+   group is in the list because it is a grid of its own: the over-ceiling note and
+   a failed write are its children, not `.bgfield`'s. */
+.bgfield > .chart-note,
+.bgfield > .field__err,
+.bgstrength > .chart-note,
+.bgstrength > .field__err {
+  margin-top: 0;
+}
+
+.bgfield__figure {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  max-width: 420px;
+}
+
+/* ★ DRAWN AT FULL OPACITY, ON PURPOSE, AND THAT IS THE POINT OF THIS RULE.
+   The header draws the picture at the reader's chosen strength — 0.50 opacity
+   under a 0.34 wash at the default, and more of both as the slider rises — so a
+   preview that imitated it would be a preview of a grey rectangle: the reader is
+   here to recognise which file is stored, not to re-live the header. The fixed
+   height plus `object-fit: cover` keeps the panel the same size whatever is
+   chosen, so picking a 4000×4000 image does not push the controls below the fold. */
+.bgfield__preview {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.bgfield__facts {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ★ THE TOKEN IS RE-POINTED TO `--text-body` FOR THE FIGURES, not for the
+   sentence. `--text-muted` is the right weight for the words around them; the
+   filename and the byte count are what a reader checks, and at 0.75rem the muted
+   value is the one thing on the line that is asking to be read. */
+.bgfield__facts b {
+  color: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.bgfield__none {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+}
+
+.bgfield__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --- the picture strength slider -------------------------------------- */
+
+/* ★ ONE ROW OF THE PANEL'S OWN GRID, SO IT ADDS NO OUTER SPACING. `.bgfield`
+   supplies the 12px between this group and the button row above it; the 8px here
+   spaces the four parts inside the group. Nothing in the component adds a margin,
+   which is what keeps the panel's rhythm in one place. */
+.bgstrength {
+  display: grid;
+  gap: 8px;
+}
+
+/* Label left, readout right, on one baseline — `baseline` rather than `center`
+   because the two are different sizes, and centring a 13px number against a 13px
+   word leaves the pair looking a pixel out of line. */
+.bgstrength__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* The app's field-label convention, taken literally from `.field__label` rather
+   than re-decided here. */
+.bgstrength__label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* ★ `tabular-nums` IS NOT DECORATION ON THIS ELEMENT. The readout is
+   right-aligned and its text changes width as the reader drags — `33%` is wider
+   than `7%` and narrower than `45%` in a proportional face — so every digit the
+   number loses drags the whole readout sideways while the thumb is moving. A
+   fixed advance holds it still. `--text-body` and not `--text-heading` because it
+   is a value being read rather than the name of the control, which is what
+   `.bgfield__facts b` does with the filename and the byte count. */
+.bgstrength__value {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ★ `accent-color` INSTEAD OF A HAND-BUILT TRACK. A range input is the one
+   control whose parts differ per engine — `::-webkit-slider-thumb` and
+   `::-moz-range-thumb` ignore each other, so a bespoke track means writing every
+   rule twice and re-deriving the filled portion by hand against `--border` and
+   `--surface-sunken`, in both themes, forever. One declaration tints the used
+   half and the thumb together, and leaves the engine's own focus ring (the global
+   `:focus-visible` in `base.css` already covers the keyboard case) and its own
+   disabled rendering alone — the latter being why the rule below only changes the
+   cursor and the opacity rather than repainting the control. */
+.bgstrength__range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.bgstrength__range:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* The panel's explanatory-note convention (`.chart-note`: 11px, 1.5, muted),
+   written out here rather than inherited, because this element is a child of
+   `.bgstrength` and that class is not on it. Kept at the same size and token as
+   its siblings so one panel does not hold two grades of fine print. */
+.bgstrength__note {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ★ THE INPUT IS THE MECHANISM AND THE BUTTON IS THE CONTROL.
+   `display:none` rather than off-screen positioning: an absolutely-positioned
+   1px element inside a scroller resolves its containing block to whichever
+   ancestor happens to be positioned, and has been the cause of a phantom
+   horizontal scrollbar on this app before — a real defect bought for a cosmetic
+   one. The `change` handler still fires, and a `display:none` input still takes
+   a programmatic file selection. */
+.bgfield__file {
+  display: none;
+}

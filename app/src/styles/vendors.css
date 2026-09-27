@@ -725,6 +725,67 @@ table.data.vctable tbody tr.is-open {
   font-variant-numeric: tabular-nums;
 }
 
+/* ★ A SIGNAL THE LEDGER COULD NOT TEST IS PROSE, NOT A FIGURE.
+   The sibling above is set in the mono face with `tabular-nums` because it carries
+   `N sites · N orders · $N`. This one carries the server's sentence explaining WHICH COLUMN
+   was missing, so it must not read as a number — hence the proportional italic face, and a
+   colour that says "this is not a reading" rather than "this reading is zero".
+
+   ★ THE SELECTOR IS LONGER THAN IT NEEDS TO BE, DELIBERATELY. `.vs-signal__v--unevaluated`
+   alone is (0,1,0) and would only win by appearing later in this file — a future reorder
+   would silently revert the reason to monospace figures with no diagnostic. Scoping it under
+   `.vs-signal__v` makes it (0,2,0) and beats the base rule on merit. Do not "simplify" it. */
+.vs-signal__v.vs-signal__v--unevaluated {
+  /* ★ `inherit`, NOT `var(--font-sans)`. There is no `--font-sans` token in tokens.css —
+     only `--font-mono` — so `var(--font-sans)` without a fallback (which is what
+     invoices.css does) is invalid at computed-value time and quietly resolves to the
+     inherited face by accident. Saying `inherit` plainly is the same result without
+     depending on a token that does not exist. */
+  font-family: inherit;
+  font-style: italic;
+  font-variant-numeric: normal;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  /*
+   * ★ `--text-body`, NOT the `--text-muted` the note box around it uses.
+   *   Measured on `--surface-sunken`, where this text actually sits:
+   *     --text-muted (#727272)  4.61:1 light  — passes AA, no headroom
+   *     --text-body (#525252)   7.49:1 light / 11.19:1 dark
+   *   The italic already says "this is not a figure". The colour has to say "read me":
+   *   this span carries the one sentence that stops the two zeroes beside it being
+   *   taken for a finding, so it earns more contrast than the panel's quiet default
+   *   rather than matching it. (Both values recomputed by hand from the hex, not
+   *   eyeballed.)
+   */
+  color: var(--text-body);
+  max-width: 62ch;
+  white-space: normal;
+}
+
+/* ★ THE SHORTFALL DISCLOSURE OUTRANKS THE OTHER PARAGRAPHS IN THE SAME BOX.
+   `.vs-note` is a plain sunken panel; inside it this paragraph is the one that says the tab
+   is incomplete rather than clean. It gets the warn pair the row markers use, so the reader
+   meets the caveat in the same ink as the thing being caveated rather than as one more grey
+   sentence among four.
+
+   ★ THE SELECTOR IS `.vs-note p.vs-note__shortfall` (0,2,1) ON PURPOSE. The existing
+   `.vs-note p` is (0,1,1) — equal counts on the class metric would leave the outcome to file
+   order, so a future reorder could silently drop the warn tint. Two class names beat one on
+   merit. No `!important`, and the base rule is untouched. */
+.vs-note p.vs-note__shortfall {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  line-height: 1.5;
+}
+
+.vs-note p.vs-note__shortfall strong {
+  color: inherit;
+}
+
 /* --- the row markers --------------------------------------------------- */
 
 /* The chips sit UNDER the site code rather than beside it. Beside, a two-signal row

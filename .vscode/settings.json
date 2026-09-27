@@ -21,6 +21,16 @@
         "npm --prefix app": true,
         "npm run copy:oracle:dry": true,
         "Get-Process": true,
-        "npm run dev": true
+        "npm run dev": true,
+        "git check-ignore": true,
+        "Get-NetTCPConnection": true,
+        "npm install": true,
+        "git remote": true,
+        "git add": true,
+        "git rev-parse": true,
+        "git commit": true,
+        "git push": true,
+        "git fetch": true,
+        "git rev-list": true
     }
 }

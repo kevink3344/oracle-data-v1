@@ -189,7 +189,64 @@ CREATE TABLE dbo.project (
   owner       NVARCHAR(200) NULL,
 
   created_at  NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126)),
-  updated_at  NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126))
+  updated_at  NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126)),
+
+  -- ==========================================================================
+  --  ★ THE PROJECT'S BACKGROUND IMAGE — see the same block in 01-app.sql
+  --    (turso) for why it is a column on this row rather than a table beside it.
+  --    In one line: a column keeps DELETE's "leaves nothing of it" promise
+  --    without touching the handler, and moves no app-table registry.
+  -- ==========================================================================
+  --
+  --  ★★ VARBINARY(MAX) AND NOT `IMAGE`, AND NOT A `FILESTREAM`. `IMAGE` is
+  --     deprecated and its use warns; FILESTREAM needs a server-side share this
+  --     Azure SQL Serverless database has no filegroup for. VARBINARY(MAX) holds
+  --     the bytes inline up to 8000 and OUT-OF-ROW above it, which is the right
+  --     behaviour for pictures of this size — measured through the driver at 12,
+  --     12,000 and 700,000 bytes before this column was declared.
+  --
+  --  ★ `NULL` IS "NO IMAGE", AND IT IS DISTINGUISHABLE FROM AN EMPTY ONE.
+  --     Measured on this database: `DATALENGTH(NULL)` answers null while an
+  --     empty value answers 0, so the two states cannot be confused. The route
+  --     treats a null length as "no image" and answers 404 rather than an empty
+  --     `200`, because a zero-byte picture draws as a broken image on every
+  --     browser and says nothing about why.
+  --
+  --  ★ NO DEFAULT ON `background_updated_at`, DELIBERATELY. The existing
+  --     timestamps default to style 126 (`2026-09-26T10:55:07`), while every one
+  --     of the fifteen rows already stored in this table carries a SPACE
+  --     (`2026-09-19 13:05:47`, style 120). The route writes this column
+  --     explicitly in the style the stored rows use, so it stays comparable with
+  --     them instead of becoming a third format in the same table. See the note
+  --     on the two formats beside `stampNow()` in server/src/db/sql.ts.
+  background_image      VARBINARY(MAX) NULL,
+  background_image_mime NVARCHAR(100) NULL,
+  background_name       NVARCHAR(400) NULL,
+  background_updated_at NVARCHAR(30) NULL,
+
+  -- ==========================================================================
+  --  ★ HOW STRONGLY THE HEADER DRAWS THE PICTURE, AS A PERCENT (0-100), OR NULL
+  --    FOR "never chosen". See the same column in 01-app.sql (turso).
+  --
+  --  ★★ IT IS THE PICTURE'S OWN OPACITY, AND IT IS THE ONLY NUMBER. The header
+  --     used to composite the image at one opacity under a separate white/dark
+  --     "scrim" at another, which looked like two controls and is one: over an
+  --     opaque page a reader sees `opacity x (1 - scrim)`, so raising either one
+  --     alone can change nothing at all. The two sat at 0.50 and 0.34 -- the
+  --     picture arrived at 33% -- and "raise the opacity" would have been a
+  --     no-op. This column stores that single percentage instead.
+  --
+  --  ★ NULL IS "NEVER CHOSEN" AND IS NOT ZERO. Zero is a legal answer (keep the
+  --     file, draw no picture), so the two states have to stay apart -- the same
+  --     rule `background_image` follows. The read path substitutes the app's own
+  --     default for NULL, so the wire carries a number either way and no screen
+  --     has to know what the default is.
+  --
+  --  ★ `INT` AND NOT `TINYINT`: the SQLite arm declares `INTEGER`, and a
+  --     one-byte column here would be a dialect detail in a pair whose entire
+  --     purpose is that the two paths cannot drift. The route bounds it to 0-100.
+  -- ==========================================================================
+  background_strength   INT NULL
 );
 GO
 

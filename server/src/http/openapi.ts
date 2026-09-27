@@ -92,6 +92,19 @@ export const TAGS = [
       'The payments register, live from the ledger — one row per payment document, with the ' +
       'invoices each one settled. Same extract-shaped envelope as `Invoices`.',
   },
+  /*
+   * ★ `Payables` IS NOT A SYNONYM FOR THE TWO SECTIONS ABOVE — it is for the one endpoint
+   *   that spans them. `/api/ap/project-lineage` answers with purchase-order lines, the
+   *   invoices that settled them AND the checks that paid those invoices in a single
+   *   response, so it belongs to none of `Invoices`, `Checks` or `Procurement`: filing it
+   *   under any one of them would put two thirds of its payload outside its own section.
+   */
+  {
+    name: 'Payables',
+    description:
+      'The payables chain read end to end — purchase-order line, invoice, payment — for one project. ' +
+      'Read from the mirror (`DB_MODE=sqlserver`), because the identical join against the live ledger did not return.',
+  },
   { name: 'Procurement', description: 'Purchase orders, lines, shipments, distributions, and reference codes.' },
   { name: 'Vendors', description: 'Vendor companies, sites, and spend.' },
   { name: 'Chart of Accounts', description: 'Account combinations, the seven segments, periods, and balances.' },

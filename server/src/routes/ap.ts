@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from '../http/z.js';
-import { createApi } from '../http/api.js';
+import { createApi, type Api } from '../http/api.js';
 import { raw } from '../http/respond.js';
 import { db } from '../db/client.js';
 import { AppError } from '../http/errors.js';

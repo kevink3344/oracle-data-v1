@@ -345,15 +345,41 @@ table.data tbody tr:last-child td {
   color: var(--text-faint);
 }
 
+/* ★ SOLID GREY WITH WHITE INK, BECAUSE THE OLD CHIP WAS THE SAME COLOUR AS THE
+   THING IT SAT ON. As first written the chip filled `--surface-sunken` (#fafafa)
+   — which is exactly the backdrop of the cell it lives in — so the only edge it
+   had was the 1px `--border` hairline, and 51 of them down a table read as
+   texture rather than as codes. A row's account codes are the thing a reader
+   scans to match a line to an account, so they are worth the emphasis.
+
+   ★ THE FILL IS `--neutral-600`, AND THE DARK THEME STEPS IT ONE LIGHTER. One
+   grey cannot separate equally from both backdrops the chip is drawn on: #525252
+   is 7.81:1 from the light theme's white row, but only **2.13:1** from the dark
+   theme's `--surface` #131e33 — so in dark mode the same chip that reads as a
+   solid block in light mode reads as a faint smudge. `--neutral-500` (#727272)
+   puts that back to **3.08:1**, past the 3:1 boundary floor for a non-text shape,
+   and white on it still measures **5.41:1** — over AA for 11px mono. Light mode
+   therefore stays on the stronger `--neutral-600` (white on it is 7.81:1) rather
+   than paying 2.4 points of ink contrast for a separation it does not need.
+
+   ★ THE BORDER IS THE FILL, NOT AN OUTLINE. It is kept only so the chip's box is
+   the height it was before (removing it would shorten every chip by 2px); left at
+   `--border` it would draw a light hairline around a dark fill, which reads as a
+   mistake rather than as an edge. */
 .pacct {
   padding: 0 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--neutral-600);
   border-radius: var(--radius);
-  background: var(--surface-sunken);
+  background: var(--neutral-600);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  color: var(--text-body);
+  color: var(--neutral-0);
   cursor: help;
+}
+
+[data-theme='dark'] .pacct {
+  border-color: var(--neutral-500);
+  background: var(--neutral-500);
 }
 
 /* Why a row is here when the row does not say so. A vendor, buyer, description

@@ -246,12 +246,76 @@ CREATE TABLE IF NOT EXISTS project (
   owner       TEXT,
 
   created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-);
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
 
--- The list reads in name order. The two UNIQUE constraints already index
--- themselves, so neither is repeated here.
-CREATE INDEX IF NOT EXISTS IDX_PROJECT_NAME ON project (name);
+  -- ==========================================================================
+  --  ★ THE PROJECT'S BACKGROUND IMAGE, AND WHY IT IS ON THIS ROW
+  -- ==========================================================================
+  --  A project's image is a property OF THE PROJECT — it is not a run, a
+  --  reading, or something with a history — so it is a column here rather than
+  --  a table beside it. That is not merely tidier:
+  --
+  --    * THE DELETE STAYS ONE STATEMENT. `DELETE /api/projects/{slug}` promises
+  --      "deleting a project leaves nothing of it", and its own comment says a
+  --      later migration that gives a project children is where that promise
+  --      would have to be re-kept. A column keeps it without the handler being
+  --      touched at all, because the row *is* the child.
+  --    * NO REGISTRY MOVES. A new table would have to be named in
+  --      `APP_TABLES` (app-schema.ts) and in the `APP_OWNED_TABLES` list the
+  --      sample verifier diffs against this DDL — and a hand-copied list that
+  --      drifts is a known failure mode here. A column is invisible to all of
+  --      them.
+  --
+  --  ★ THE BYTES ARE NOT IN THE LIST PAYLOAD. `GET /api/projects/registry`
+  --    returns fifteen rows to every screen that needs a project name; inlining
+  --    an image in each would multiply that payload for a picture only the
+  --    project's own page draws. `background_image` is therefore read ONLY by
+  --    the endpoint that serves it (`GET /api/projects/{slug}/background`), and
+  --    the registry carries the two companions instead of the bytes.
+  --
+  --  ★ ONE IMAGE PER PROJECT, REPLACED WHOLESALE. There is no version history
+  --    and no thumbnail: an upload overwrites all four columns, and a remove
+  --    nulls all four. That is deliberate — a pile of orphaned images nobody can
+  --    see is a worse failure than losing the previous one, and the previous one
+  --    is one upload away from being restored.
+  -- ==========================================================================
+  background_image      BLOB,
+
+  -- The type the bytes are served back as (`image/png`). Stored rather than
+  -- sniffed on the way out, because the response has to name a type before a
+  -- client can decide it is safe to draw — and because sniffing a few bytes of
+  -- an arbitrary upload is exactly the kind of guess a stored fact replaces.
+  background_image_mime TEXT,
+
+  -- The name the file arrived with, kept so the editor can say what is there
+  -- and so a download does not have to invent one.
+  background_name       TEXT,
+
+  -- When the image was last replaced. Separate from `updated_at` on purpose:
+  -- `updated_at` moves when somebody fixes a typo in the note, and the Projects
+  -- table shows that as "changed today". The image's own stamp answers a
+  -- different question ("how old is this picture?") and would be lost if it
+  -- shared a column with the note.
+  background_updated_at TEXT,
+
+  -- How strongly the header draws the picture, as a percent (0-100), or NULL
+  -- for "never chosen" -- which the read path turns into the application's own
+  -- default, so no screen has to know what that default is.
+  --
+  --  ★ ONE NUMBER AND NOT TWO. The header used to draw the image at one opacity
+  --    under a separate scrim at another; over an opaque page a reader sees
+  --    `opacity x (1 - scrim)`, so the pair is a single knob wearing two names
+  --    and moving either half alone can change nothing. The note at the top of
+  --    `app/src/styles/projectpage.css` does that arithmetic and is the record
+  --    of it.
+  --
+  --  ★ NULL IS NOT 0. Zero is a choice a reader can make and keep the file.
+  --
+  --  ★ `INTEGER` IS DOCUMENTATION -- SQLite columns are typeless -- but the
+  --    SQL Server arm declares `INT NULL`, and the two lists in app-schema.ts
+  --    are hand-maintained, so this is the only thing keeping them in step.
+  background_strength INTEGER
+);
 
 
 -- ---------------------------------------------------------------------------

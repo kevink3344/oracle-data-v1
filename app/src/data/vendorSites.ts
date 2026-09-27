@@ -4,7 +4,12 @@
  *
  * ── ★ WHERE THE CONTENT COMES FROM, AND WHY IT IS NOT THE SITES DIRECTORY ────
  *
- * **Oracle, live.** Not the Turso sample, not a fixture, and not the frozen extract.
+ * **A live ledger — Oracle, or the SQL Server mirror of it.** Not the Turso sample, not a
+ * fixture, and not the frozen extract. ★ WHICH OF THE TWO IS A PROPERTY OF THE *COLUMNS THE
+ * LEDGER WAS BUILT WITH*, NOT OF THE PATH: this register reads the copied purchase order
+ * tables wherever they live, so a mirror holding those tables serves it exactly, and the
+ * one thing the copy could not carry — six `PO_VENDOR_SITES_ALL` columns — is what
+ * `VendorSiteClassification` below reports, rather than a reason to answer 503.
  *
  * The obvious source for a page at this leaf is `PO_VENDOR_SITES_ALL`, which is what
  * §5.3 names and what the menu's `reads` field says. That table holds **99,316 rows
@@ -24,8 +29,9 @@
  * ── ★ NO FROZEN FALLBACK EXISTS, SO THE 503 IS A STATE AND NOT A BUG ────────
  *
  * `data/oracle/full-output.json` carries no `VENDOR_ID` and no `VENDOR_SITE_ID`, so
- * it holds no site to group by and no vendor to name. Under a non-Oracle ledger —
- * `DB_MODE=local`, the configuration every test runs under — the endpoint answers
+ * it holds no site to group by and no vendor to name. Under a ledger that holds the sample
+ * tables and **no purchase order at all** — `DB_MODE=local`, the configuration every test
+ * runs under — the endpoint answers
  * **503 `DB_UNAVAILABLE`**. That is not a failure to report and not a spinner to
  * leave standing: it is the honest answer to a question this configuration cannot
  * be asked, and `UnavailableError` below exists so the page can render it as an
@@ -148,9 +154,13 @@ import { vendorKeyOf } from './vendors';
  *
  * `DB_UNAVAILABLE` is answered in two places and they are not the same news:
  *
- *   - `routes/vendorSites.ts` refuses a ledger that is **not Oracle**. The ledger is
+ *   - `routes/vendorSites.ts` refuses a ledger whose **purchase order tables are not
+ *     there** — the SQLite sample, or any store the copy never populated. The ledger is
  *     answering; it simply holds no purchase order to fold. Nothing changes until the
- *     server is pointed elsewhere, so no reload button can help.
+ *     server is pointed at one that has them, so no reload button can help. ★ Note what
+ *     this is NOT: it is not *"the ledger is not Oracle"*. The SQL Server mirror holds the
+ *     copied order tables and is served, with its missing columns disclosed rather than
+ *     treated as a reason to refuse.
  *   - The error middleware answers for a database it **could not reach**. The ledger is
  *     configured correctly and is *down* — the same request succeeds the moment it
  *     comes back, so a retry is exactly the right thing to offer.
@@ -296,6 +306,39 @@ export interface VendorSiteSignal {
   sites: number;
   orders: number;
   amount: number;
+  /**
+   * Whether the ledger this register read carries the column this signal reads.
+   *
+   * ★ `false` MEANS THE THREE FIGURES BESIDE IT WERE NOT MEASURED — they are zero
+   *   because nothing could be tested for, not because nothing matched. The page must
+   *   print `note` **in place of** the figures when this is false; drawn as `0 sites ·
+   *   0 orders · $0` a signal that could not run is indistinguishable from one that
+   *   ran and found nothing, and the second reading is a claim about the data.
+   *
+   *   A copied ledger is short columns, not short data: the SQL Server mirror was
+   *   built without `PURCHASING_SITE_FLAG` or `INACTIVE_DATE`, so two of the three
+   *   signals cannot be evaluated there while every site, order and dollar is exact.
+   */
+  evaluated: boolean;
+  /** The server's own words for why it could not be evaluated, or `null` when it was. */
+  note: string | null;
+}
+
+/**
+ * Which of the three signals the ledger behind this response could actually test.
+ *
+ * ★ THIS IS THE BLOCK THAT KEEPS THE DEPRECATED TAB FROM OVER-CLAIMING. The tab holds
+ *   the sites a signal *named*, so on a ledger missing a column it is **short rather
+ *   than clean** — and "no site here is retired" and "retirement could not be tested"
+ *   are different statements that look identical in a tab title.
+ */
+export interface VendorSiteClassification {
+  /** The signals this ledger could test. On a full ledger, all three. */
+  signalsEvaluated: string[];
+  /** The ones whose column is absent — the measure of how short the tab is. */
+  signalsNotEvaluated: string[];
+  /** The disclosure in a sentence, or `null` when all three were evaluated. */
+  note: string | null;
 }
 
 /**
@@ -519,8 +562,18 @@ export interface VendorSiteRegister {
   orders: VendorSiteOrder[];
   counts: VendorSiteCounts;
   totals: VendorSiteTotals;
-  /** Always three entries, in the server's fixed order. */
+  /**
+   * Always three entries, in the server's fixed order — and always three even on a ledger
+   * that could test only one of them.
+   *
+   * ★ READ `evaluated` BEFORE READING THE FIGURES BESIDE AN ENTRY. An entry this ledger
+   *   could not test carries `0 / 0 / 0` and a `note` saying which column was missing;
+   *   that is the absence of evidence, and drawn as figures it is indistinguishable from
+   *   a signal that ran and matched nothing.
+   */
   deprecatedSignals: VendorSiteSignal[];
+  /** The same three signals, restated as what this ledger could and could not test. */
+  classification: VendorSiteClassification;
   directory: VendorSiteDirectoryRule;
   scope: VendorSiteScope;
   observed: VendorSiteObserved;
@@ -1024,6 +1077,46 @@ export async function loadVendorSites(signal?: AbortSignal): Promise<VendorSiteR
 
   const directory = (data.directory ?? {}) as Record<string, unknown>;
   const signals = Array.isArray(data.deprecatedSignals) ? data.deprecatedSignals : [];
+  const classification = (data.classification ?? null) as Record<string, unknown> | null;
+
+  /*
+   * ★ EVERY FIELD THE PAGE READS MUST BE NORMALISED HERE, BECAUSE THIS FUNCTION IS THE WIRE.
+   *
+   *   `VendorSiteRegister` declares `classification: VendorSiteClassification` as a
+   *   REQUIRED, non-optional member — but the interface is a claim about TypeScript, not a
+   *   check on the payload. A loader that maps field by field and simply does not mention
+   *   `classification` leaves the object without the key, and the compiler is perfectly
+   *   happy: the declared type is satisfied by the annotation, not by the value. The page
+   *   then dereferences `data.classification.signalsEvaluated.length` on `undefined` and
+   *   throws at render — a blank panel blamed on nothing, several files and one build away
+   *   from the omission that caused it. Building the key here is what makes the interface
+   *   true at run time.
+   *
+   * ★ AN ABSENT `classification` IS READ AS "THIS SERVER DOES NOT DISTINGUISH", NOT AS
+   *   "NOTHING WAS EVALUATED". The block exists to disclose a shortfall; a payload that
+   *   carries no such concept is a payload whose signal figures were all measured, and
+   *   defaulting the other way would invent a caveat for a server that never had the
+   *   problem. Same reasoning for a signal row with no `evaluated` key: `!== false` keeps
+   *   its figures, where a bare truthiness test on `undefined` would replace three real
+   *   counts with "not evaluated" — a false statement, and the louder of the two failures.
+   */
+  const classificationOut: VendorSiteClassification = classification
+    ? {
+        signalsEvaluated: Array.isArray(classification.signalsEvaluated)
+          ? classification.signalsEvaluated.map((s) => text(s)).filter(Boolean)
+          : [],
+        signalsNotEvaluated: Array.isArray(classification.signalsNotEvaluated)
+          ? classification.signalsNotEvaluated.map((s) => text(s)).filter(Boolean)
+          : [],
+        note: nullable(classification.note),
+      }
+    : {
+        signalsEvaluated: signals
+          .map((s) => text((s as Record<string, unknown>).signal))
+          .filter(Boolean),
+        signalsNotEvaluated: [],
+        note: null,
+      };
 
   return {
     sites: sites.map((s) => toSite(s as Record<string, unknown>)),
@@ -1053,8 +1146,14 @@ export async function loadVendorSites(signal?: AbortSignal): Promise<VendorSiteR
         sites: figure(row.sites),
         orders: figure(row.orders),
         amount: figure(row.amount),
+        // `!== false` rather than a truthiness test — see the block above `classificationOut`.
+        // The figures this row carries are real whenever the server measured them, and the
+        // only server that says otherwise says so explicitly.
+        evaluated: row.evaluated !== false,
+        note: nullable(row.note),
       };
     }),
+    classification: classificationOut,
     directory: {
       rule: text(directory.rule),
       sites: figure(directory.sites),

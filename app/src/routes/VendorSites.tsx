@@ -120,9 +120,37 @@ type Tab = 'active' | 'deprecated';
 
 /** The two tabs, in the order they are drawn, with the wording used everywhere. */
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: 'active', label: 'Active', blurb: 'sites with none of the three signals' },
+  /*
+   * ★ THE ACTIVE ENTRY'S BLURB IS THE FALLBACK, NOT WHAT IS RENDERED. The tab's caption
+   *   names how many signals the ledger could test, which is not known until the payload
+   *   arrives, so `activeBlurb()` builds it at the render site and falls back to this
+   *   exact string when the ledger could test none. Keeping the phrasing here means the
+   *   two forms cannot drift apart.
+   */
+  { id: 'active', label: 'Active', blurb: 'sites carrying none of the signals this ledger can test' },
   { id: 'deprecated', label: 'Deprecated', blurb: 'sites carrying at least one' },
 ];
+
+/**
+ * The Active tab's caption, spelled out from what the ledger could actually test.
+ *
+ * ★ THE CAPTION IS THE SHORTEST CLAIM ON THE PAGE AND THE FIRST ONE A READER MEETS.
+ *   A generic form ("none of the signals this ledger can test") is honest on every
+ *   ledger but never says how many that is, and the copy below it — the tab's own note
+ *   and the per-signal legend — does name the count. Leaving the caption vague would
+ *   make the page disagree with itself in the direction a reader notices least. So the
+ *   count is carried here too, and on a copied ledger this reads "the one deprecation
+ *   signal" rather than implying three were tested.
+ *
+ * ★ NOT `pluralise`: it PREPENDS the count ("1 the one deprecation signal"). The count
+ *   is already spelled out in words here, because the tab label above it carries the
+ *   numeral and two numerals a line apart invite a misread.
+ */
+function activeBlurb(evaluated: number): string {
+  if (evaluated <= 0) return TABS[0].blurb;
+  if (evaluated === 1) return 'sites carrying none of the one deprecation signal this ledger can test';
+  return `sites carrying none of the ${num(evaluated)} deprecation signals this ledger can test`;
+}
 
 const termsOf = (q: string): string[] =>
   q
@@ -636,10 +664,23 @@ export default function VendorSites() {
     return list.reduce((a, b) => (b.amount > a.amount ? b : a));
   }, [rows]);
 
-  /** The row carrying every signal at once — the one the copy names. */
+  /** ★ THE NUMBER OF SIGNALS THIS LEDGER COULD TEST — 3 on Oracle, 1 on a copied ledger. */
+  const evaluatedCount = data?.classification.signalsEvaluated.length ?? 3;
+
+  /**
+   * The row carrying every signal at once — the one the copy names.
+   *
+   * ★ `evaluatedCount`, NOT THE LITERAL 3. A literal 3 makes this row UNDISCOVERABLE on a
+   *   ledger that could only test one signal — the filter matches nothing — and the whole
+   *   paragraph below silently disappears, including the "largest row on this tab"
+   *   sentence that is still perfectly true there. A missing paragraph reads as "this
+   *   ledger has no such row", which is the opposite of what was measured.
+   */
   const allThree = useMemo(
-    () => rows.filter((s) => s.status === 'deprecated' && s.deprecatedReasons.length === 3)[0] ?? null,
-    [rows],
+    () =>
+      rows.filter((s) => s.status === 'deprecated' && s.deprecatedReasons.length === evaluatedCount)[0] ??
+      null,
+    [rows, evaluatedCount],
   );
 
   /**
@@ -865,7 +906,13 @@ export default function VendorSites() {
                   >
                     <span className="vstab__label">{t.label}</span>
                     <span className="vstab__n">{num(count)}</span>
-                    <span className="vstab__blurb">{t.blurb}</span>
+                    {/* ★ The Active caption names how many signals were tested; the
+                        Deprecated one makes no count claim, so it stays as declared. */}
+                    <span className="vstab__blurb">
+                      {t.id === 'active'
+                        ? activeBlurb(data.classification.signalsEvaluated.length)
+                        : t.blurb}
+                    </span>
                   </Link>
                 );
               })}
@@ -905,13 +952,35 @@ export default function VendorSites() {
               <div className="vs-note" role="note">
                 <p>
                   <strong>Deprecated is a description here, not an exclusion.</strong>{' '}
-                  {pluralise(data.counts.deprecatedSites, 'site')} carry at least one of three
-                  signals. They are not sites with no activity: they hold{' '}
+                  {pluralise(data.counts.deprecatedSites, 'site')}{' '}
+                  {data.counts.deprecatedSites === 1 ? 'carries' : 'carry'} at least one of{' '}
+                  {/*
+                    ★ THE SAME "the one signal" PROBLEM THE ACTIVE TAB HAD, AND IT IS WORSE HERE
+                      BECAUSE THE NUMBER IS THE SUBJECT OF THE SENTENCE. `pluralise` prepends a
+                      count, so "1 signals" is exactly what the templated form produces.
+                  */}
+                  {data.classification.signalsEvaluated.length === 1
+                    ? 'the one signal this ledger can test'
+                    : `the ${num(data.classification.signalsEvaluated.length)} signals this ledger can test`}
+                  . They are not sites with no activity: they hold{' '}
                   {pluralise(data.counts.deprecatedOrders, 'order')} worth{' '}
                   {money(data.totals.deprecatedAmount)}, from {data.observed.deprecatedFirstOrderDate}{' '}
                   to {data.observed.deprecatedLastOrderDate}, and they are counted in every total this
                   register reports.
                 </p>
+
+                {/*
+                  ★ THE SHORTFALL IS STATED ON THE TAB, NOT LEFT TO BE INFERRED FROM A MEMBER
+                    COUNT. This tab holds the sites a signal *named*, so a ledger that cannot
+                    test a signal has a tab that is short rather than clean — and "no site here
+                    is retired" and "retirement could not be tested" look identical in a tab
+                    title. The server composes the sentence; the page does not restate it.
+                */}
+                {data.classification.note ? (
+                  <p className="vs-note__shortfall">
+                    <strong>This tab is short, not clean.</strong> {data.classification.note}
+                  </p>
+                ) : null}
 
                 {/*
                   ★ THE LEGEND IS THE EXPLANATION OF THE OVERLAP, WHICH IS WHY THE OVERLAP IS
@@ -922,14 +991,24 @@ export default function VendorSites() {
                 <ul className="vs-signals">
                   {SIGNAL_ORDER.map((name) => {
                     const s = signals.get(name);
+                    /*
+                     * ★ A SIGNAL THE LEDGER CANNOT TEST RENDERS ITS REASON, NOT ITS ZEROES.
+                     *   `0 sites · 0 orders · $0` is what a signal that ran and matched
+                     *   nothing looks like, so drawing the unevaluable case the same way
+                     *   turns "not read" into a finding about the data. The server sends the
+                     *   sentence; the page prints it verbatim rather than guessing the
+                     *   column name.
+                     */
+                    const unevaluated = s !== undefined && !s.evaluated;
                     return (
                       <li key={name} className="vs-signal">
                         <span className={`vs-signal__k vs-signal__k--${name === RETIRED ? 'retired' : 'flag'}`}>
                           {name}
                         </span>
-                        <span className="vs-signal__v">
-                          {pluralise(s?.sites ?? 0, 'site')} · {pluralise(s?.orders ?? 0, 'order')} ·{' '}
-                          {money(s?.amount ?? 0)}
+                        <span className={`vs-signal__v${unevaluated ? ' vs-signal__v--unevaluated' : ''}`}>
+                          {unevaluated
+                            ? (s?.note ?? 'Not evaluated: this ledger does not carry the column.')
+                            : `${pluralise(s?.sites ?? 0, 'site')} · ${pluralise(s?.orders ?? 0, 'order')} · ${money(s?.amount ?? 0)}`}
                         </span>
                       </li>
                     );
@@ -937,11 +1016,37 @@ export default function VendorSites() {
                 </ul>
 
                 <p>
-                  Those three counts sum to{' '}
-                  {num(SIGNAL_ORDER.reduce((n, name) => n + (signals.get(name)?.sites ?? 0), 0))}{' '}
-                  signals against {num(data.counts.deprecatedSites)} rows, because they are not
-                  exclusive: {num(overlap[1])} rows carry one of them, {num(overlap[2])} carries two
-                  and {num(overlap[3])} carries all three
+                  {/*
+                    ★ NAME HOW MANY COUNTS ARE BEING SUMMED, BECAUSE IT IS NOT ALWAYS THREE.
+                      On a ledger that could test only one signal the sentence would otherwise
+                      read "those three counts sum to 1" and invite the reader to look for the
+                      two missing figures in the list above — where they are, correctly, a note
+                      rather than a zero. The arithmetic is unchanged; only its subject is.
+                    ★ AND THE SUBJECT IS ALSO PLURAL OR SINGULAR. One signal gives "Those 1
+                      counts sum to 1", which reads as a rendering bug and undermines the
+                      sentence beside it, so the noun agrees with the number.
+                  */}
+                  Counts across the{' '}
+                  {data.classification.signalsEvaluated.length === 1
+                    ? 'signal'
+                    : pluralise(data.classification.signalsEvaluated.length, 'signal')}{' '}
+                  above sum to{' '}
+                  {pluralise(
+                    SIGNAL_ORDER.reduce((n, name) => n + (signals.get(name)?.sites ?? 0), 0),
+                    'signal',
+                  )}{' '}
+                  against {pluralise(data.counts.deprecatedSites, 'row')}, because they are not
+                  exclusive: {pluralise(overlap[1], 'row')}{' '}
+                  {overlap[1] === 1 ? 'carries' : 'carry'} one of them
+                  {/*
+                    ★ THE TWO-AND-THREE CLAUSES ARE ABOUT A THREE-SIGNAL LEDGER, SO THEY ARE
+                      GATED ON HAVING THREE. Their buckets are always empty when fewer signals
+                      could be tested, and printing "0 carries all three" beside "1 count" reads
+                      as a missing figure rather than as an unread column.
+                  */}
+                  {data.classification.signalsEvaluated.length > 1
+                    ? `, ${pluralise(overlap[2], 'row')} carries two and ${pluralise(overlap[3], 'row')} carries all ${num(data.classification.signalsEvaluated.length)}`
+                    : ''}
                   {overlap[0] > 0
                     ? `, and ${num(overlap[0])} is on this tab without a reason — which would be a defect in the endpoint rather than a reading of it`
                     : ''}
@@ -955,7 +1060,7 @@ export default function VendorSites() {
                   stripping spaces. The directory holds {num(data.directory.sites)} such codes across{' '}
                   {num(data.directory.vendors)} vendors and {num(data.directory.withAnyOrder)} of them
                   are named by some purchase order, but{' '}
-                  <strong>not one is named by an in-scope order</strong>. The three signals above are
+                  <strong>not one is named by an in-scope order</strong>. The signals above are
                   what is left: evidence carried by the row rather than a convention{' '}
                   {num(data.counts.sites)} rows away.
                 </p>
@@ -975,9 +1080,16 @@ export default function VendorSites() {
                     <strong>
                       {allThree.vendorName} ({allThree.siteCode}) is the row to look at.
                     </strong>{' '}
-                    It is the only site whose vendor is <em>named</em> DO NOT USE, the only one where
-                    all three signals fire, and it holds {pluralise(allThree.orders, 'order')} worth{' '}
-                    {money(allThree.amount)}
+                    It is the only site whose vendor is <em>named</em> DO NOT USE
+                    {/*
+                      ★ THE "ALL THREE" CLAUSE IS A CLAIM ABOUT THREE SIGNALS, SO IT IS GATED
+                        ON HAVING THREE. VENDOR_NAME is the one signal every ledger carries,
+                        so the clause above survives either way; this one does not, and
+                        printing it on a one-signal ledger would assert two findings that
+                        were never made.
+                    */}
+                    {evaluatedCount === 3 ? ', the only one where all three signals fire' : ''}, and
+                    it holds {pluralise(allThree.orders, 'order')} worth {money(allThree.amount)}
                     {worst && worst.vendorSiteId !== allThree.vendorSiteId ? (
                       <>
                         . The largest row on this tab is{' '}
@@ -988,7 +1100,12 @@ export default function VendorSites() {
                         different site, deprecating for a different reason
                       </>
                     ) : null}
-                    . Neither is an accident of the query.
+                    {/* ★ "NEITHER" NEEDS TWO SUBJECTS. On a ledger whose Deprecated tab holds a
+                        single row, `worst` IS `allThree` and the paragraph above names one site,
+                        so the plural pronoun would refer to a site it never introduced. */}
+                    {worst && worst.vendorSiteId !== allThree.vendorSiteId
+                      ? '. Neither is an accident of the query.'
+                      : '. That is not an accident of the query.'}
                   </p>
                 ) : null}
               </div>
@@ -997,16 +1114,68 @@ export default function VendorSites() {
             {tab === 'active' ? (
               <div className="vs-note" role="note">
                 <p>
+                  {/*
+                    ★ THREE CONJUNCTS, BUT A LEDGER MAY HAVE TESTED ONLY ONE OF THEM.
+                      "These sites are purchasing sites, carry no INACTIVE_DATE and their vendors
+                      are not named DO NOT USE" reads as three findings. On a ledger copied
+                      without `PURCHASING_SITE_FLAG` or `INACTIVE_DATE` the first two are not
+                      findings at all — every row passes them because the column is absent, and
+                      `null` is also what an active site carries. So the sentence lists the
+                      signals the ledger actually tested and says plainly which it could not.
+                  */}
                   <strong>Nothing on this tab carries a deprecation signal.</strong> These{' '}
-                  {num(data.counts.activeSites)} sites are purchasing sites (
-                  <code>PURCHASING_SITE_FLAG = Y</code>), carry no <code>INACTIVE_DATE</code> and
-                  belong to vendors whose names do not read <code>DO NOT USE</code>. The{' '}
-                  {num(data.counts.deprecatedSites)} sites that do carry one are on the other tab —
-                  they are not removed from the register, and their{' '}
+                  {num(data.counts.activeSites)} sites
+                  {data.classification.signalsNotEvaluated.length === 0 ? (
+                    <>
+                      {' '}
+                      are purchasing sites (<code>PURCHASING_SITE_FLAG = Y</code>), carry no{' '}
+                      <code>INACTIVE_DATE</code> and belong to vendors whose names do not read{' '}
+                      <code>DO NOT USE</code>
+                    </>
+                  ) : (
+                    <>
+                      {' '}
+                      carry none of{' '}
+                      {/*
+                        ★ NOT `pluralise(...)`: that helper PREPENDS the number ("1 the one
+                          deprecation signal"). The article is the whole point here — "none of
+                          the one deprecation signal" is grammatically odd by design, and
+                          "none of the 1 deprecation signal" reads as a template failure.
+                      */}
+                      {data.classification.signalsEvaluated.length === 1
+                        ? 'the one deprecation signal'
+                        : `the ${num(data.classification.signalsEvaluated.length)} deprecation signals`}{' '}
+                      this ledger can test.{' '}
+                      {/*
+                        ★ SET THE SIGNAL NAMES APART AS AN ASIDE. Inline after "the columns
+                          behind", the list reads as one run-on noun phrase — "the columns
+                          behind not a purchasing site or retired" — because the items are
+                          DESCRIPTIONS of a signal, not column names (the columns are
+                          PURCHASING_SITE_FLAG and INACTIVE_DATE). An em-dash aside makes the
+                          description read as a description and keeps the sentence about a
+                          missing column, which is the actual fact.
+                      */}
+                      <strong>That is a weaker claim than it sounds:</strong> the ledger is missing
+                      the columns behind{' '}
+                      {/* ★ NOT `pluralise`: it PREPENDS the count, so a phrase that already
+                          carries its own determiner comes back as "2 the other 2 signals". */}
+                      {data.classification.signalsNotEvaluated.length === 1
+                        ? 'another signal'
+                        : `the other ${num(data.classification.signalsNotEvaluated.length)} signals`}{' '}
+                      — {data.classification.signalsNotEvaluated.join(', ')} — so every row passes
+                      them for want of the column rather than for want of the fault
+                    </>
+                  )}
+                  . The {pluralise(data.counts.deprecatedSites, 'site')} that{' '}
+                  {data.counts.deprecatedSites === 1 ? 'carries' : 'carry'} one{' '}
+                  {data.counts.deprecatedSites === 1 ? 'is' : 'are'} on the other tab —{' '}
+                  {data.counts.deprecatedSites === 1 ? 'it is' : 'they are'} not removed from the
+                  register, and {data.counts.deprecatedSites === 1 ? 'its' : 'their'}{' '}
                   {money0(data.totals.deprecatedAmount)} is inside the total above. This tab holds{' '}
                   {num(data.observed.activeVendors)} of the register&rsquo;s{' '}
                   {pluralise(data.counts.vendors, 'vendor')}, so{' '}
-                  {pluralise(data.counts.vendors - data.observed.activeVendors, 'vendor')} appear
+                  {pluralise(data.counts.vendors - data.observed.activeVendors, 'vendor')}{' '}
+                  {data.counts.vendors - data.observed.activeVendors === 1 ? 'appears' : 'appear'}{' '}
                   only under {TABS[1].label.toLowerCase()}.
                 </p>
               </div>
@@ -1374,6 +1543,7 @@ export default function VendorSites() {
           scopeText={scope ? `fund ${scope.fund}, programs ${scope.programs.join('/')}` : ''}
           observed={data.observed}
           dataSites={data.counts.sites}
+          classification={data.classification}
           geo={data.geo}
           overrides={overrides}
           onOverridesChanged={reloadOverrides}
@@ -1400,6 +1570,7 @@ function SitePanel({
   onClose,
   scopeText,
   observed,
+  classification,
   dataSites,
   geo,
   overrides,
@@ -1448,10 +1619,32 @@ function SitePanel({
    *   into "624 of the 1" the moment this component is reused.
    */
   dataSites: number;
+  /**
+   * Which deprecation signals the ledger behind this register could actually test.
+   *
+   * ★ THE PANEL NEEDS IT FOR THE SAME REASON THE TAB NEEDS IT, AND THE COST OF NOT
+   *   HAVING IT IS WORSE HERE. The tab's legend is advisory; this panel's negative
+   *   branch is a VERDICT ON ONE SITE — "the site is a purchasing site, has no inactive
+   *   date, and its vendor is not named DO NOT USE". Two of those three clauses read a
+   *   column a copied ledger may never have carried, and on such a ledger EVERY site
+   *   draws that verdict, because `null` is also what an active site carries. A
+   *   per-row claim the data cannot support is exactly what this register is supposed
+   *   not to make, so the panel is handed the server's own list of untested signals
+   *   rather than being left to assume the answer is "none".
+   */
+  classification: VendorSiteRegister['classification'];
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  /*
+   * ★ HOW MANY SIGNALS THE LEDGER BEHIND THIS PANEL COULD TEST, DERIVED ONCE.
+   *
+   *   Every sentence in here that counts signals has to agree with the server's own
+   *   classification, and doing the arithmetic at three call sites is how one of them ends
+   *   up hard-coded. On a copied ledger this is 1, not 3.
+   */
+  const evaluatedSignals = classification.signalsEvaluated.length;
 
   // The same three-state width contract as the other panels: null lets the
   // stylesheet own the width until the reader resizes it.
@@ -1783,11 +1976,35 @@ function SitePanel({
                 {site.deprecatedReasons.map((r) => reasonChip(r))}
               </div>
               <p className="vcnote">
-                {site.deprecatedReasons.length === 1
-                  ? 'One of the three signals fires on this row, and this is it.'
-                  : `${num(
-                      site.deprecatedReasons.length,
-                    )} of the three signals fire on this row, so it is counted under each of them — which is why the three signals sum to more sites than the deprecated list holds.`}{' '}
+                {/*
+                  ★ A PER-ROW VERDICT IS THE WORST PLACE FOR A HARD-CODED THREE. The sentence
+                    above the chips is the only thing telling a reader how much of the tab's
+                    rule was actually applied to this row, and on a ledger that could test one
+                    signal, "one of the three signals fires" names two signals the ledger never
+                    read — asserting two findings that were never made. `evaluatedSignals` is
+                    the count the server reported, so the sentence retires itself the day the
+                    columns are copied.
+                */}
+                {evaluatedSignals === 1 ? (
+                  <>
+                    <strong>The one signal this ledger can test fires on this row</strong>, and this
+                    is it.
+                  </>
+                ) : site.deprecatedReasons.length === 1 ? (
+                  <>
+                    <strong>One of the {num(evaluatedSignals)} signals fires on this row</strong>, and
+                    this is it.
+                  </>
+                ) : (
+                  <>
+                    <strong>
+                      {num(site.deprecatedReasons.length)} of the {num(evaluatedSignals)} signals fire
+                      on this row
+                    </strong>
+                    , so it is counted under each of them — which is why these signals sum to more
+                    sites than the deprecated row count.
+                  </>
+                )}{' '}
                 Nothing is asserted beyond what the row carries: this is a label the register places
                 on a record, not a verdict on whether the site was used. The orders below are real,
                 in-scope and counted.
@@ -1795,11 +2012,63 @@ function SitePanel({
             </>
           ) : (
             <p className="vcnote">
-              None of the three deprecation signals fires here — the site is a purchasing site, has
-              no inactive date, and its vendor is not named <code>DO NOT USE</code>. The token{' '}
-              <code>DO NOT USE</code> in a <em>site code</em> is a separate convention that matches no
-              site code on this register at this scope, so it is not what puts a row on the other tab
-              either way.
+              {/*
+                ★ THE THREE-CLAUSE LIST IS A SET OF FINDINGS, SO IT IS GATED LIKE THE TAB'S IS.
+                  "None of the signals fires here — the site is a purchasing site, has no
+                  inactive date, and its vendor is not named DO NOT USE" states three positive
+                  readings. On a copied ledger two of those clauses read a column that is not
+                  there, so the list would make two findings out of two absences while the very
+                  next sentence says so. The hedge is not enough when the sentence before it
+                  already asserted the thing being hedged.
+              */}
+              {/* ★ A SET OF ONE IS NOT A PLURAL. On a copied ledger this ledger tests exactly
+                  one signal, and "None of the deprecation signals ... fires here" then refers
+                  to a plural that does not exist — the same mismatch the Deprecated branch
+                  above avoids by naming the count. */}
+              {evaluatedSignals === 1
+                ? 'The one signal this ledger can test does not fire here'
+                : 'None of the deprecation signals this ledger can test fires here'}
+              {classification.signalsNotEvaluated.length === 0 ? (
+                <>
+                  {' '}
+                  — the site is a purchasing site, has no inactive date, and its vendor is not
+                  named <code>DO NOT USE</code>
+                </>
+              ) : null}
+              .{' '}
+              {/*
+                ★ A CLEAN RECORD IS ONLY AS STRONG AS THE LEDGER'S EVIDENCE. "Has no inactive
+                  date" is a reading of a column a copied ledger may not carry at all — and
+                  then *every* row reads clean, so the sentence would be true of the row and
+                  false as a finding. The server says which signals went untested; the page
+                  repeats that list rather than assuming the answer is "none".
+
+                ★ THE LIST GOES IN AN EM-DASH ASIDE, NOT STRAIGHT AFTER "it could not test".
+                  The items are DESCRIPTIONS of a signal, not column names, so in that slot
+                  the sentence reads "it could not test not a purchasing site or retired" —
+                  which parses as a double negative about a purchasing site. As an aside it
+                  reads as the list it is, and the clause before it still says the one thing
+                  that is true: a column was missing.
+              */}
+              {classification.signalsNotEvaluated.length > 0 ? (
+                <>
+                  {' '}
+                  <strong>This is weaker than it sounds on this ledger:</strong> it is missing
+                  the columns behind{' '}
+                  {/*
+                    ★ NOT `pluralise`: it PREPENDS the count, so a phrase that already carries
+                      its own determiner comes back as "2 the other 2 signals".
+                  */}
+                  {classification.signalsNotEvaluated.length === 1
+                    ? 'another signal'
+                    : `the other ${num(classification.signalsNotEvaluated.length)} signals`}{' '}
+                  — {classification.signalsNotEvaluated.join(', ')} — so a row can look clean here
+                  because the evidence was not read rather than because it was absent.
+                </>
+              ) : null}{' '}
+              The token <code>DO NOT USE</code> in a <em>site code</em> is a separate convention that
+              matches no site code on this register at this scope, so it is not what puts a row on
+              the other tab either way.
             </p>
           )}
         </section>

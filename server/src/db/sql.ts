@@ -320,3 +320,51 @@ export function pageMeta(p: Pagination, total: number, returned: number): PageMe
 export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
+
+/**
+ * The SQL expression that stamps a `TEXT`/`NVARCHAR` timestamp column, per dialect.
+ *
+ * ★★ THIS EXISTS BECAUSE `datetime('now')` IS NOT SQL, IT IS SQLITE — and it was
+ *    reaching SQL Server for as long as this application has had a second arm.
+ *    Measured on the live database, twice and independently (once through the raw
+ *    `mssql` driver, once through this server's own `storeDriver('app')`):
+ *
+ *      SELECT datetime('now') AS t
+ *      → 'datetime' is not a recognized built-in function name.
+ *
+ *    The string is written in five route files (`activity.ts`, `customFields.ts`,
+ *    `organizations.ts`, `projectRegistry.ts`, `views.ts`), and the SQL Server
+ *    rewriter in `sqlserver.ts` does **not** translate it: that walker rewrites
+ *    `TO_CHAR`/`TO_DATE` and the placeholder style, and nothing else. So a write
+ *    carrying it fails on the `sqlserver` arm, and the failure is a 500 naming a
+ *    function rather than a column.
+ *
+ * ★ THE TWO FORMS ARE NOT THE SAME STRING, AND THAT IS THE ONE THING TO GET RIGHT.
+ *    SQLite's `datetime('now')` produces `2026-09-26 10:55:07` — space-separated,
+ *    UTC, no fraction. The style-126 spelling that most of this schema's DDL
+ *    declares produces `2026-09-26T10:55:07` — **T**-separated. Both parse as dates
+ *    and neither is wrong, but they are different *strings*, and everything that
+ *    compares these columns compares text: a `T` sorts after a space at position
+ *    11, so a mixed table orders by an accident of which arm wrote each row.
+ *
+ *    Style **120** is therefore the spelling used here, because it is the one the
+ *    stored rows actually carry. Measured over the live `dbo.project`: all fifteen
+ *    rows answer `2026-09-19 13:05:47`-shaped, none contains a `T` — even though the
+ *    table's own `DEFAULT` is style 126. The defaults of the existing rows were
+ *    never exercised because those rows were written by the SQLite arm before the
+ *    portfolio moved to SQL Server, so **the divergence is latent and this
+ *    function's job is not to make it worse.** See the note in
+ *    `data/sql/sqlserver/01-app.sql` beside the new `background_updated_at`.
+ *
+ * ★ NOT A PARAMETER, A FRAGMENT. This returns SQL text to be interpolated into a
+ *    statement, so it takes no arguments and binds nothing. It reads the **app**
+ *    store's dialect, because every caller updates a table the app owns; the Oracle
+ *    arm keeps the SQLite spelling on purpose, since the oracle driver's own date
+ *    handling is a separate question and changing it here would be an unmeasured
+ *    claim about a database this function has never been pointed at.
+ */
+export function stampNow(): string {
+  return storeDriver('app').dialect === 'sqlserver'
+    ? 'CONVERT(varchar(19), GETUTCDATE(), 120)'
+    : "datetime('now')";
+}

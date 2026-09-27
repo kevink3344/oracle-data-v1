@@ -2,11 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useStore } from '../state/store';
 import {
+  clampBackgroundStrength,
+  clearProjectBackground,
   deleteProject,
+  listProjectBackgroundTypes,
+  readProjectBackgroundFile,
   updateProject,
+  uploadProjectBackground,
+  PROJECT_BACKGROUND_DEFAULT_STRENGTH,
+  PROJECT_BACKGROUND_MAX_BYTES,
+  PROJECT_BACKGROUND_MAX_STRENGTH,
+  PROJECT_BACKGROUND_TYPES,
   type ProjectUpdate,
   type RegistryRow,
 } from '../data/projectMeta';
+import { useProjectBackground } from '../data/projectBackground';
 import type { Project } from '../data/types';
 import LevelPicker from '../components/LevelPicker';
 import ErrorNotice from '../components/ErrorNotice';
@@ -263,6 +273,70 @@ export default function EditProject() {
     [registry, slug],
   );
 
+  /**
+   * The picture stored against this row, read for the same reason the form reads
+   * the row at all: a reader about to replace or remove something should be able
+   * to see what is there first.
+   *
+   * ★ THE SAME HOOK THE PROJECT'S OWN PAGE USES, AND THE GATE IS THE REASON.
+   *   `expected` is the registry's `hasBackground`, so a project with no picture
+   *   costs no request and gets no error — and a *successful* upload flips that
+   *   flag, which re-runs the effect and puts the new picture on screen without a
+   *   manual refresh. Re-implementing the fetch here instead would be a second
+   *   place for that gating to be got wrong.
+   */
+  const { state: background, reload: reloadBackground } = useProjectBackground(
+    row?.slug ?? null,
+    row?.hasBackground ?? false,
+  );
+
+  /**
+   * The picture's own three states: the write in flight, the refusal, and what
+   * was stored or removed.
+   *
+   * Kept apart from the form's `busy`/`problem`/`saved` on purpose. The two writes
+   * are different verbs on the same row — `PATCH /api/projects/{slug}` for the
+   * fields, `PUT /api/projects/{slug}/background` for the bytes — and a picture
+   * that failed to store must not appear as "the change was not saved" above a
+   * form whose fields were never sent.
+   */
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgProblem, setBgProblem] = useState<string | null>(null);
+  const [bgNotice, setBgNotice] = useState<string | null>(null);
+  const bgFileRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * How strongly the header draws the picture, and the write that stores it.
+   *
+   * ★ A FOURTH STATE TRIO, FOR THE SAME REASON THERE IS A THIRD. The comment
+   *   above already says the picture's write is not the form's; this is a third
+   *   verb on the same row — `PATCH /api/projects/{slug}` with one field in it,
+   *   sent by the slider rather than by the Save button. Sharing `bgBusy` would
+   *   make dragging the slider grey out the *upload* buttons, which is a claim
+   *   that a file is being read when nothing is being read.
+   *
+   * ★ `strength` IS THE READER'S HAND AND `strengthStoredRef` IS THE SERVER'S
+   *   ROW, AND THEY ARE TWO VARIABLES BECAUSE THEY ARE TWO THINGS. A drag fires
+   *   `change` on every pixel of travel — the number under the reader's thumb has
+   *   to follow instantly, or the control feels broken — while the write happens
+   *   once, on release. So `strength` moves freely and the ref records only what
+   *   the server has confirmed, which is also what stops a release at the value
+   *   that is already stored from spending a request to store it again.
+   */
+  const [strength, setStrength] = useState<number>(PROJECT_BACKGROUND_DEFAULT_STRENGTH);
+  const [strengthBusy, setStrengthBusy] = useState(false);
+  const [strengthProblem, setStrengthProblem] = useState<string | null>(null);
+  const strengthStoredRef = useRef<number | null>(null);
+  const strengthPendingRef = useRef<number | null>(null);
+  /**
+   * ★ THE WRITES ARE NUMBERED BECAUSE A DRAG CAN OUTRUN ITSELF.
+   *   Release, release again a moment later, and two `PATCH`es are in the air at
+   *   once; responses can arrive out of order, and a slow first response landing
+   *   last would put the reader's *earlier* number back on the control. The
+   *   counter makes the newest write the only one allowed to write state.
+   */
+  const strengthSeqRef = useRef(0);
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [level, setLevel] = useState('');
@@ -304,6 +378,83 @@ export default function EditProject() {
     setLevel((row.levelCode ?? '').trim());
     setSeeded(row.slug);
   }, [row, seeded]);
+
+  /**
+   * The strength, parked where the header is actually drawing.
+   *
+   * ★ SEPARATE FROM THE FORM'S SEED ABOVE, FOR ONE REASON THAT MATTERS: this one
+   *   has to record the server's value as well as show it. `strengthStoredRef` is
+   *   what makes a release at the stored number a no-op, and there is no
+   *   equivalent in the form because the form has a Save button to decide that for
+   *   it. Both effects are keyed on the slug and so both run once per project —
+   *   the registry re-read after a save does not move the slider back.
+   *
+   * ★ `?? DEFAULT` IS THE DRAWING'S OWN ANSWER, RESTATED. `null` means nobody has
+   *   chosen, and the header answers that with 33 — so the control has to *begin*
+   *   at 33, otherwise the reader's first glance at the page would show a slider
+   *   parked somewhere the picture demonstrably is not.
+   */
+  const [strengthSeeded, setStrengthSeeded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!row || strengthSeeded === row.slug) return;
+    setStrength(clampBackgroundStrength(row.backgroundStrength ?? PROJECT_BACKGROUND_DEFAULT_STRENGTH));
+    strengthStoredRef.current = row.backgroundStrength;
+    setStrengthSeeded(row.slug);
+  }, [row, strengthSeeded]);
+
+  /**
+   * Stores the strength, on release rather than on every pixel of travel.
+   *
+   * ★ `next` IS TAKEN FROM THE EVENT, NOT FROM `strength`. The reader can release
+   *   the thumb before a re-render has caught up with the last `change`, so the
+   *   state variable is one render behind the control that was let go of. Reading
+   *   the number off the input is reading what the reader actually left it at.
+   *
+   * ★ THE ROW THAT COMES BACK IS THE SERVER'S, AND THE CONTROL TAKES ITS NUMBER
+   *   FROM IT. `next` is what was *asked* for; `updated.backgroundStrength` is
+   *   what was *stored*. Seeding from the response is what keeps the page from
+   *   showing a number the database does not hold — the same reason the form
+   *   above calls `setSaved(next)` with the returned row rather than with its own
+   *   request body.
+   *
+   * ★ 409 IS A REAL ANSWER HERE AND IT IS SHOWN. The server refuses a strength
+   *   with no picture to strengthen, and this control is rendered only while a
+   *   picture is held — so reaching that refusal means the row changed underneath
+   *   (removed in another tab, or the registry is stale). Printing the server's
+   *   sentence is better than a client-side silence that would leave the slider
+   *   showing a setting nothing accepted.
+   */
+  const commitStrength = async (next: number) => {
+    if (!row) return;
+    if (next === strengthStoredRef.current || next === strengthPendingRef.current) return;
+
+    const seq = strengthSeqRef.current + 1;
+    strengthSeqRef.current = seq;
+    strengthPendingRef.current = next;
+
+    setStrengthBusy(true);
+    setStrengthProblem(null);
+    try {
+      const updated = await updateProject(row.slug, { backgroundStrength: next });
+      if (seq !== strengthSeqRef.current) return;
+      strengthStoredRef.current = updated.backgroundStrength;
+      setStrength(
+        clampBackgroundStrength(updated.backgroundStrength ?? PROJECT_BACKGROUND_DEFAULT_STRENGTH),
+      );
+      reloadRegistry();
+    } catch (err: unknown) {
+      if (seq !== strengthSeqRef.current) return;
+      setStrengthProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      // ★ ONLY THE NEWEST WRITE CLEARS THE FLAG. A superseded response finishing
+      //   later must not report "not working" while the write that replaced it is
+      //   still in flight — the same counting that guards the state above.
+      if (seq === strengthSeqRef.current) {
+        strengthPendingRef.current = null;
+        setStrengthBusy(false);
+      }
+    }
+  };
 
   /**
    * ★ THE CONFIRMATION OPENS WITH FOCUS ON CANCEL.
@@ -388,6 +539,30 @@ export default function EditProject() {
   const nameBad = touchedName && nameError !== null;
   const levelBad = levelError !== null || holder !== null;
 
+  /**
+   * The number the slider shows, and whether the stored one is past its end.
+   *
+   * ★ THE READOUT SAYS THE STORED NUMBER AND NOT THE STORED NUMBER-CLAMPED, WHEN
+   *   THE TWO DIFFER. `strengthShown` is what the control can express; if the row
+   *   holds a larger value, the panel adds a sentence naming it rather than
+   *   letting a 45 stand for a 60. A control that silently reports a smaller number
+   *   than the database holds is the same class of lie as a count that omits a
+   *   page — see the note on `clampBackgroundStrength`.
+   */
+  const strengthShown = clampBackgroundStrength(strength);
+  const strengthOverCeiling =
+    row !== null && row.backgroundStrength !== null && row.backgroundStrength > strengthShown;
+
+  /**
+   * ★ THE STRENGTH IS NOT IN `dirty` AND IS NOT IN `canSave`, DELIBERATELY.
+   *   It has no Save button because it needs none: the write happens on release,
+   *   which is the moment the reader finished choosing. Folding it into the form
+   *   would mean a slider that appeared to need saving, a Save button that lit up
+   *   for a change already stored, and a reader who drags the slider and walks away
+   *   believing they saved when the value was never sent. The form above is name,
+   *   note and level; this control is one number and it is its own submit.
+   */
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouchedName(true);
@@ -429,6 +604,74 @@ export default function EditProject() {
       setProblem(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Stores a chosen picture.
+   *
+   * ★ THE INPUT IS CLEARED BEFORE THE `await`, AND THAT IS NOT HOUSEKEEPING. A
+   *   file input does not fire `change` when the reader picks the same file a
+   *   second time. So without this, retrying the very file that failed the first
+   *   time — the one case where retrying is the obvious next move — does nothing
+   *   at all, silently.
+   */
+  const onPickBackground = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file || !row) return;
+
+    setBgBusy(true);
+    setBgProblem(null);
+    setBgNotice(null);
+    try {
+      const upload = await readProjectBackgroundFile(file);
+      await uploadProjectBackground(row.slug, upload);
+      reloadRegistry();
+      // ★ THIS RE-READ IS FOR THE REPLACE CASE ONLY, AND SAYING SO IS THE POINT.
+      //   On a *first* upload the registry carry above flips `hasBackground`
+      //   false→true, the hook's `expected` input changes and the effect re-runs
+      //   by itself — so this call adds nothing there. On a *replace* the flag
+      //   stays true, nothing the effect depends on has changed, and without this
+      //   the reader would be looking at the picture they just overwrote. One
+      //   call covering the case the other cannot is not redundancy.
+      reloadBackground();
+      setBgNotice(
+        `${upload.name} was stored. It is drawn behind this project\u2019s header at the strength set below.`,
+      );
+    } catch (err: unknown) {
+      setBgProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBgBusy(false);
+    }
+  };
+
+  /**
+   * Removes a picture.
+   *
+   * ★ NO CONFIRMATION, AND THAT IS A DELIBERATE DIFFERENCE FROM THE DELETE. The
+   *   picture is replaceable by picking the file again, so the cost of a mistaken
+   *   click is one re-upload rather than a lost record — and a second ask on a
+   *   reversible act is how a reader learns to click through second asks.
+   */
+  const onClearBackground = async () => {
+    if (!row) return;
+    setBgBusy(true);
+    setBgProblem(null);
+    setBgNotice(null);
+    try {
+      await clearProjectBackground(row.slug);
+      reloadRegistry();
+      reloadBackground();
+      setBgNotice(
+        'The picture was removed. The header is back to the plain surface, and the strength setting ' +
+          'went with the picture — a picture chosen later starts from the app\u2019s default.',
+      );
+    } catch (err: unknown) {
+      setBgProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBgBusy(false);
     }
   };
 
@@ -669,6 +912,19 @@ export default function EditProject() {
 
   // ── The form ──────────────────────────────────────────────────────────────
 
+  /**
+   * ★ ONE COLUMN, BECAUSE THE RIGHT-HAND COLUMN IS GONE.
+   *
+   *   This page was a `.np-grid`: the form on the left and an `<aside>` of three
+   *   explainer cards on the right — the row as stored, what Save writes, and
+   *   what it leaves alone. They were removed at the reader's request, and
+   *   narrowing this element with them is the part that is easy to miss: left as
+   *   a grid, the form would keep the *first* track of a two-column layout and
+   *   every field would sit in 1.5fr of the page with an empty column beside it.
+   *
+   *   `np-grid` stays in the stylesheet because `NewProject` still uses it.
+   */
+
   const levelLabelId = `edit-level-label-${row.slug}`;
   const levelHintId = `edit-level-hint-${row.slug}`;
 
@@ -743,7 +999,7 @@ export default function EditProject() {
         </div>
       ) : null}
 
-      <form id="edit-project" className="np-grid" onSubmit={onSubmit} noValidate>
+      <form id="edit-project" className="stack" onSubmit={onSubmit} noValidate>
         <section className="panel">
           <div className="panel__head">
             <h2 className="panel__title">The project</h2>
@@ -856,87 +1112,6 @@ export default function EditProject() {
           </div>
         </section>
 
-        <aside className="np-side" aria-label="What editing a project does">
-          <section className="panel">
-            <div className="panel__head">
-              <h2 className="panel__title">This row</h2>
-              <span className="panel__count">{row.slug}</span>
-            </div>
-            <div className="panel__body">
-              <dl className="bind__facts">
-                <div>
-                  <dt>Name</dt>
-                  <dd>{row.name}</dd>
-                </div>
-                <div>
-                  <dt>Level</dt>
-                  <dd>
-                    {heldLevel === '' ? <em>none</em> : <code>{heldLevel}</code>}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Code (stored)</dt>
-                  <dd>{row.code ? <code>{row.code}</code> : <em>not set</em>}</dd>
-                </div>
-                <div>
-                  <dt>Recorded</dt>
-                  <dd>{row.createdAt ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Last written</dt>
-                  <dd>{row.updatedAt ?? '—'}</dd>
-                </div>
-              </dl>
-              <p className="chart-note">
-                The row as the server has it, not as the form has it. Saving re-reads this panel, so
-                it always shows what was stored. The display code is the level&rsquo;s —{' '}
-                <code>CC-0450</code> — and any <code>-527</code> suffix still on a row is the old
-                rule&rsquo;s, cleared the next time that row is saved.
-              </p>
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel__head">
-              <h2 className="panel__title">What Save does</h2>
-              <span className="panel__count">PATCH</span>
-            </div>
-            <div className="panel__body">
-              <p className="chart-note">
-                Writes the name, the note and the level to the app&rsquo;s own{' '}
-                <code>project</code> table. Only the fields that changed are sent, so a save that
-                touches the level cannot disturb the owner, and a save that touches the name cannot
-                disturb the level.
-              </p>
-              <p className="chart-note">
-                Releasing is <code>levelCode: null</code> and it is not a delete: the row keeps its
-                name and its note and goes back into the recorded queue. Emptying the level field
-                does exactly that.
-              </p>
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel__head">
-              <h2 className="panel__title">What it leaves out</h2>
-              <span className="panel__count">Oracle</span>
-            </div>
-            <div className="panel__body">
-              <p className="chart-note">
-                Nothing in the ledger changes. Every line, order and amount on the level was already
-                there and stays theirs — the project is a name the app puts on them.
-              </p>
-              <p className="chart-note">
-                The display code is derived from the level and nothing else, and is never typed:
-                level <code>0454</code> is named <code>CC-0454</code>. It used to carry the object
-                code holding most of the level&rsquo;s money, which made one account look like the
-                whole project — the accounts a level owns are listed on its detail panel instead,
-                and every one of them counts towards the level.
-              </p>
-            </div>
-          </section>
-        </aside>
-
         <p className="chart-note" id="edit-blocked">
           {nameError && touchedName
             ? nameError
@@ -951,6 +1126,229 @@ export default function EditProject() {
                     : 'Save writes only the fields that changed, then re-reads the registry so every table behind this page agrees with it.'}
         </p>
       </form>
+
+      {/*
+        ★ THE PICTURE IS ITS OWN PANEL, OUTSIDE THE FORM, FOR THE SAME REASON THE
+          DANGER ZONE IS.
+
+          It is not a field of the PATCH: the fields are text that the server can
+          merge into the row as a partial update, and the picture is bytes that
+          replace a whole column. Inside `<form>` this control would also be one
+          omitted `type="button"` away from submitting the form beside it, which
+          is a defect nobody would see until a reader lost a name they had typed.
+
+        ★ THE FILE INPUT IS THE ONE CONTROL AND IT IS `display:none`. "Choose a
+          file" is the button, the button is what a keyboard reaches and what a
+          screen reader reads out, and the input's own rendering (a native
+          filename box that cannot be styled to match anything else on the page)
+          is not worth the inconsistency. It stays in the DOM rather than being
+          created on demand so that its `change` handler is the one React bound.
+
+        ★ A READER WHO CAN SEE THE PICTURE IS A READER WHO CAN JUDGE IT. The
+          preview is drawn at full opacity, not at the strength the header is set
+          to — its job is to show which file is stored, and a preview that imitated
+          the header's wash would be a preview of nothing. The strength slider below
+          changes the header, so a preview that followed it would also make the
+          control look like a filter applied to this image rather than to the page.
+      */}
+      <section className="panel" aria-labelledby="edit-background-title">
+        <div className="panel__head">
+          <div>
+            <h2 className="panel__title" id="edit-background-title">
+              Background image
+            </h2>
+            <p className="panel__sub">
+              Drawn behind this project&rsquo;s header so it is recognisable at a glance, at a
+              strength you choose. It is part of the app&rsquo;s own <code>project</code> row —
+              Oracle holds no image and is not written to either way.
+            </p>
+          </div>
+          <span className="panel__count">IMAGE</span>
+        </div>
+
+        <div className="panel__body bgfield">
+          {bgProblem ? (
+            <p className="field__err" role="alert">
+              <strong>Nothing was stored.</strong> {bgProblem}
+            </p>
+          ) : null}
+          {bgNotice ? (
+            <p className="chart-note" role="status">
+              {bgNotice}
+            </p>
+          ) : null}
+
+          {background.status === 'ready' ? (
+            <figure className="bgfield__figure">
+              <img
+                className="bgfield__preview"
+                src={background.image.url}
+                alt={`The picture stored against ${row.name}`}
+              />
+              <figcaption className="bgfield__facts">
+                <b>{background.image.name ?? 'picture'}</b> ·{' '}
+                <b>{num(background.image.bytes)}</b> bytes ·{' '}
+                {background.image.updatedAt ? (
+                  <>stored {background.image.updatedAt}</>
+                ) : (
+                  <>stored</>
+                )}
+              </figcaption>
+            </figure>
+          ) : background.status === 'error' ? (
+            <p className="field__err" role="alert">
+              {/* ★ A FAILURE TO DRAW IS NOT A FAILURE TO STORE. The row still says a
+                  picture is held and the remove control stays available, because
+                  "the bytes would not load" and "there is nothing there" are two
+                  different answers and only one of them can be fixed by removing. */}
+              <strong>The picture is stored but could not be read.</strong>{' '}
+              {background.message}
+            </p>
+          ) : row.hasBackground ? (
+            <p className="bgfield__none" role="status">
+              Reading the stored picture&hellip;
+            </p>
+          ) : (
+            <p className="bgfield__none">
+              No picture is stored against this project. The header shows the plain surface, which
+              is a perfectly good answer — nothing here is required.
+            </p>
+          )}
+
+          <div className="bgfield__row">
+            <button
+              type="button"
+              className="btn btn--system btn--sm"
+              onClick={() => bgFileRef.current?.click()}
+              disabled={bgBusy}
+            >
+              {bgBusy
+                ? 'Working…'
+                : row.hasBackground
+                  ? 'Replace the picture'
+                  : 'Choose a picture'}
+            </button>
+            {row.hasBackground ? (
+              <button
+                type="button"
+                className="btn btn--danger btn--sm"
+                onClick={onClearBackground}
+                disabled={bgBusy}
+              >
+                Remove the picture
+              </button>
+            ) : null}
+            <input
+              ref={bgFileRef}
+              type="file"
+              className="bgfield__file"
+              accept={PROJECT_BACKGROUND_TYPES.join(',')}
+              onChange={onPickBackground}
+            />
+          </div>
+
+          {/*
+            ★ THE STRENGTH CONTROL EXISTS ONLY WHILE A PICTURE IS HELD, AND THE
+              SERVER AGREES. A strength with nothing to strengthen is a number no
+              screen can show, and `PATCH` refuses it 409 — so rendering the slider
+              on a project with no picture would be offering a control whose every
+              use is an error. It appears with the picture and goes with it.
+
+            ★ IT IS A SIBLING OF `.bgfield__row`, NOT A CHILD, AND THAT IS A LAYOUT
+              DECISION. `.bgfield__row` is a flex row of buttons at their natural
+              width; a range input stretched into it would take whatever the two
+              buttons left and be a different width on a project whose picture is
+              held than on one whose picture is not. `.bgfield` is already the grid
+              that owns this panel's rhythm, so a full-width row of its own is the
+              shape that needs no new spacing rules.
+
+            ★ THE RELEASE EVENTS ARE THREE BECAUSE THE READER'S THREE WAYS IN ARE
+              THREE. A mouse or touch drag ends at `pointerup`; arrow keys fire
+              `keyup`; and a value typed or a control left by Tab ends at the
+              input's `blur`, which is also what catches a drag that ended
+              somewhere the pointer events did not report. All three call the same
+              function, and the identical-value guard inside it makes the overlap
+              free — a `keyup` immediately after a `blur` for the same number
+              spends nothing.
+          */}
+          {row.hasBackground ? (
+            <div className="bgstrength">
+              <div className="bgstrength__head">
+                <label className="bgstrength__label" htmlFor="edit-background-strength">
+                  Picture strength
+                </label>
+                <output className="bgstrength__value" htmlFor="edit-background-strength">
+                  {strengthShown}%
+                </output>
+              </div>
+              <input
+                id="edit-background-strength"
+                className="bgstrength__range"
+                type="range"
+                min={0}
+                max={PROJECT_BACKGROUND_MAX_STRENGTH}
+                /*
+                  ★ `step` IS 1 SO THE DEFAULT IS REACHABLE. The app draws an
+                    unchosen picture at 33%, and a step of 5 cannot express 33 —
+                    the thumb would sit at a number the scale does not contain and
+                    the first arrow key would jump to 35, moving the control
+                    without the reader having asked. One step per percent also
+                    makes the keyboard exact, which matters more here than the
+                    coarser stops a 0–100 slider might want.
+                */
+                step={1}
+                value={strengthShown}
+                onChange={(e) => setStrength(Number(e.target.value))}
+                onPointerUp={(e) => void commitStrength(Number(e.currentTarget.value))}
+                onKeyUp={(e) => void commitStrength(Number(e.currentTarget.value))}
+                onBlur={(e) => void commitStrength(Number(e.currentTarget.value))}
+                disabled={strengthBusy}
+                aria-describedby="edit-background-strength-note"
+              />
+              {strengthProblem ? (
+                <p className="field__err" role="alert">
+                  <strong>The strength was not changed.</strong> {strengthProblem}
+                </p>
+              ) : null}
+              {strengthOverCeiling ? (
+                <p className="chart-note">
+                  This project holds a strength of <b>{row.backgroundStrength}%</b>, which is past
+                  the end of this slider — its header draws the strongest setting the slider can
+                  reach, and the stored number is left as it was set rather than quietly rewritten.
+                </p>
+              ) : null}
+              <p className="bgstrength__note" id="edit-background-strength-note">
+                How much of the picture is allowed to show through. <b>It saves as you let go</b>
+                — the Save button above is for the name and the level, and this is a write of its
+                own, so there is nothing to submit here. The pale wash over the picture thickens
+                as the strength rises, which is what keeps the header&rsquo;s text legible at every
+                setting; the slider therefore stops at {
+                  PROJECT_BACKGROUND_MAX_STRENGTH
+                }%, the strongest the text survives. A header in the dark theme draws less of it
+                than a light one, by the same rule. At <b>0%</b> the picture is held and deliberately not
+                drawn — which is a choice, and is not the same as having no picture.
+              </p>
+            </div>
+          ) : null}
+
+          <p className="chart-note">
+            <strong>{listProjectBackgroundTypes()}</strong>, up to{' '}
+            <b>{num(PROJECT_BACKGROUND_MAX_BYTES / 1024)} KB</b> each. The type is checked twice —
+            here, so a 12 MB photo is refused before it crosses the wire, and again on the server,
+            which reads the file&rsquo;s own bytes rather than trusting what the browser called it.
+            There is no SVG in the list: an SVG is a document that can carry script, and this one
+            would be script served from this app&rsquo;s own origin.
+          </p>
+          <p className="chart-note">
+            A picture is stored as the bytes that were chosen, never re-encoded, so what the header
+            draws is the file that was picked. Downscale it first if it is large: even at the
+            strongest setting the wash thins it, and detail that survives the wash is detail nothing
+            in this app reads. It appears on the project&rsquo;s page the next time that page is
+            opened — the strength control above is what decides how much of it you see there, and a
+            busy or bright image reads as texture at a low setting and as a photograph at a high one.
+          </p>
+        </div>
+      </section>
 
       {/*
         ★ THE DANGER ZONE, OUTSIDE THE FORM AND LAST ON THE PAGE.

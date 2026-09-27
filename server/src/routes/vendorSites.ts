@@ -169,6 +169,73 @@ const SIGNAL_NOT_PURCHASING = 'not a purchasing site';
 const SIGNAL_RETIRED = 'retired';
 const SIGNAL_VENDOR_NAME = 'the vendor is named DO NOT USE';
 
+/** The three, in that order, for a caller that has to reason about all of them at once. */
+const ALL_SIGNALS: readonly string[] = [SIGNAL_NOT_PURCHASING, SIGNAL_RETIRED, SIGNAL_VENDOR_NAME];
+
+/**
+ * ★ EACH SIGNAL NAMES THE ONE COLUMN IT READS, BECAUSE A LEDGER CAN LACK IT.
+ *
+ * A signal is not a rule, it is a rule *plus* the evidence it reads. Two of these three read a
+ * column of `PO_VENDOR_SITES_ALL`, and the Azure SQL Server mirror that the deployed app reads
+ * was populated column by column for the extract's needs — `PO_VENDOR_SITES_ALL` arrived with
+ * nine columns and **neither `PURCHASING_SITE_FLAG` nor `INACTIVE_DATE` is one of them**. The
+ * register's rows are all there (verified: the ported statement reproduces the Oracle figures
+ * to the cent), but the *classification* cannot see two thirds of its evidence.
+ *
+ * ★ AND THE FAILURE THAT WOULD OTHERWISE BE SILENT IS THE WHOLE POINT OF THIS TABLE. With the
+ *   columns absent, `purchasingSiteFlag` and `inactiveDate` arrive as `null` on every row, and
+ *   `null` is exactly what an *active* site carries. So the predicate would not error and would
+ *   not warn: it would confidently report ~1 deprecated site where Oracle reports **39**, and
+ *   that single site's $4.4M where Oracle reports **$38,567,580.12**. A missing column looks
+ *   precisely like a column that says no. Naming the column here is what lets the endpoint say
+ *   *"this signal was not evaluated"* instead of *"this signal found nothing"* — two sentences
+ *   that a reader cannot tell apart from the numbers alone.
+ */
+const SIGNAL_SOURCE: Record<string, string> = {
+  [SIGNAL_NOT_PURCHASING]: 'PURCHASING_SITE_FLAG',
+  [SIGNAL_RETIRED]: 'INACTIVE_DATE',
+  [SIGNAL_VENDOR_NAME]: 'VENDOR_NAME',
+};
+
+/**
+ * ★ THE COLUMNS THE SQL SERVER MIRROR WAS NEVER GIVEN, MEASURED RATHER THAN ASSUMED.
+ *
+ * `scripts/copy-oracle-to-sqlserver.ts` copies `PO_VENDOR_SITES_ALL` with an explicit nine-column
+ * projection (`VENDOR_SITE_ID, VENDOR_ID, VENDOR_SITE_CODE, ADDRESS_LINE1, CITY, STATE, ZIP,
+ * COUNTRY, ORG_ID`) because "the vendor-site register is read by this table and by nothing else"
+ * — true of the *join*, and not true of the *classification*. Probing the live table confirms all
+ * six of the register's remaining site columns are absent: `ADDRESS_LINE2`, `ADDRESS_LINE3`,
+ * `AREA_CODE`, `PHONE`, `PURCHASING_SITE_FLAG`, `INACTIVE_DATE`.
+ *
+ * ★ THE COPY CANNOT BE WIDENED FROM HERE: it reads Oracle through `oracleRowsDirect`, and Oracle
+ *   is unreachable on this network (`ORA-12262: Cannot resolve hostname europa.wcpss.net`). So
+ *   this set is a measured statement about a mirror that is currently incomplete, and it is the
+ *   one thing to delete when the six columns are copied — the code then discovers them by simply
+ *   answering `true` for every signal, and nothing else has to change.
+ */
+const SQLSERVER_ABSENT_SITE_COLUMNS: ReadonlySet<string> = new Set([
+  'ADDRESS_LINE2',
+  'ADDRESS_LINE3',
+  'AREA_CODE',
+  'PHONE',
+  'PURCHASING_SITE_FLAG',
+  'INACTIVE_DATE',
+]);
+
+/**
+ * Which signals this ledger can actually evaluate, derived from the column each one reads.
+ *
+ * ★ DERIVED FROM THE COLUMN, NOT FROM THE DIALECT. A `switch (dialect)` returning a hard-coded
+ *   set of signal names would be a second place the answer lives, and it would keep answering
+ *   "no" after the columns were copied. Asking per column means the disclosure retires itself.
+ */
+function signalsEvaluable(dialect: string): ReadonlySet<string> {
+  if (dialect !== 'sqlserver') return new Set(ALL_SIGNALS);
+  return new Set(
+    ALL_SIGNALS.filter((signal) => !SQLSERVER_ABSENT_SITE_COLUMNS.has(SIGNAL_SOURCE[signal] ?? '')),
+  );
+}
+
 /**
  * Why this site is deprecated, in words a row can print, or `[]` for an active site.
  *
@@ -178,17 +245,35 @@ const SIGNAL_VENDOR_NAME = 'the vendor is named DO NOT USE';
  *   month or last decade — so the label carries the date and the client prints what
  *   it is given. It also puts the wording in one place rather than in a map on each
  *   side of the wire.
+ *
+ * ★ A SIGNAL THE LEDGER CANNOT EVALUATE IS SKIPPED RATHER THAN READ, WHICH IS THE
+ *   DIFFERENCE BETWEEN A SHORT LIST AND A WRONG ONE. The column is absent, so its value
+ *   is `undefined` — and `undefined` fails every test below, so skipping and not-skipping
+ *   produce the *same* reasons for this call. The set is threaded through anyway: it is
+ *   what stops the summary from reporting a `0` it did not measure (see `SIGNAL_SOURCE`),
+ *   and relying on "it happens to come out the same" is how the two would drift apart.
  */
-function deprecationReasons(site: {
-  purchasingSiteFlag: 'Y' | 'N' | null;
-  inactiveDate: string | null;
-  vendorName: string | null;
-}): string[] {
+function deprecationReasons(
+  site: {
+    purchasingSiteFlag: 'Y' | 'N' | null;
+    inactiveDate: string | null;
+    vendorName: string | null;
+  },
+  evaluable: ReadonlySet<string>,
+): string[] {
   const reasons: string[] = [];
 
-  if (site.purchasingSiteFlag === 'N') reasons.push(SIGNAL_NOT_PURCHASING);
-  if (site.inactiveDate !== null) reasons.push(`${SIGNAL_RETIRED} ${site.inactiveDate}`);
-  if (site.vendorName !== null && DO_NOT_USE_RE.test(squash(site.vendorName))) {
+  if (evaluable.has(SIGNAL_NOT_PURCHASING) && site.purchasingSiteFlag === 'N') {
+    reasons.push(SIGNAL_NOT_PURCHASING);
+  }
+  if (evaluable.has(SIGNAL_RETIRED) && site.inactiveDate !== null) {
+    reasons.push(`${SIGNAL_RETIRED} ${site.inactiveDate}`);
+  }
+  if (
+    evaluable.has(SIGNAL_VENDOR_NAME) &&
+    site.vendorName !== null &&
+    DO_NOT_USE_RE.test(squash(site.vendorName))
+  ) {
     reasons.push(SIGNAL_VENDOR_NAME);
   }
 
@@ -362,6 +447,95 @@ function orderPairSql(programs: readonly string[]): { sql: string; binds: Record
 }
 
 /**
+ * The same (site, order) grain off the Azure SQL Server mirror instead of Oracle.
+ *
+ * ★ THE SAME GRAIN, THE SAME SCOPE, AND THE SAME FIGURES — THIS IS THE ORACLE STATEMENT
+ *   TRANSLATED, AND THAT IS A MEASURED CLAIM RATHER THAN AN INTENTION. Run against
+ *   `wcpss-oracle-sync` it reproduces the register's documented Oracle figures **exactly**:
+ *   **800 sites · 715 vendors · 5,692 orders · $2,797,825,956.73**, over the same **31,670**
+ *   in-scope distribution rows. Two statements that agree to the cent on the whole register are
+ *   the same query; anything less and this would have been a rewrite that happened to render a
+ *   plausible table.
+ *
+ * ★ THREE DIFFERENCES, EACH FORCED BY THE MIRROR — THE SAME THREE `routes/extract.ts` ALREADY
+ *   SOLVED, COPIED RATHER THAN RE-DERIVED:
+ *
+ *   1. **`AMOUNT` IS COMPUTED, NOT SELECTED.** The mirror has no `APPS.WCSEXP_PO_DISTRIBUTIONS`,
+ *      and the base table's `AMOUNT_ORDERED` is NULL on all 82,007 Fund-04 rows. The formula is
+ *      transcribed from the view body, so this is the view's own arithmetic written out rather
+ *      than a second definition of "committed": the three-argument `DECODE` there is a **NULL
+ *      test on `QUANTITY`**, not an equality test, which is why it becomes
+ *      `CASE WHEN pll.QUANTITY IS NULL`.
+ *   2. **`PO_LINE_LOCATIONS_ALL` IS JOINED ON `(PO_HEADER_ID, PO_LINE_ID)`**, not on the line id
+ *      alone. A line can carry several schedules, so joining on the line id alone fans rows out
+ *      and inflates every total. The fan-out is *inherited from the view* — which is why the two
+ *      statements agree on 31,670 distribution rows and not merely on 31,401 distinct lines.
+ *   3. **NO `APPS.` PREFIX AND NO `WCSEXP_*` VIEW.** The rewriter strips `APPS.` anyway
+ *      (`db/sqlserver.ts`), but writing it here would make correctness depend on a rewrite rule.
+ *
+ * ★ THE SIX COLUMNS THE MIRROR LACKS ARE PROJECTED AS NULLS RATHER THAN OMITTED. An absent key
+ *   and a key holding `null` both read as `null` through `textOf()`, but the *shape* is part of
+ *   the contract: a client selecting `ADDRESS_LINE2` gets null rather than `undefined`, and the
+ *   row mapper stays byte-identical between the two arms. What the two genuinely missing columns
+ *   cost is a separate matter, disclosed at `SIGNAL_SOURCE`.
+ */
+function orderPairSqlSqlServer(programs: readonly string[]): {
+  sql: string;
+  binds: Record<string, string>;
+} {
+  const { where, binds } = scopeClause(programs);
+
+  const sql = `
+    SELECT s.VENDOR_SITE_ID,
+           s.VENDOR_SITE_CODE,
+           s.VENDOR_ID,
+           s.ADDRESS_LINE1,
+           CAST(NULL AS varchar(1)) AS ADDRESS_LINE2,
+           CAST(NULL AS varchar(1)) AS ADDRESS_LINE3,
+           s.CITY,
+           s.STATE,
+           s.ZIP,
+           CAST(NULL AS varchar(1)) AS AREA_CODE,
+           CAST(NULL AS varchar(1)) AS PHONE,
+           CAST(NULL AS varchar(1)) AS PURCHASING_SITE_FLAG,
+           CAST(NULL AS varchar(1)) AS INACTIVE_DATE,
+           v.VENDOR_NAME,
+           o.HEADER_VENDOR_ID,
+           o.ORDER_NUMBER,
+           o.APPROVED_DATE,
+           o.LINE_COUNT,
+           o.AMOUNT
+      FROM (
+        SELECT h.VENDOR_SITE_ID,
+               h.VENDOR_ID AS HEADER_VENDOR_ID,
+               h.PO_HEADER_ID,
+               h.SEGMENT1 AS ORDER_NUMBER,
+               CONVERT(varchar(10), h.APPROVED_DATE, 23) AS APPROVED_DATE,
+               COUNT(DISTINCT l.PO_LINE_ID) AS LINE_COUNT,
+               SUM(ROUND(CASE WHEN pll.QUANTITY IS NULL
+                              THEN (pll.AMOUNT - COALESCE(pll.AMOUNT_CANCELLED, 0))
+                              ELSE (pll.QUANTITY - COALESCE(pll.QUANTITY_CANCELLED, 0))
+                                   * COALESCE(pll.PRICE_OVERRIDE, 0)
+                         END, 2)) AS AMOUNT
+          FROM PO_HEADERS_ALL h
+          JOIN PO_LINES_ALL l ON l.PO_HEADER_ID = h.PO_HEADER_ID
+          JOIN PO_DISTRIBUTIONS_ALL wd ON wd.PO_LINE_ID = l.PO_LINE_ID
+          JOIN PO_LINE_LOCATIONS_ALL pll
+            ON pll.PO_HEADER_ID = wd.PO_HEADER_ID
+           AND pll.PO_LINE_ID = wd.PO_LINE_ID
+          JOIN GL_CODE_COMBINATIONS g ON g.CODE_COMBINATION_ID = wd.CODE_COMBINATION_ID
+          ${where}
+         GROUP BY h.VENDOR_SITE_ID, h.VENDOR_ID, h.PO_HEADER_ID, h.SEGMENT1,
+                  CONVERT(varchar(10), h.APPROVED_DATE, 23)
+      ) o
+      JOIN PO_VENDOR_SITES_ALL s ON s.VENDOR_SITE_ID = o.VENDOR_SITE_ID
+ LEFT JOIN PO_VENDORS v ON v.VENDOR_ID = s.VENDOR_ID
+     ORDER BY s.VENDOR_SITE_ID, o.APPROVED_DATE DESC, o.ORDER_NUMBER DESC`;
+
+  return { sql, binds };
+}
+
+/**
  * The `DO NOT USE` population of the *whole directory*, so a client can say why its own
  * tab is not the size a reader expects.
  *
@@ -408,8 +582,17 @@ const SiteSchema = z
     zip: text('Measured null on 0 of the 800.'),
     areaCode: text('Phone area code. Measured null on 372 of the 800.'),
     phone: text('Measured null on 373 of the 800 — those sites carry no phone at all.'),
-    purchasingSiteFlag: flag('`PURCHASING_SITE_FLAG`. `N` is one of the three deprecation signals.'),
-    inactiveDate: date('`INACTIVE_DATE`. Non-null is one of the three deprecation signals.'),
+    purchasingSiteFlag: flag(
+      '`PURCHASING_SITE_FLAG`. `N` is one of the three deprecation signals. **Measured `null` on every ' +
+        'row of the SQL Server mirror, which was copied without this column** — so a `null` here means ' +
+        '"not read" as well as "active", and `deprecatedSignals[].evaluated` is what tells the two ' +
+        'apart. Exact on Oracle.',
+    ),
+    inactiveDate: date(
+      '`INACTIVE_DATE`. Non-null is one of the three deprecation signals. **Measured `null` on every ' +
+        'row of the SQL Server mirror, which was copied without this column** — see the note on ' +
+        '`purchasingSiteFlag`. Exact on Oracle.',
+    ),
     orders: intReq(
       'In-scope orders that named this site. Measured max 271, on site 34088 ' +
         '(`EP-2851VANH OPE`, Institutional Interiors Inc, $7,122,958.22).',
@@ -422,13 +605,17 @@ const SiteSchema = z
     ),
     status: z.enum(['active', 'deprecated']).openapi({
       description:
-        'Which tab this row belongs to. Deprecated is not an exclusion — see the endpoint description.',
+        'Which tab this row belongs to. Deprecated is not an exclusion — see the endpoint description. ' +
+        '**On the SQL Server mirror this is a lower bound**: only the signals listed in ' +
+        '`classification.signalsEvaluated` contributed to it.',
     }),
     deprecatedReasons: z.array(z.string()).openapi({
       description:
         'Which signals deprecated this row, in words, each carrying its own evidence where it has any ' +
-        '(`retired 2026-09-19`). Empty for an active site. Measured: 761 rows carry none, 37 carry one, ' +
-        '1 carries two (site 651458), 1 carries all three (site 12364).',
+        '(`retired 2026-09-19`). Empty for an active site — and **an empty array on the SQL Server ' +
+        'mirror can mean "nothing deprecated it" or "nothing could be tested for"**, which ' +
+        '`classification.signalsNotEvaluated` separates. Measured on Oracle: 761 rows carry none, ' +
+        '37 carry one, 1 carries two (site 651458), 1 carries all three (site 12364).',
     }),
   })
   .openapi('VendorSiteRegisterSite');
@@ -452,8 +639,56 @@ const SignalSchema = z
     sites: intReq('Register sites carrying it. These do not sum to the deprecated count — they overlap.'),
     orders: intReq('In-scope orders on those sites.'),
     amount: realReq('Committed dollars on those sites.'),
+    /*
+     * ★ ADDED WHEN THE REGISTER GAINED A SECOND LEDGER, AND THESE TWO FIELDS CARRY THE WHOLE
+     *   DISCLOSURE. On the SQL Server mirror neither `PURCHASING_SITE_FLAG` nor `INACTIVE_DATE`
+     *   exists, so those two signals cannot be evaluated — and an unevaluable signal and an
+     *   empty one are *the same three zeroes*. A client with only `sites`/`orders`/`amount` has
+     *   no way to tell "no site is retired" (false: 35 are) from "I could not look" (true), so
+     *   the distinction has to be on the wire. It is deliberately a boolean beside the figures
+     *   rather than encoded in them: a `null` count would break every arithmetic use of the
+     *   field, and `-1` would be a number a chart would happily plot.
+     */
+    evaluated: z.boolean().openapi({
+      description:
+        'Whether this ledger carries the column this signal reads. **`false` means the counts ' +
+        'beside it were not measured** — they are `0` because there was nothing to read, not ' +
+        'because the signal found nothing. A client must render `note` *in place of* the figures ' +
+        'when this is `false`. Measured: all three `true` on Oracle; `false` for ' +
+        '`not a purchasing site` and `retired` on the SQL Server mirror.',
+    }),
+    note: text(
+      'Why this signal could not be evaluated, in words, or null when it was. Never null-because-' +
+        'empty: a signal that was evaluated and matched nothing reports `evaluated: true` and no note.',
+    ),
   })
   .openapi('VendorSiteRegisterSignal');
+
+/**
+ * What this ledger was able to classify, and what it could not.
+ *
+ * ★ THIS BLOCK EXISTS BECAUSE THE REGISTER'S ROWS AND ITS LABELS HAVE DIFFERENT PROVENANCE, AND
+ *   ONLY ONE OF THEM IS COMPLETE. Every row, order, line and dollar in this payload is read off
+ *   the mirror and reproduces Oracle exactly. The *classification* into Active and Deprecated,
+ *   however, is a function of three columns of which the mirror has one — so on that ledger the
+ *   tabs, the per-signal summary and both `deprecated*` totals are all downstream of an
+ *   incomplete predicate. Stating that once, in a field, is what lets the page say it once.
+ */
+const ClassificationSchema = z
+  .object({
+    signalsEvaluated: z.array(z.string()).openapi({
+      description: 'The deprecated-signals that were actually evaluated against the data.',
+    }),
+    signalsNotEvaluated: z.array(z.string()).openapi({
+      description:
+        'Those that were not, because the ledger lacks the column they read. Empty on Oracle. ' +
+        'Non-empty here means the Deprecated tab is **short**, not clean.',
+    }),
+    note: text(
+      'The disclosure, in a sentence, or null when all three signals were evaluated.',
+    ),
+  })
+  .openapi('VendorSiteRegisterClassification');
 
 const DirectorySchema = z
   .object({
@@ -475,7 +710,12 @@ const CountsSchema = z
   .object({
     sites: intReq('Register sites. Measured 800 at `start_fy = 2022`.'),
     activeSites: intReq('Sites on the Active tab. Measured 761.'),
-    deprecatedSites: intReq('Sites on the Deprecated tab. Measured 39.'),
+    deprecatedSites: intReq(
+      'Sites on the Deprecated tab. Measured 39. **A lower bound on the SQL Server mirror** — the ' +
+        'tab holds only the sites a signal the ledger can read actually named, so this is short rather ' +
+        'than wrong. `classification.signalsNotEvaluated` says how much of the tab is missing from it. ' +
+        'Exact on Oracle.',
+    ),
     orders: intReq('In-scope orders naming any register site. Measured 5,692.'),
     activeOrders: intReq('Of those, on an active site. Measured 5,449.'),
     deprecatedOrders: intReq('Of those, on a deprecated site. Measured 243 — **not zero**.'),
@@ -501,10 +741,15 @@ const TotalsSchema = z
         'This is the sum of the per-site figures, so it is exactly what a client that adds up the amount ' +
         'column will get — see `orderRowAmountTotal` for the other rounding order.',
     ),
-    activeAmount: realReq('Of that, the Active tab. Measured $2,759,258,376.61.'),
+    activeAmount: realReq(
+      'Of that, the Active tab. Measured $2,759,258,376.61. **On the SQL Server mirror this is ' +
+        'everything the ledger could not classify** as well as everything that is genuinely active, ' +
+        'so a missing signal moves money here rather than making it disappear.',
+    ),
     deprecatedAmount: realReq(
       'Of that, the Deprecated tab. Measured $38,567,580.12 — 1.38% of the register, and the reason the ' +
-        'tab is a view rather than a filter.',
+        'tab is a view rather than a filter. **A lower bound on the SQL Server mirror**, for the same ' +
+        'reason `counts.deprecatedSites` is. Exact on Oracle.',
     ),
     orderRowAmountTotal: realReq(
       'The same money summed at the (site, order) grain before per-site rounding. Printed beside `amount` ' +
@@ -532,17 +777,44 @@ const ObservedSchema = z
     lastOrderDate: date('Latest one. Measured 2026-08-07.'),
     activeFirstOrderDate: date('Earliest on the Active tab. Measured 2021-07-01.'),
     activeLastOrderDate: date('Latest on the Active tab. Measured 2026-08-07.'),
-    deprecatedFirstOrderDate: date('Earliest on the Deprecated tab. Measured 2021-07-06.'),
+    deprecatedFirstOrderDate: date(
+      'Earliest on the Deprecated tab. Measured 2021-07-06. **Moves with the size of the tab** — on ' +
+        'the SQL Server mirror this is the earliest order on the one site it could still classify.',
+    ),
     deprecatedLastOrderDate: date(
       'Latest on the Deprecated tab. Measured 2026-07-02 — the deprecated rows are *recent* as well as ' +
-        'old, which is the second reason the tab is a view and not a filter.',
+        'old, which is the second reason the tab is a view and not a filter. **Moves with the tab\u2019s ' +
+        'size** — see `deprecatedFirstOrderDate`.',
     ),
-    activeVendors: intReq('Distinct vendors on the Active tab. Measured 695.'),
+    activeVendors: intReq(
+      'Distinct vendors on the Active tab. Measured 695. **Inflated on the SQL Server mirror** — a site ' +
+        'the ledger could not classify stays on the Active tab, so its vendor is counted active. The ' +
+        'money above moves the same way, for the same reason.',
+    ),
     maxOrdersOnOneSite: intReq('Measured 271, on site 34088 (`EP-2851VANH OPE`).'),
-    sitesWithoutPhone: intReq('Measured 373 of 800.'),
-    sitesWithoutAreaCode: intReq('Measured 372 of 800.'),
-    sitesWithoutAddressLine2: intReq('Measured 624 of 800.'),
-    sitesWithoutAddressLine3: intReq('Measured 794 of 800.'),
+    /*
+     * ★ THESE FOUR ARE THE ONE PLACE THE MIRROR'S GAP SHOWS UP AS A NUMBER THAT LOOKS LIKE A FINDING.
+     *   Each is a count of rows where the column IS NULL — and on the SQL Server mirror the column was
+     *   never copied, so every row is null and every one of these reads **800**. That is not "no site
+     *   has a phone", it is "nobody read a phone". Oracle's own figures are beside them, and they are
+     *   different numbers, which is exactly why the caveat has to be in the prose and not inferred:
+     *   a reader comparing 800 against the old 373 would reasonably conclude the data got worse.
+     */
+    sitesWithoutPhone: intReq(
+      'Measured 373 of 800. **Reads 800 on the SQL Server mirror, which was copied without `PHONE`** ' +
+        '— the count of nulls there is the count of rows, not a finding.',
+    ),
+    sitesWithoutAreaCode: intReq(
+      'Measured 372 of 800. **Reads 800 on the SQL Server mirror, which was copied without `AREA_CODE`.**',
+    ),
+    sitesWithoutAddressLine2: intReq(
+      'Measured 624 of 800. **Reads 800 on the SQL Server mirror, which was copied without ' +
+        '`ADDRESS_LINE2`.**',
+    ),
+    sitesWithoutAddressLine3: intReq(
+      'Measured 794 of 800. **Reads 800 on the SQL Server mirror, which was copied without ' +
+        '`ADDRESS_LINE3`.**',
+    ),
     sitesWithoutState: intReq('Measured 2 of 800.'),
     sitesWithNonCodeState: intReq(
       'Sites whose `STATE` is not a two-letter code. Measured 1, reading `CANADA`. Of the 46 distinct ' +
@@ -750,6 +1022,7 @@ const RegisterSchema = z
     counts: CountsSchema,
     totals: TotalsSchema,
     deprecatedSignals: z.array(SignalSchema),
+    classification: ClassificationSchema,
     directory: DirectorySchema,
     scope: ScopeSchema,
     observed: ObservedSchema,
@@ -767,7 +1040,10 @@ const RegisterSchema = z
  *   cannot describe different populations — which is the failure mode a "count query
  *   plus list query" design has and this one does not.
  */
-function fold(pairs: Pair[]): {
+function fold(
+  pairs: Pair[],
+  ledger: { dialect: string; evaluable: ReadonlySet<string> },
+): {
   sites: Site[];
   orders: z.infer<typeof OrderSchema>[];
   counts: z.infer<typeof CountsSchema>;
@@ -857,11 +1133,45 @@ function fold(pairs: Pair[]): {
   }
   const sitesWithReusedCode = sites.filter((s) => (codeOwners.get(s.siteCode)?.size ?? 0) > 1).length;
 
-  // The per-signal summary, grouped by the bare signal so a row retired yesterday and
-  // one retired in 2024 land together — the *date* is evidence, not a category.
-  const signals = [SIGNAL_NOT_PURCHASING, SIGNAL_RETIRED, SIGNAL_VENDOR_NAME].map((signal) => {
+  /*
+   * The per-signal summary, grouped by the bare signal so a row retired yesterday and one retired
+   * in 2024 land together — the *date* is evidence, not a category.
+   *
+   * ★ A SIGNAL THE LEDGER CANNOT EVALUATE STILL GETS A ROW, CARRYING A NOTE AND `evaluated: false`.
+   *   Omitting it was the first thing I tried and it is wrong twice over: the array's length would
+   *   then describe the *ledger* rather than the register, so a client sees two signals on one
+   *   database and three on another with nothing on the wire saying why; and the three zeroes
+   *   would be *absent* rather than *explained*, while the Deprecated tab's overlap sentence does
+   *   arithmetic over exactly these entries. A row reading "not evaluated, because this database
+   *   has no INACTIVE_DATE column" is the honest shape, and it is the same shape on both ledgers.
+   *
+   * ★ THE ZEROES ARE REAL VALUES, DELIBERATELY — a client branches on `evaluated`, so a client
+   *   that ignores it renders `0 sites · 0 orders · $0.00`, which is wrong but is a number rather
+   *   than a crash. The `note` is what a correct client prints in its place.
+   */
+  const signals = ALL_SIGNALS.map((signal) => {
+    if (!ledger.evaluable.has(signal)) {
+      return {
+        signal,
+        sites: 0,
+        orders: 0,
+        amount: 0,
+        evaluated: false,
+        note:
+          `Not evaluated: the ${ledger.dialect} ledger this register read has no ` +
+          `${SIGNAL_SOURCE[signal]} column, so this signal could not be tested. The zeroes ` +
+          'beside it are the absence of evidence, not a finding.',
+      };
+    }
     const carrying = sites.filter((s) => s.deprecatedReasons.some((r) => signalOf(r) === signal));
-    return { signal, sites: carrying.length, orders: countOrders(carrying), amount: sum(carrying) };
+    return {
+      signal,
+      sites: carrying.length,
+      orders: countOrders(carrying),
+      amount: sum(carrying),
+      evaluated: true,
+      note: null,
+    };
   });
 
   return {
@@ -1504,7 +1814,12 @@ export function vendorSitesRouter(): Router {
       '',
       'Three other signals were measured, and a site is deprecated when **any** of them fires. Every row',
       'names the ones that did, in words, with the evidence attached (`retired 2026-09-19`) — a row can',
-      'carry more than one, and one row carries all three:',
+      'carry more than one, and one row carries all three.',
+      '',
+      '★ **The table below was measured on the Oracle ledger and only its third row survives on the SQL',
+      'Server mirror** — the mirror carries no `PURCHASING_SITE_FLAG` and no `INACTIVE_DATE`, so the',
+      'first two signals cannot be tested there and cannot fire. Read it as the shape of the tab, and',
+      '`classification.signalsNotEvaluated` for which rows of it a given ledger could actually produce:',
       '',
       '| signal | sites | orders | committed |',
       '| --- | --- | --- | --- |',
@@ -1563,30 +1878,77 @@ export function vendorSitesRouter(): Router {
       '`/api/vendor-sites/{id}` and would answer that path with a 400 about integer ids. Use the resource',
       'for a site by id or a site search; use this for the register.',
       '',
-      '★ **NO FROZEN FALLBACK EXISTS FOR THIS ENDPOINT, AND THE 503 IS THE HONEST ANSWER.**',
-      '`data/oracle/full-output.json` carries no `VENDOR_ID` and no `VENDOR_SITE_ID`, so it holds no site',
-      'to group by and no vendor to name. Under a non-Oracle ledger — `DB_MODE=local`, the configuration',
-      'every test runs under — this answers **503 `DB_UNAVAILABLE`** rather than 404 (the route does exist)',
-      'or 500 (nothing is broken). It is impossible, not unimplemented.',
+      '★ **THE FROZEN EXTRACT CANNOT SERVE THIS ENDPOINT, AND THE SQL SERVER MIRROR CAN.** Those were',
+      'once written as one claim and they are not the same claim. `data/oracle/full-output.json` carries',
+      'no `VENDOR_ID` and no `VENDOR_SITE_ID`, so it holds no site to group by and no vendor to name —',
+      'but `DB_MODE=sqlserver` is not that file. `wcpss-oracle-sync` holds the ledger tables themselves,',
+      'copied from Oracle, and this endpoint reads them: the ported statement reproduces the figures',
+      'above to the cent — **800 sites · 715 vendors · 5,692 orders · $2,797,825,956.73** — over the',
+      'same 31,670 in-scope distribution rows. The register is served from Oracle **or** from the mirror.',
+      '',
+      '★ **WHAT THE MIRROR CANNOT DO IS CLASSIFY AS FULLY, AND THAT IS DISCLOSED RATHER THAN HIDDEN.**',
+      '`PO_VENDOR_SITES_ALL` was copied with the nine columns the register *joins* on, which does not',
+      'include `PURCHASING_SITE_FLAG` or `INACTIVE_DATE`. Neither absence raises an error — both columns',
+      'read as `null`, and `null` is exactly what an **active** site carries — so two of the three',
+      'deprecation signals would silently find nothing, and the Deprecated tab would report a clean small',
+      'number rather than the short list it actually is. `classification` states which signals were',
+      'evaluated; each entry in `deprecatedSignals` carries `evaluated` and a `note`, and a client must',
+      'print the note in place of figures whose `evaluated` is `false`. `counts.deprecatedSites` and',
+      '`totals.deprecatedAmount` are therefore a **lower bound** on the mirror and exact on Oracle.',
+      '',
+      '★ **UNDER `DB_MODE=local` / `turso` THIS STILL ANSWERS 503 `DB_UNAVAILABLE`** rather than 404 (the',
+      'route does exist) or 500 (nothing is broken): the bundled sample has no purchase order table. The',
+      'refusal is about the missing table, not about the ledger being the wrong kind — which is what the',
+      'refusal used to say, and why it blanked this page on a database that holds every row of it.',
     ].join('\n'),
     handler: async () => {
       const ledger = db.stores().find((s) => s.id === 'ledger');
       if (ledger === undefined) {
         throw new AppError(500, 'INTERNAL', 'No ledger store is configured, so there is nothing to read.');
       }
-      if (ledger.dialect !== 'oracle') {
+
+      /*
+       * ★ THE TEST IS AN ALLOWLIST OF LEDGERS THAT HOLD PURCHASE ORDERS, NOT "IS IT ORACLE".
+       *
+       * This guard read `!== 'oracle'` and so refused `sqlserver` along with `sqlite` — but the
+       * SQL Server store is not a substitute for the Oracle ledger, it is a **copy of it**:
+       * `wcpss-oracle-sync` holds the copied `PO_*`/`GL_*` tables, and the ported statement below
+       * reproduces the register's documented Oracle figures to the cent (800 sites · 715 vendors
+       * · 5,692 orders · $2,797,825,956.73). The 503 was a claim about the database that the
+       * database does not support, and the page it blanked is this one.
+       *
+       * ★ `sqlite` MUST STILL 503, AND THAT IS NOT TIDINESS. The bundled sample is what
+       *   `DB_MODE=local` and `turso` both resolve to, the smoke suite runs under `local`, and a
+       *   503 from this screen is the documented behaviour that suite asserts. Widening the arm
+       *   must not widen it that far — so the refusal is scoped to a ledger with no purchase
+       *   order table at all, which now names the reason actually true of it.
+       */
+      if (ledger.dialect !== 'oracle' && ledger.dialect !== 'sqlserver') {
         throw AppError.dbUnavailable(
-          'The vendor site register is built from the ledger’s purchase orders, and the ledger is ' +
-            `${ledger.dialect} (DB_MODE=${ledger.dialect === 'sqlite' ? 'local' : ledger.dialect}) — so ` +
-            'there is no purchase order to read. Point the server at Oracle (`DB_MODE=oracle`, ' +
-            '`ORACLE_THICK=1`) to serve this screen.',
+          'The vendor site register is built from purchase orders, and the ledger is ' +
+            `${ledger.dialect} (DB_MODE=${ledger.dialect === 'sqlite' ? 'local' : ledger.dialect}) — ` +
+            'the bundled sample has no purchase order table, so there is nothing to read. Point the ' +
+            'server at a ledger that holds them (`DB_MODE=sqlserver` for the copied mirror, or ' +
+            '`DB_MODE=oracle` with `ORACLE_THICK=1`).',
           { dialect: ledger.dialect, store: ledger.label },
         );
       }
 
       const tenant = await defaultTenant();
       const since = fiscalFloor(tenant.startFy);
-      const { sql, binds } = orderPairSql(tenant.programs);
+
+      // ★ ONE ARM PER LEDGER, AND THE ORACLE ARM IS BYTE-FOR-BYTE UNCHANGED. The mirror arm is a
+      //   translation of it rather than a second query — the same `scopeClause()` supplies the
+      //   WHERE to both, so "one definition of what is in scope" still holds for both.
+      const useSqlServer = ledger.dialect === 'sqlserver';
+      const { sql, binds } = useSqlServer
+        ? orderPairSqlSqlServer(tenant.programs)
+        : orderPairSql(tenant.programs);
+
+      // ★ DERIVED, NOT PASSED IN AS A CONSTANT — see `signalsEvaluable`. What the ledger can
+      //   classify and what the response discloses are the same set read once, which is why the
+      //   note below cannot drift out of step with the `evaluated` flag beside each signal.
+      const evaluable = signalsEvaluable(ledger.dialect);
 
       const pairResult = await storeDriver('ledger').execute({
         sql,
@@ -1616,7 +1978,7 @@ export function vendorSitesRouter(): Router {
           phone: textOf(row.PHONE),
           purchasingSiteFlag,
           inactiveDate,
-          deprecatedReasons: deprecationReasons({ purchasingSiteFlag, inactiveDate, vendorName }),
+          deprecatedReasons: deprecationReasons({ purchasingSiteFlag, inactiveDate, vendorName }, evaluable),
           orderNumber: String(row.ORDER_NUMBER ?? ''),
           approvedDate: textOf(row.APPROVED_DATE),
           lineCount: num(row.LINE_COUNT),
@@ -1624,7 +1986,31 @@ export function vendorSitesRouter(): Router {
         };
       });
 
-      const folded = fold(pairs);
+      const folded = fold(pairs, { dialect: ledger.dialect, evaluable });
+
+      /*
+       * ★ THE DISCLOSURE IS BUILT FROM WHAT THE LEDGER COULD NOT READ, NOT FROM A CONFIG FLAG.
+       *   It is derived from the same `evaluable` set the fold used, so the paragraph and the
+       *   per-signal `evaluated` flags are two renderings of one fact and cannot disagree.
+       *
+       * ★ IT NAMES NO ORACLE FIGURE ON PURPOSE. A number in here would have to be right forever,
+       *   in a payload the register cannot cross-check; the *direction* is what a reader needs —
+       *   the tab is short, not clean — and the sign of the error is stated rather than its size.
+       */
+      const notEvaluated = ALL_SIGNALS.filter((signal) => !evaluable.has(signal));
+      const classification = {
+        signalsEvaluated: ALL_SIGNALS.filter((signal) => evaluable.has(signal)),
+        signalsNotEvaluated: notEvaluated,
+        note:
+          notEvaluated.length === 0
+            ? null
+            : `This ledger could not evaluate ${notEvaluated.length} of the three deprecation ` +
+              `signals — ${notEvaluated.join(', ')} — because it carries no ` +
+              `${notEvaluated.map((s) => SIGNAL_SOURCE[s]).join(' or ')} column. Every site, order, ` +
+              'line and dollar below is unaffected: those are read from the same tables and agree ' +
+              'with the Oracle ledger. But the Deprecated tab is short rather than clean — it holds ' +
+              'only the sites this ledger could still classify.',
+      };
       const observed = observe(pairs, folded.sites, folded.counts.sitesSharingACodeWithAnotherVendor);
 
       const directoryResult = await storeDriver('ledger').execute({ sql: DIRECTORY_SQL });
@@ -1687,6 +2073,7 @@ export function vendorSitesRouter(): Router {
         counts: folded.counts,
         totals: folded.totals,
         deprecatedSignals: folded.signals,
+        classification,
         directory,
         geo,
         scope: {

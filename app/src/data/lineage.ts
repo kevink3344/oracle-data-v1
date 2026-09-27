@@ -61,6 +61,21 @@ export interface LineageNode {
   hub?: boolean;
   /** How many distinct neighbours this node has — the degree the hub test reads. */
   degree?: number;
+  /**
+   * ★★ OPTIONAL, AND ONLY THE SUNBURST SETS IT — see `sunburst.ts`.
+   *
+   * The sunburst's five rings measure five different things, and its outermost ring
+   * measures a **count**: `LineageLink` carries `checks` as a number, not money, so
+   * there is no per-check amount anywhere on that path. A detail panel that printed a
+   * money figure for a check tick would be inventing one.
+   *
+   * So a sunburst node carries its own quantity and the name of what that quantity is,
+   * and the panel prints *"one check · 1"* instead of *"check · $0.00"*.
+   *
+   * ★ LEFT UNDEFINED BY THE FLOWCHART AND THE NETWORK, so their panel output is
+   *   byte-identical to what it was before this field existed.
+   */
+  unit?: { label: string; kind: 'money' | 'count' };
 }
 
 export interface LineageEdge {
@@ -112,8 +127,13 @@ interface AccountGroup {
  *
  * 6 keeps a four-account project near 30 nodes — legible at a glance — while still
  * showing each account's real composition.
+ *
+ * ★ EXPORTED SO THE SUNBURST CAN NAME IT. Its legend has to say *"the network view draws
+ *   only the 6 largest per account"* to explain why the two views differ, and a literal
+ *   `6` written into that sentence would be a hand-copy of this constant — free to drift
+ *   the moment this number changes, with nothing to catch it.
  */
-const PO_LINES_PER_ACCOUNT = 6;
+export const PO_LINES_PER_ACCOUNT = 6;
 
 /**
  * ★★ HOW MANY PO LINES GET THEIR FULL INVOICE→CHECK CHAIN, AND WHY IT IS NOT ALL OF THEM.

@@ -65,6 +65,23 @@
   color: var(--on-brand);
 }
 
+/* ★ THE SWITCH IS ALSO USED AS A SET OF TABS ON THE PROJECT PAGE, AND THERE THE
+   ITEMS ARE ANCHORS RATHER THAN BUTTONS. A browser underlines a link by default
+   and colours visited ones differently, which on a three-item strip means the
+   one you have already read looks like a second active item — so the decoration
+   goes and the colour is fixed to the token the borders here already use. It is
+   a bare-element rule because the class alone is shared with the real buttons,
+   and those must keep whatever the browser does for a `<button>`. */
+a.lin__switchbtn {
+  text-decoration: none;
+  color: var(--text-muted);
+}
+
+a.lin__switchbtn--on,
+a.lin__switchbtn--on:hover {
+  color: var(--on-brand);
+}
+
 /* ── The canvas ─────────────────────────────────────────────────────────── */
 
 .lin__canvas {
@@ -414,8 +431,323 @@
   color: var(--text-heading);
 }
 
+/* ── ★ THE SUNBURST ──────────────────────────────────────────────────────
+
+   ★ THE ARCS GET NO `fill` HERE, AND THAT IS THE WHOLE POINT OF THE RULE ABOVE.
+   The colour of an arc IS its account, and that mapping lives in `lineage.ts`
+   (`ACCOUNT_COLOURS`) because it is shared with the Network view's legend. A CSS
+   `fill` declared in this file would beat the `fill` presentation attribute the
+   component sets, and the disc would silently lose its key — every arc one flat
+   colour, with no error anywhere. Same reason `.lin__swatch` keeps its colour.
+
+   ★ THE CANVAS IS THE ONE THING NOT REUSED FROM `.lin__canvas`. A sunburst is a
+   SQUARE disc in a box, so it wants the body's full width and a height derived
+   from that — not the graph's viewport-minus-header height, which on a wide
+   window would leave a small circle floating in a very tall box. */
+.lin__canvas--sunburst {
+  height: auto;
+}
+
+/* ★ THE AREA THE DISC IS MEASURED AGAINST. The component reads this element's
+   `clientWidth`/`clientHeight` through a `ResizeObserver` and lays the whole ring
+   system out from it, so it must have a real box before the first paint — hence
+   `aspect-ratio` rather than a height that depends on children. A container sized
+   by its own content would measure 0 on the first frame and the disc would be
+   laid out for a 360px floor until the observer fired a second time. */
+.lin__burst {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  /* Square while there is room for one, never taller than 62vh so the crumbs, the
+     ring key and the export row stay on screen in a normal window. */
+  aspect-ratio: 1 / 1;
+  max-height: 62vh;
+  min-height: 300px;
+  padding: 8px;
+}
+
+.lin__burstsvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ★ `.lin__arc` SETS NO `fill` AND NO `stroke` — BOTH COME FROM THE COMPONENT, as
+   a palette colour and as `var(--surface-sunken)` so the rings are separated by
+   the colour of the panel behind them. What is here is the interaction state,
+   which the stylesheet is the right place for because it is the same for every
+   account. */
+.lin__arc {
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+
+/* Dimming rather than re-colouring: an arc must keep its account identity while
+   the pointer is elsewhere, and a hover that swapped the fill would break the
+   legend's claim that colour means account. */
+.lin__burstsvg:hover .lin__arc:not(:hover) {
+  opacity: 0.72;
+}
+
+.lin__arc--on {
+  stroke: var(--text-heading);
+  stroke-width: 2;
+}
+
+.lin__arc--focus {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+/* ★ AN ARC IS `role="button"` AND FOCUSABLE, SO THE GLOBAL `:focus-visible` RING
+   IN `base.css` WOULD DRAW A 3px OUTLINE AROUND THE WHOLE WEDGE — which on a
+   120° arc reads as a shape, not as a focus ring. The arcs of one ring are
+   contiguous, so an outline drawn on the shared edges is drawn twice and the
+   overlap is what makes it look wrong. A brightened stroke on the arc plus a
+   brightened label is the focus treatment here, and the outline is suppressed
+   for arcs only. */
+.lin__arc:focus-visible {
+  outline: none;
+  stroke: var(--text-heading);
+  stroke-width: 2.5;
+}
+
+.lin__arclabels {
+  pointer-events: none;
+}
+
+.lin__arclabel {
+  fill: #fff;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 28%);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  user-select: none;
+}
+
+/* ── ★ THE SAME TREE READ AS A RECTANGLE ─────────────────────────────────
+   `.lin__icicle` is the sibling reading of `.lin__burst`: ONE `SunburstTree`,
+   drawn as five columns instead of five rings. Deliberately a separate block
+   rather than a shared one — the disc is square and centres itself, while the
+   rectangle is as wide as the body and as tall as this file says, and the two
+   want different boxes.
+
+   ★ `.lin__cell` SETS NO `fill` AND NO `stroke`, for exactly the reason
+   `.lin__arc` does not: both come from the component, as an account palette
+   colour and as `var(--surface-sunken)` so the cells are separated by the colour
+   of the panel behind them. A CSS `fill` would beat the `fill` presentation
+   attribute the component sets, and every cell would silently be one flat
+   colour. Same reason `.lin__swatch` keeps its colour. */
+.lin__canvas--icicle {
+  height: auto;
+}
+
+/* ★★ THE HEIGHT HERE IS LOAD-BEARING, AND IT USED TO BE AN INLINE STYLE.
+   Sideways, the height was the dimension WE chose, so the component wrote it
+   onto the element. Upright, the height IS the measure axis — a cell's height is
+   its share of its parent — so the component READS it back through its
+   `ResizeObserver` instead, and this rule has to supply it. With no definite
+   height here `clientHeight` is 0, the component's `Math.max(MIN_H, …)` floor
+   turns that into a plausible-looking 240px chart, and nothing anywhere reports
+   an error: the chart renders squashed and the numbers in it are wrong.
+
+   ★ A definite `height`, NOT `aspect-ratio`. An icicle is a rectangle whose
+   vertical axis carries data, so its height must never be derived from its width
+   — a wide window would silently stretch every measure on the page. */
+.lin__icicle {
+  position: relative;
+  width: 100%;
+  /* Tall enough to read a 2.7% cell at one zoom and every 0.1% column at the
+     other, short enough that the crumbs, the key and the export row stay on
+     screen in a normal window. */
+  height: 62vh;
+  min-height: 320px;
+}
+
+.lin__iciclesvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.lin__cell {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+/* Dimming rather than re-colouring: a cell must keep its account identity while
+   the pointer is elsewhere, and a hover that swapped the fill would break the
+   legend's claim that colour means account. */
+.lin__iciclesvg:hover .lin__cell:not(:hover) {
+  opacity: 0.72;
+}
+
+.lin__cell--on {
+  stroke: var(--text-heading);
+  stroke-width: 2;
+}
+
+.lin__cell--focus {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+/* ★ A CELL IS `role="button"` AND FOCUSABLE, SO THE GLOBAL `:focus-visible` RING
+   IN `base.css` WOULD DRAW A 3px OUTLINE AROUND THE WHOLE RECTANGLE — which on a
+   cell only as tall as its cut label reads as a border rather than a focus ring,
+   and on a tall cell outlines an entire column. The cells of one level are
+   contiguous in their column, so an outline drawn on the shared edges is drawn
+   twice and the overlap is what makes it look wrong. A brightened stroke is the
+   focus treatment here, and the outline is suppressed for cells only. */
+.lin__cell:focus-visible {
+  outline: none;
+  stroke: var(--text-heading);
+  stroke-width: 2.5;
+}
+
+.lin__celllabels {
+  pointer-events: none;
+}
+
+.lin__celllabel {
+  fill: #fff;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 28%);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  user-select: none;
+}
+
+/* ── ★ THE FOCUS CRUMBS ──────────────────────────────────────────────────
+   A `path` cannot hold a control, so the way back up the hierarchy is this row
+   of buttons: one per ancestor of whatever is at the centre, with the innermost
+   rendered as plain text because you are already there. */
+.lin__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px 0;
+  font-size: 12px;
+}
+
+.lin__crumb {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lin__crumb:hover {
+  background: var(--surface-hover);
+}
+
+/* ★ THE CURRENT LEVEL IS NOT A BUTTON AND MUST NOT LOOK LIKE ONE. It is the
+   focus — activating it would re-zoom to where you already are — so it is plain
+   text in the heading colour, which also makes the row read as a path. */
+.lin__crumb--on {
+  color: var(--text-heading);
+  cursor: default;
+}
+
+.lin__crumb--on:hover {
+  background: transparent;
+}
+
+.lin__crumbsep {
+  color: var(--text-faint);
+}
+
+/* ── ★ THE RING KEY IN THE LEGEND ────────────────────────────────────────
+   One numbered line per ring, generated from `sunburst.ts`'s ring specs so the
+   wording cannot drift from what each ring actually measures. `flex-basis: 100%`
+   takes the whole row of the wrapping legend rather than sharing it with the
+   colour swatches. */
+.lin__rings {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lin__ring {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.lin__ringnum {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  color: var(--text-heading);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ★ THE BODY WRAPS — THE NUMERAL DOES NOT. `.lin__legend` is `display: flex`
+   with a `gap`, so a bare text node beside the numeral would become its own flex
+   item and the gap would land between the fragments of one sentence. Wrapped in
+   one element, the sentence is one flex item and the paragraph indents under
+   itself instead of under the numeral. */
+.lin__ringbody {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lin__ringbody strong {
+  color: var(--text-heading);
+}
+
+/* The denominator is the ring's meaning in words — "a share of its OWN line" — so
+   it is set apart rather than run on, because that clause is the one that differs
+   between rings 3 and 4 and it is the whole reason the gap in ring 4 is a finding
+   rather than a fault. */
+.lin__ringbody em {
+  display: block;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 @media (max-width: 720px) {
   .lin__canvas {
     height: 62dvh;
+  }
+
+  /* ★ FIVE COLUMNS ON A PHONE LEAVE EACH ONE VERY NARROW, so the icicle trades
+     height for width: a shorter chart at least keeps every column wide enough for
+     its label, where a 62vh one would crop more of them than it showed. */
+  .lin__icicle {
+    height: 52vh;
+    min-height: 280px;
   }
 }

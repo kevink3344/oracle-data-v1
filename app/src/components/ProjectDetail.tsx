@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useStore } from '../state/store';
 import { UsageBar } from './Bars';
 import BucketBlock from './BucketBlock';
@@ -452,20 +451,20 @@ export default function ProjectDetail({ project }: { project: Project }) {
             one project — the API enforces both — so there is exactly one row to
             find, or none. */}
         {held ? <CostCentreRelease row={held} onDone={setReleased} /> : <CostCentreUnheld level={p.level} />}
-        {/* ★ THE SECOND OF THE TWO PLACES EDIT LIVES, AND NOT A DUPLICATE OF THE
-            FIRST. The projects list can only offer Edit for a project that has no
-            level, because a coded project is not a row in the recorded queue. A
-            reader looking at a project's own detail — which is the only screen
-            that shows what the level gathers — had no way to change its name or
-            move it. This is that way, and it is one link because the write is one
-            `PATCH`: the same page the recorded rows open. */}
-        {held ? (
-          <div className="bind__actions">
-            <Link className="btn btn--ghost btn--sm" to={`/projects/${held.slug}/edit`}>
-              Edit project
-            </Link>
-          </div>
-        ) : null}
+        {/* ★ EDIT IS NOT HERE ANY MORE, AND ITS ABSENCE IS DELIBERATE. It used to sit
+            under this block as an "Edit project" button, on the reasoning that this is
+            the screen that shows what the level gathers, so it is where a reader decides
+            to change it. The reasoning was sound and the placement was not: it sat about
+            2,000px down, under the usage bar, the budget blocks and the cost-code spine,
+            and the user's report was that the page therefore had no way to reach it —
+            *"Next to the 'Pin' we need an 'Edit' icon … There is no way to do that since
+            we removed it from the project page."* It now sits in the page head, beside
+            the pin. It MOVED rather than gained a twin: a second control offering the
+            same form makes the reader stop and work out whether the two differ.
+
+            ★ WHAT STAYS HERE IS RELEASE, AND IT IS A DIFFERENT VERB. Release hands the
+            level back and keeps nothing — this section is the only place it can happen,
+            so unlike Edit it has nowhere better to be. */}
         {released ? (
           <div className="notice notice--info" role="status">
             <p>{released}</p>

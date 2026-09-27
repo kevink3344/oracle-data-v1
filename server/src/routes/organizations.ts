@@ -1,7 +1,7 @@
 import { z } from '../http/z.js';
 import type { Api } from '../http/api.js';
 import { AppError } from '../http/errors.js';
-import { columnNumber, execute, one, quoteIdent, rows, type Binds } from '../db/sql.js';
+import { columnNumber, execute, one, quoteIdent, rows, stampNow, type Binds } from '../db/sql.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { intReq, textReq } from '../schemas/columns.js';
 import { requireSuperAdmin } from '../auth/guard.js';
@@ -636,7 +636,7 @@ export function registerOrganizations(api: Api): void {
         });
       }
 
-      sets.push("updated_at = datetime('now')");
+      sets.push(`updated_at = ${stampNow()}`);
 
       await execute(`UPDATE organization SET ${sets.join(', ')} WHERE slug = :slug`, args);
 

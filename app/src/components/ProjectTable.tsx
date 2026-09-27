@@ -227,12 +227,15 @@ export default function ProjectTable() {
                    user's instruction was that clicking a project should open the project. The row
                    click, the name link and the keyboard path all land on `/projects/<level>` now.
 
-                 ★ EDIT IS STILL ONE CLICK AWAY, AND FROM A BETTER PLACE. `ProjectDetail` carries
-                   its own "Edit project" button (`/projects/:slug/edit`) in the cost-centre
-                   section — the screen that shows what the level gathers, which is where a reader
-                   is actually in a position to decide to change it. The uncoded queue in
-                   `Projects` keeps its own Edit link, because a project with no level has no
-                   detail page to reach it from. */
+                 ★ EDIT IS STILL ONE CLICK AWAY, AND FROM THE TOP OF THE PAGE NOW. The project
+                   page's own head carries it, to the LEFT of the pin (`/projects/:slug/edit`),
+                   on the reasoning that the page is where a reader is in a position to decide
+                   to change the project. It used to live in that page's cost-centre section and the user's
+                   report was that it could not be found there — *"Next to the 'Pin' we need an
+                   'Edit' icon so the person can edit a project. There is no way to do that since
+                   we removed it from the project page."* The uncoded queue in `Projects` keeps
+                   its own Edit link, because a project with no level has no detail page to reach
+                   it from. */
               const claimed = registry.find((r) => (r.levelCode ?? '').trim() === p.level);
               /* ★ NO CLAIMED ROW, NO BADGE — AND THAT IS NOT A GAP. The badge says a
                  project was recorded in this app today, so a level nobody has recorded

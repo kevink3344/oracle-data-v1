@@ -234,14 +234,23 @@ async function apply(): Promise<AppSchemaStatus> {
 
   // ★ THE TWO MIGRATIONS BELOW ARE SQLITE-ONLY AND ARE SKIPPED FOR SQL SERVER.
   //   Both read `sqlite_master` and one rebuilds a table with `AUTOINCREMENT` —
-  //   neither can run in T-SQL. Skipping them is correct rather than a gap: the
-  //   SQL Server DDL is applied to a database that was *created from it* this
-  //   session, so it already carries the current shape and there is no older
-  //   definition for either migration to upgrade. The day a SQL Server app store
+  //   neither can run in T-SQL. Skipping them is correct rather than a gap: a
+  //   freshly created SQL Server store carries the current shape already.
+  //
+  // ★★ BUT "FRESHLY CREATED" WAS AN ASSUMPTION AND IT JUST STOPPED BEING TRUE.
+  //   This note used to end by predicting that "the day a SQL Server app store
   //   needs a column added, it needs its own addition path — `ALTER TABLE … ADD`
   //   in T-SQL is idempotent-guarded by `IF COL_LENGTH(...) IS NULL`, which is a
-  //   different mechanism from the `pragma_table_info` probe below.
-  const added = isSqlServer ? [] : await applyColumnAdditions(store);
+  //   different mechanism from the `pragma_table_info` probe below." That day is
+  //   the project background image: the SQL Server `project` table holds fifteen
+  //   rows of real data, and `CREATE TABLE` is wrapped in `IF OBJECT_ID(...) IS
+  //   NULL`, so it never revisits them — a column added only to the DDL body
+  //   would never reach the database that exists. Hence
+  //   `applyColumnAdditionsSqlServer` below, which is called from here and takes
+  //   the place the branch used to hand to an empty array.
+  const added = isSqlServer
+    ? await applyColumnAdditionsSqlServer(store)
+    : await applyColumnAdditions(store);
   const migrated = isSqlServer ? false : await applyPinCategoryMigration(store);
 
   console.log(
@@ -424,6 +433,225 @@ const COLUMN_ADDITIONS: readonly { table: string; column: string; declaration: s
     table: 'saved_view_run',
     column: 'truncated',
     declaration: 'INTEGER',
+  },
+  /*
+   * ── the background image, five columns on `project` ────────────────────────
+   *
+   * ★ THE LIST ABOVE RECORDED THE HAZARD AND THIS IS THE HAZARD HAPPENING. The
+   *   `saved_view_run.truncated` entry warns that the store shipped at
+   *   `data/sql/turso/sample.db` was built from an earlier draft of the DDL, so
+   *   `CREATE TABLE IF NOT EXISTS` will not revisit it. Adding the image columns to
+   *   the `.sql` file alone was therefore not enough: the FIRST call to
+   *   `GET /api/projects/registry` against that store answered 500 with
+   *   `SQLITE_ERROR: no such column: background_image`, while a store created from
+   *   scratch would have been fine. A column added to a `CREATE TABLE` is invisible
+   *   to every store that already has the table, which is every store that matters.
+   *
+   *   These five are the SQLite half of `COLUMN_ADDITIONS_SQLSERVER` below — the
+   *   two arms carry the same change because they are the same change. Nothing in
+   *   the repository enforces that they agree; this note is the only thing that
+   *   says so, which is worth knowing when the next column is added. The fifth,
+   *   `background_strength`, is the one that is a *choice about* the picture rather
+   *   than a part of it — which is why removing the picture removes it too.
+   *
+   * ★ `BLOB` AND NULLABLE, LIKE ITS SQL SERVER COUNTERPART. SQLite columns are
+   *   typeless, so the declaration is documentation — but the NULL is load-bearing:
+   *   `row.has_background` is `CASE WHEN background_image IS NULL THEN 0 ELSE 1 END`,
+   *   and a zero-length blob is a real value, so "no image" has to be absence rather
+   *   than emptiness. The four companions are nullable for the same reason — they
+   *   describe an image that may not be there, and each of them is meaningless
+   *   without it.
+   *
+   * ★ NO `DEFAULT` ON `background_updated_at`, ON PURPOSE. The other timestamps in
+   *   these tables carry `DEFAULT (datetime('now'))`; this one is written by the
+   *   route, and a default would let a row claim an image was set at the moment the
+   *   column was added. NULL means "no image has been set", which is the answer the
+   *   registry needs to distinguish.
+   */
+  {
+    table: 'project',
+    column: 'background_image',
+    declaration: 'BLOB',
+  },
+  {
+    table: 'project',
+    column: 'background_image_mime',
+    declaration: 'TEXT',
+  },
+  {
+    table: 'project',
+    column: 'background_name',
+    declaration: 'TEXT',
+  },
+  {
+    table: 'project',
+    column: 'background_updated_at',
+    declaration: 'TEXT',
+  },
+  {
+    /**
+     * `project.background_strength` — how strongly the header draws the picture,
+     * as a percent, or NULL for "never chosen".
+     *
+     * ★ `INTEGER` BECAUSE THE VALUE IS A COUNT OF PERCENT AND NOT A FRACTION.
+     *   Storing `0.55` as a REAL would make every comparison a float comparison,
+     *   and being compared against a control's value is this column's whole job.
+     *
+     * ★ NULL IS NOT 0. Zero is a choice a reader can make and keep — the picture
+     *   stored and deliberately not drawn; NULL is the absence of a choice. The
+     *   default for NULL is answered at the *drawing* end (`projectpage.css`, where
+     *   the number `33` appears once), not in the row projection — the wire carries
+     *   the stored value, NULL included, so that "never chosen" is still
+     *   distinguishable from "chosen 33" at the last layer that can see it.
+     *
+     * ★ NO `DEFAULT`, like its neighbour. A default here would mean a row that
+     *   predates the control advertised a value nobody chose, and the read path
+     *   already has the default in one place.
+     */
+    table: 'project',
+    column: 'background_strength',
+    declaration: 'INTEGER',
+  },
+];
+
+/**
+ * The SQL Server half of the same job, and the path the note above promised.
+ *
+ * ★ THE COMMENT IN `apply()` USED TO READ AS A PREDICTION AND IS NOW A CALL SITE.
+ *   It said: *"The day a SQL Server app store needs a column added, it needs its
+ *   own addition path — `ALTER TABLE … ADD` in T-SQL is idempotent-guarded by
+ *   `IF COL_LENGTH(...) IS NULL`, which is a different mechanism from the
+ *   `pragma_table_info` probe."* That day is the background image: the live
+ *   `dbo.project` holds fifteen rows of real data, `CREATE TABLE` is guarded by
+ *   `IF OBJECT_ID(...) IS NULL` so it will never revisit them, and the first
+ *   `SELECT ... background_image` would fail against the existing table. The
+ *   column had to be added, not declared.
+ *
+ * ★ THE GUARD IS PROVEN IDEMPOTENT, AND THE PROOF IS WHY IT IS WRITTEN THIS WAY.
+ *   Two runs of the same single batch against a real table left exactly one
+ *   column (`SELECT COUNT(*) FROM tempdb.sys.columns …` → `2` before and after,
+ *   the other column being the primary key), because `IF COL_LENGTH(...) IS NULL`
+ *   is evaluated by the server before the `ALTER` is compiled. It is therefore
+ *   safe to run on every boot, which is what `apply()` does — and it has to be,
+ *   because there is no migration ledger here to record that it already ran.
+ *
+ * ★ ONE BATCH PER COLUMN, WITH A SEPARATE EXISTENCE PROBE, BECAUSE `ALTER TABLE`
+ *   REPORTS NOTHING. The SQLite path can call `ALTER TABLE` unconditionally and
+ *   treat the driver's `duplicate column name` as the guard; T-SQL's guarded form
+ *   succeeds either way and returns no rows, so it cannot say whether it changed
+ *   anything. Without the probe the boot line would claim it added a column every
+ *   single run — a log that lies about what happened to the schema is worse than
+ *   no log. So: ask `COL_LENGTH` first, act on the answer, and report only real
+ *   additions.
+ *
+ * ★ A FAILURE IS NOT FATAL, MATCHING THE SQLITE PATH. Everything in the schema
+ *   file has already run by this point. A column that could not be added leaves
+ *   one endpoint reporting a missing column, which is a far better outcome than
+ *   refusing to serve the application — and it is `console.warn`, not a throw,
+ *   for exactly the reason the sibling function gives.
+ */
+async function applyColumnAdditionsSqlServer(store: SqlDriver): Promise<string[]> {
+  const added: string[] = [];
+
+  for (const change of COLUMN_ADDITIONS_SQLSERVER) {
+    try {
+      // Both names are literals in this file, never user input — the same reason
+      // the SQLite probe inlines its argument rather than binding it.
+      const probe = await store.execute({
+        sql: `SELECT COL_LENGTH('${change.table}','${change.column}') AS len`,
+        args: [],
+      });
+      const len = (probe.rows[0] as { len?: unknown } | undefined)?.len ?? null;
+
+      // `null` is the answer for "no such column". A non-null length — including
+      // 0, which is what an existing zero-length column would answer — means the
+      // column is there and must not be added a second time.
+      if (len !== null) continue;
+
+      await store.execute({
+        sql:
+          `IF COL_LENGTH('${change.table}','${change.column}') IS NULL ` +
+          `ALTER TABLE ${change.table} ADD ${change.column} ${change.declaration}`,
+        args: [],
+      });
+      added.push(`${change.table}.${change.column}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`[db] could not add ${change.table}.${change.column}: ${message}`);
+    }
+  }
+
+  return added;
+}
+
+/**
+ * The additions that apply to the SQL Server store, declared once.
+ *
+ * ★ A SEPARATE LIST RATHER THAN ONE LIST WITH A DIALECT FILTER ON EACH ENTRY.
+ *   The SQLite entries are spelled in SQLite's own vocabulary and none of them
+ *   belongs on this arm, so a shared list would need a per-entry dialect tag
+ *   whose only possible value today is "one of the two". Two lists say the same
+ *   thing with less machinery, and the boot line reports whichever one ran.
+ *
+ * ★ THE DECLARATIONS HERE MUST MATCH THE `CREATE TABLE` BODY EXACTLY. A store
+ *   created from the DDL and an older store patched by a `SELECT` of this list
+ *   must end up with the same shape, or the schema depends on when the database
+ *   happened to be created — which is the failure this whole mechanism exists to
+ *   prevent. `VARBINARY(MAX) NULL` and `NVARCHAR(n) NULL` are deliberately
+ *   verbatim, including the `NULL`, so the two paths cannot drift.
+ */
+const COLUMN_ADDITIONS_SQLSERVER: readonly { table: string; column: string; declaration: string }[] = [
+  {
+    /**
+     * `project.background_image` — the project's background picture, as bytes.
+     *
+     * The first entry on this arm, and the reason the arm needed a path at all.
+     * Nullable: most projects have no image, and `DATALENGTH(NULL)` answering null
+     * (measured) is what lets the route tell "no image" from a zero-byte one.
+     */
+    table: 'dbo.project',
+    column: 'background_image',
+    declaration: 'VARBINARY(MAX) NULL',
+  },
+  {
+    /** `project.background_image_mime` — the type the bytes are served back as. */
+    table: 'dbo.project',
+    column: 'background_image_mime',
+    declaration: 'NVARCHAR(100) NULL',
+  },
+  {
+    /** `project.background_name` — the filename the image arrived with. */
+    table: 'dbo.project',
+    column: 'background_name',
+    declaration: 'NVARCHAR(400) NULL',
+  },
+  {
+    /**
+     * `project.background_updated_at` — when the image was last replaced.
+     *
+     * No `DEFAULT`, on purpose: the route stamps it explicitly in style 120, the
+     * shape the fifteen stored rows carry. A default here would be style 126 like
+     * its neighbours and would put two formats in one table. See `stampNow()`.
+     */
+    table: 'dbo.project',
+    column: 'background_updated_at',
+    declaration: 'NVARCHAR(30) NULL',
+  },
+  {
+    /**
+     * `project.background_strength` — how strongly the header draws the picture,
+     * as a percent, or NULL for "never chosen".
+     *
+     * ★ `INT NULL` AND NOT `TINYINT`. The SQLite arm declares `INTEGER`, and a
+     *   one-byte column here would be a dialect detail inside a pair whose whole
+     *   purpose is that the two paths cannot drift into different shapes. Four
+     *   bytes spent on a percent is not the place to save one. The route bounds
+     *   the value to 0-100, and the column is nullable because zero is a real
+     *   choice a reader can make — see the note on the SQLite entry above.
+     */
+    table: 'dbo.project',
+    column: 'background_strength',
+    declaration: 'INT NULL',
   },
 ];
 

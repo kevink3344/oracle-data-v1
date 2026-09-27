@@ -59,7 +59,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 import { config } from '../config/env.js';
-import { execute, one } from '../db/sql.js';
+import { execute, one, stampNow } from '../db/sql.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { AppError } from '../http/errors.js';
 
@@ -418,7 +418,7 @@ export async function authenticate(
  */
 async function stampLastSeen(userId: number): Promise<void> {
   try {
-    await execute("UPDATE app_user SET last_seen_at = datetime('now') WHERE id = ?", [userId]);
+    await execute(`UPDATE app_user SET last_seen_at = ${stampNow()} WHERE id = ?`, [userId]);
   } catch (err) {
     console.warn(`[auth] could not stamp last_seen_at for user ${userId}:`, err);
   }

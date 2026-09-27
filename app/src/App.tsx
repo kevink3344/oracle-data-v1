@@ -226,9 +226,9 @@ export default function App() {
           {/* The same argument as `/projects/new`, and the same shape of URL: the
               key is derived from the name, so it can be any string and it comes
               from a row rather than from the menu. Reachable from two places —
-              the recorded rows' Edit button on the projects list, and the Edit
-              link in the detail drawer's cost-centre section — which is why it
-              has to cope with a key the registry no longer holds. §10.1. */}
+              the recorded rows' Edit button on the projects list, and the edit
+              control in a project page's own head, to the left of the pin — which
+              is why it has to cope with a key the registry no longer holds. §10.1. */}
           <Route path="/projects/:slug/edit" element={<EditProject />} />
 
           {/* The generic row detail view. Every leaf's row links here rather than
