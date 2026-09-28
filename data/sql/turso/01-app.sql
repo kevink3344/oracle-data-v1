@@ -681,16 +681,25 @@ INSERT OR IGNORE INTO organization (slug, name, fund, programs_json, start_fy, i
 --  app_user — who may sign in, and which tenant they see.
 --
 --  ---------------------------------------------------------------------------
---  WHY THERE IS NO PASSWORD COLUMN
+--  HOW A PASSWORD IS STORED, AND WHY THE COLUMN IS NULLABLE
 --  ---------------------------------------------------------------------------
---  Because there is no password store yet, and a column named `password_hash`
---  holding nothing (or holding a plaintext value) would be worse than its
---  absence: a reader would reasonably assume it was the real thing. The one
---  account that can sign in today is the bootstrap pair in `.env`
---  (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`), which is a deployment
---  convenience and not an account — it is gitignored, it is six digits, and it
---  has no lockout. Hashed credentials and a password reset are stated
---  follow-ups, and they belong in this table when they arrive.
+--  `password_hash` holds a salted scrypt derivative — `scrypt$N$r$p$salt$key`,
+--  written and read by `server/src/auth/password.ts`. The cost parameters travel
+--  with each row, so raising them later does not invalidate the rows written
+--  today, and the plaintext is never stored, never logged and never returned.
+--
+--  It is NULLABLE because "this account has no password" is a real state and not
+--  an empty password. Every row that exists today predates the column, so no row
+--  has a credential yet — and a sign-in for such a row is REFUSED rather than
+--  allowed. An absent hash must never come to mean "any password will do".  An
+--  operator sets one with `npm run set:password -- --email <address>`.
+--
+--  ★ THE BOOTSTRAP ACCOUNT IS STILL NOT IN THIS TABLE. The `.env` pair
+--    (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`) is checked before this table
+--    is consulted, and it is a deployment convenience rather than an account: it
+--    is gitignored, it is six digits, and it has no lockout and no rotation. It
+--    remains the way in on a fresh store whose `app_user` is empty. The change is
+--    that it is no longer the *only* credential the server knows how to check.
 --
 --  ---------------------------------------------------------------------------
 --  WHY organization_id IS NULLABLE EVEN THOUGH EVERY USER BELONGS TO ONE
@@ -724,6 +733,11 @@ CREATE TABLE IF NOT EXISTS app_user (
                           CHECK (role IN ('super_admin','member')),
 
   organization_id INTEGER REFERENCES organization(id),
+
+  -- A salted scrypt derivative, never a plaintext password. NULL means no
+  -- credential has been set for this account, and the sign-in path REFUSES such
+  -- a row rather than accepting anything. See the header note.
+  password_hash   TEXT,
 
   created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
 

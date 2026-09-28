@@ -159,18 +159,18 @@
 import { num } from './format';
 
 /**
- * The live ledger's shape, as last measured.
+ * One measured scale — a table count and a row total, with the provenance that makes
+ * the pair interpretable.
  *
- * `records` is kept **exact** here rather than pre-rounded, and the copy floors it
- * at render time. The reason is that a floor computed from the precise figure
- * stays true as the ledger grows, while a rounded constant would have to be
- * re-taken to stay honest — and a rounded constant that says "197.0 million" when
- * the real number is 197,020,059 invites a reader to think it is made up.
+ * ★ TWO OF THESE EXIST AND THEY DESCRIBE DIFFERENT DATABASES: `LEDGER_SCALE` is the
+ *   **Oracle source** this copy came from, and `STORE_SCALE` is **this deployment's own
+ *   store**. The fields below are worded for both, because a record whose field docs name
+ *   one of them is how the second one gets filled in wrongly.
  */
 export interface LedgerScale {
-  /** Objects the API can serve: the descriptors minus any the deployment declines. */
+  /** Objects the measure covers — the API's descriptors for `LEDGER_SCALE`, every user table for `STORE_SCALE`. */
   readonly tables: number;
-  /** Rows across the 32 ledger objects that could be counted. */
+  /** Rows across those objects, exact as measured. Floored at render time by `recordsFloor`. */
   readonly records: number;
   /** The day this was measured, so the claim carries its own date. */
   readonly measuredOn: string;
@@ -180,11 +180,17 @@ export interface LedgerScale {
    * The account scope the count was taken under — fund, programs, fiscal floor.
    *
    * ★ REQUIRED, NOT OPTIONAL, AND THE COMPILER ENFORCES THE REASON. Two of the 32
-   *   objects are counted through the scope and thirty are not, so the figure is a
-   *   function of the configuration as well as of the ledger. An optional field
-   *   would let the next re-take omit it and leave a number nobody can interpret —
-   *   which is the state this record was in until the scope changed to fund 04 and
-   *   the total moved by 920 rows for no reason a reader could see.
+   *   Oracle objects are counted through the scope and thirty are not, so that figure is
+   *   a function of the configuration as well as of the ledger. An optional field would
+   *   let the next re-take omit it and leave a number nobody can interpret — which is the
+   *   state this record was in until the scope changed to fund 04 and the total moved by
+   *   920 rows for no reason a reader could see.
+   *
+   * ★ AND IT EARNS ITS KEEP ON `STORE_SCALE` FOR THE OPPOSITE REASON. There the honest
+   *   value is "no scope applied" — which is a *statement that the question does not
+   *   arise*, and one that has to be written down rather than left as an empty string.
+   *   A store total presented next to a scoped one with nothing said would invite exactly
+   *   the comparison one of them cannot support.
    */
   readonly scope: string;
 }
@@ -198,20 +204,98 @@ export const LEDGER_SCALE: LedgerScale = {
 };
 
 /**
- * The record count as a **floor** in words — `over 197 million`.
+ * A record's row count as a **floor** in words — `over 197 million`.
  *
  * ★ A FLOOR, NOT A ROUNDING, AND THE DIFFERENCE MATTERS. `num()` would print the
  *   exact `197,019,139`; a reader takes an exact figure as a promise, and it stops
  *   being true the moment a row is inserted. "over 197 million" is true before the
- *   next row and after it — which is what makes it the right form for the one place
- *   this file is still quoted, the sign-in screen's failed-read path. That path
- *   cannot re-take the figure, so it must state one that does not go stale.
+ *   next row and after it — which is what makes it the right form for both callers
+ *   here: the headline, where the store is being written to by a sync the reader
+ *   cannot see, and the failed-read path, which cannot re-take the figure at all.
  *
  *   ★ IT SURVIVES A SCOPE CHANGE TOO, WHICH THE EXACT FIGURE WOULD NOT. Fund 04 alone
  *     reads 197,019,139 and funds 02/04 read 197,020,059 — both floor to the same
  *     "over 197 million", so the fallback sentence stays true across the change while
  *     the comment above it has to name which one it was taken under.
+ *
+ * ★ THE DEFAULT STAYS `LEDGER_SCALE`, WHICH IS NOW THE *EXCEPTION* AT THE CALL SITES.
+ *   `LEDGER_SCALE` is the Oracle source and `STORE_SCALE` is this deployment, so the
+ *   default is the wrong one for a caller describing *this* database. It is kept because
+ *   the two places that omit the argument — `RecordedScale` and the failed-read path —
+ *   are both deliberately quoting the Oracle figure, and making the argument mandatory
+ *   would turn a correct call into a compile error while leaving the mistake it guards
+ *   against (passing the Oracle record where the store's belongs) equally available.
+ *   The headline therefore names `recordsFloor(STORE_SCALE)` explicitly, which is what
+ *   a reader of this file should see at every site where the choice is a real one.
  */
 export function recordsFloor(scale: LedgerScale = LEDGER_SCALE): string {
   return `over ${num(Math.floor(scale.records / 1_000_000))} million`;
 }
+
+/**
+ * **This deployment's own store** — every table in the database the API reads.
+ *
+ * ── ★ WHY A SECOND RECORD EXISTS, AND WHAT WENT WRONG WITHOUT IT
+ *
+ * `LEDGER_SCALE` above describes the **Oracle source**. The sign-in card's headline used
+ * to quote it, so the first thing a reader saw was:
+ *
+ *     `55 tables the API serves · over 197 million`
+ *
+ * On a deployment whose store holds **eight million** rows. Two of those three clauses
+ * were wrong about the database in front of them — the count came from the Oracle
+ * descriptor list and the total from a database this app had stopped reading — and they
+ * were wrong by two orders of magnitude, in the one place a person is deciding whether
+ * the thing they are opening is the real one.
+ *
+ * ★ ★ THE TABLE COUNT AND THE ROW TOTAL DID NOT EVEN DESCRIBE THE SAME SET. `55` is what
+ *   `GET /api/meta/ledger-summary` returns: the registered descriptors **unioned with the
+ *   cap registry**, deduplicated by table. `197 million` was 34 descriptors counted on
+ *   Oracle. So the sentence put a live count of one set beside a recorded total of a
+ *   different set, and neither number was a fact about this database. Two figures from
+ *   two sources, joined by a `·`, reading as one claim — which is the shape of error this
+ *   whole file exists to prevent.
+ *
+ * ── ★ WHAT THIS RECORD IS, AND WHY IT IS NOT THE API'S OWN TOTAL
+ *
+ * Taken by `npm run store:scale` (`server/src/scripts/store-scale.ts`), which counts
+ * **every user table** in the store — `sys.tables` on SQL Server, `sqlite_master` on
+ * SQLite — with **no object list and no account scope applied**. That is deliberately a
+ * different question from the endpoint's:
+ *
+ *   • the endpoint totals the 55 registered and cap-governed objects *through the account
+ *     scope*, and 18 of them cannot be counted at all, so its figure is a floor over a
+ *     subset of the objects;
+ *   • this counts the store, so it is the answer to "how many rows are in this database"
+ *     — which is the question the headline is asking and the only one a reader can check
+ *     by looking at the database themselves.
+ *
+ * ★ AND IT COUNTS THE MIRRORS, WHICH IS WHY `records` IS A ROW COUNT AND NOT A COUNT OF
+ *   DISTINCT DATA. Three `WCSEXP_*` tables hold row-for-row copies of the tables they
+ *   shadow — on the 2026-09-27 take, 467,057 rows: `WCSEXP_PO_HEADERS` mirrors
+ *   `PO_HEADERS_ALL` at 288,056, and the vendor sites and vendors mirror at 99,316 and
+ *   79,685. They are physical tables holding physical rows, so including them is the
+ *   honest answer to "how many rows are in this database" — but anybody reading the
+ *   figure as "this much distinct data" would be overstating it by those 467,057 rows.
+ *   `store:scale` prints them by name on every run so the caveat travels with the number
+ *   rather than living only in this comment.
+ *
+ * ── ★ IT IS A SNAPSHOT WITH A DATE, AND THE HEADLINE PRINTS IT WITHOUT THE DATE
+ *
+ * The count is exact on the day it is taken and drifts from the moment a sync writes a
+ * row. That is why `recordsFloor` — which `recordsFloor(STORE_SCALE)` uses here — floors
+ * it to `over 8 million` rather than printing `8,059,638`: a floor stays true as the store
+ * grows, while an exact figure is a promise that expires. It is also why the card's body
+ * still carries the Oracle reference *with its own date and database named* — the rule
+ * being that a number is either current or accompanied by where it came from.
+ *
+ * ★ RE-TAKE WITH `Push-Location server; npm run store:scale; Pop-Location`, which prints
+ *   this constant ready to paste.
+ */
+export const STORE_SCALE: LedgerScale = {
+  tables: 50,
+  records: 8_059_638,
+  measuredOn: '2026-09-27',
+  target: 'wcpsssqlelasticpool.database.windows.net/wcpss-oracle-sync',
+  scope: 'the store as it stands — every user table, no account scope applied',
+};

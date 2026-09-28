@@ -23,18 +23,24 @@
  * It is not authentication, and calling it that would be the single most
  * misleading thing this file could do. Three facts, all of them load-bearing:
  *
- *   1. `app_user` HAS NO PASSWORD COLUMN. A member signing in supplies an email
- *      and is looked up by it. That is an identity *claim*, not a proof. The
- *      schema says why there is no column rather than an empty one
- *      (`data/sql/turso/01-app.sql`), and it is right, but the consequence is
- *      that "signed in as Dana" means "typed Dana's address".
+ *   1. A PASSWORD IS NOW CHECKED, AND THIS POINT USED TO SAY THE OPPOSITE.
+ *      `app_user` gained `password_hash` (see `auth/password.ts`), so a member
+ *      signing in supplies an address *and* a secret, and the secret is compared
+ *      against a salted `scrypt` derivative instead of against nothing. Until
+ *      that column existed a member was looked up by address and admitted on the
+ *      strength of being a row, which made an address an identity *claim* rather
+ *      than a proof — "signed in as Dana" meant "typed Dana's address". It now
+ *      means "typed Dana's address and Dana's password".
  *
- *   2. ONLY THE BOOTSTRAP ACCOUNT HAS A SECRET, and it comes from `.env` — a
- *      gitignored file, six digits, no lockout, no rotation. It is a deployment
- *      convenience. It is the reason the session token below exists at all: a
- *      bare email header would make that credential decorative, because anyone
- *      who read the address out of the deployment could claim super admin
- *      without ever typing the password.
+ *   2. TWO KINDS OF SECRET, DELIBERATELY KEPT IN DIFFERENT PLACES. The bootstrap
+ *      account's password is compared against `.env` — a gitignored file, no
+ *      lockout, no rotation. That is a deployment convenience for the one
+ *      identity that exists before any tenant does. Every other account is a
+ *      hash in the database, so an account can be created, re-set, and revoked
+ *      without a redeploy. The bootstrap pair is still the reason the session
+ *      token below exists at all: a bare email header would make that credential
+ *      decorative, because anyone who read the address out of the deployment
+ *      could claim super admin without ever typing the password.
  *
  *   3. THE TOKEN IS A RANDOM STRING IN A PROCESS-LOCAL MAP. Not signed, not
  *      persisted, not shared between processes. Restarting the server signs
@@ -62,6 +68,7 @@ import { config } from '../config/env.js';
 import { execute, one, stampNow } from '../db/sql.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { AppError } from '../http/errors.js';
+import { standInHash, verifyPassword } from './password.js';
 
 /** Transport for the token. A header, not a cookie — see the header note. */
 export const SESSION_HEADER = 'x-app-session';
@@ -284,6 +291,12 @@ interface UserRow {
   display_name: string;
   role: string;
   organization_id: number | null;
+  /**
+   * The stored `scrypt$N$r$p$salt$key` string. Nullable because rows created
+   * before the column existed have none — and a row with no hash is *refused*,
+   * not admitted. See `authenticate`.
+   */
+  password_hash: string | null;
 }
 
 function notRecognised(): AppError {
@@ -304,16 +317,20 @@ function notRecognised(): AppError {
  * Returns `undefined` when the address is not the bootstrap account at all, which
  * is a different answer from "it is, and the password was wrong" — the caller
  * collapses both into one 401, but only the second is a credential failure.
+ *
+ * ★ COMPARED IN PLAIN TEXT, ON PURPOSE. This is one password read out of
+ *   `process.env` at boot, not a stored hash, so there is nothing to derive and
+ *   no timing signal to smooth: an attacker who can time a `===` against a
+ *   value they do not know is an attacker who already has the process image. The
+ *   database path is the one that needs `scrypt` and a constant-time compare.
  */
-function checkBootstrap(
-  email: string,
-  password: string | undefined,
-): boolean | undefined {
+function checkBootstrap(email: string, password: string): boolean | undefined {
   const configured = config.superAdmin.email;
   if (configured === undefined || email !== configured) return undefined;
 
-  // An unset password would otherwise let `password === undefined` succeed, i.e.
-  // an empty field would sign in as super admin.
+  // An unset or empty `SUPER_ADMIN_PASSWORD` refuses rather than admitting
+  // everybody. `.env` is the only authority for this identity, so a missing
+  // setting has to be a locked door and not an open one.
   const expected = config.superAdmin.password;
   if (expected === undefined || expected === '') return false;
 
@@ -357,19 +374,32 @@ async function actorFor(row: UserRow): Promise<Actor> {
 /**
  * Sign in.
  *
- * Two paths, one answer shape:
+ * Two paths and one answer shape:
  *
  *   the bootstrap address   the `.env` password decides, the default organization
  *                           is the tenant, and there is no `app_user` row.
- *   anything else           looked up in `app_user` by lower-cased email. There is
- *                           no password to check — see the file header — so a
- *                           *supplied* password is ignored rather than compared
- *                           against nothing and reported as wrong.
+ *   anything else           looked up in `app_user` by lower-cased email, and the
+ *                           password is checked against that row's `password_hash`.
+ *
+ * ★ EVERY REFUSAL COMES BACK THE SAME WAY, AND EACH ONE PAYS FOR IT. An unknown
+ *   address, a wrong password, and a row with no password set are three different
+ *   facts that must produce one 401 with one message, because the endpoint must
+ *   not be usable to ask which addresses have accounts. The consequence is that
+ *   they must also take the same *time*: a real row costs one `scrypt` run, and a
+ *   lookup that finds nothing has no hash to run, so it would answer in
+ *   microseconds and the timing would say what the message refused to. Hence
+ *   `standInHash()` on the paths that have nothing to compare against — they
+ *   verify against a hash no typed password can match, and the three cases end up
+ *   costing about the same.
+ *
+ * ★ A ROW WITH NO PASSWORD IS REFUSED, NOT ADMITTED. `password_hash` is nullable
+ *   because rows can predate the column. A null there must not fall through to
+ *   "there is no secret to check, so let them in" — that is precisely the hole
+ *   the column was added to close. The refusal is logged, because "this account
+ *   has no password" is an operator problem the caller cannot act on, and
+ *   `npm run set:password -- --email <address>` is the fix.
  */
-export async function authenticate(
-  emailRaw: string,
-  password: string | undefined,
-): Promise<SessionPayload> {
+export async function authenticate(emailRaw: string, password: string): Promise<SessionPayload> {
   const email = emailRaw.trim().toLowerCase();
 
   const bootstrap = checkBootstrap(email, password);
@@ -387,14 +417,33 @@ export async function authenticate(
   } else {
     await requireAppSchema('Sign-in');
     const row = await one<UserRow>(
-      'SELECT id, email, display_name, role, organization_id FROM app_user WHERE email = ?',
+      'SELECT id, email, display_name, role, organization_id, password_hash ' +
+        'FROM app_user WHERE email = ?',
       [email],
     );
-    // Same error as a wrong password, so this endpoint cannot be used to ask
-    // which addresses have accounts.
-    if (row === null) throw notRecognised();
-    const actor = await actorFor(row);
-    identity = { id: actor.id, email: actor.email, name: actor.name, role: actor.role, organization: actor.organization };
+
+    // ★ ONE `scrypt` RUN WHICHEVER WAY THIS GOES. `row === null` means there is no
+    //   hash to compare against, so the stand-in is used to spend the same time
+    //   and to give the comparison something real to do. A row whose hash is null
+    //   or unparseable is handled by `verifyPassword` answering `false`, which
+    //   also costs one run — so "no such address" and "address with no password"
+    //   are indistinguishable in both wording and duration.
+    const stored = row?.password_hash ?? null;
+    const ok = await verifyPassword(password, stored === null ? await standInHash() : stored);
+
+    if (row === null || !ok) {
+      // The caller is told nothing extra. The log is where the operator finds out
+      // that an account exists and simply cannot be signed in to yet.
+      if (row !== null && (stored === null || stored === '')) {
+        console.warn(
+          `[auth] "${email}" has no password set, so the sign-in was refused. ` +
+            `Set one with: npm run set:password -- --email ${email}`,
+        );
+      }
+      throw notRecognised();
+    }
+
+    identity = await actorFor(row);
     // Written *before* the reply is sent: see the note on `last_seen_at` below.
     await stampLastSeen(row.id);
   }

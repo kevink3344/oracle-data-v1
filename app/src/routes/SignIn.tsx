@@ -27,22 +27,45 @@
  *
  * Three things a reader would otherwise have to discover by reading the server:
  *
- *   1. **There is no password for an `app_user` row.** The endpoint treats the
- *      password as optional and ignores it for an address it knows, so this form
- *      says so rather than implying a credential that is being checked.
- *   2. **A wrong password and an unknown address answer with the same sentence.**
- *      That is deliberate on the server, and this page must not undo it by
- *      counting the failures or wording them differently.
+ *   1. **A password is checked for every account, members included.** It used to not
+ *      be: a row in `app_user` was signed in on the strength of its address, and this
+ *      header said exactly that. `app_user.password_hash` closes it, so the form now
+ *      asks for the credential the server actually verifies.
+ *   2. **A wrong password, an unknown address, and an account with no password set
+ *      answer with the same sentence.** That is deliberate on the server, and this
+ *      page must not undo it by counting the failures or wording them differently.
  *   3. **Signing out is local.** There is no revoke endpoint — sessions are a
  *      process-local map with a twelve-hour TTL — so the button says what it did:
  *      it dropped this browser's copy of the token.
+ *
+ * ── ★ WHY THE FORM IS TWO STAGES RATHER THAN TWO FIELDS
+ *
+ * A login form with both fields on it asks for a secret before it knows whose secret
+ * it is, which is how a password manager ends up offering to save a credential
+ * against an address that was typed wrong. Splitting it makes the address something
+ * the second screen *states* rather than a field it re-asks, so the reader confirms
+ * the account before choosing the password.
+ *
+ * ★ STAGE ONE ASKS THE SERVER NOTHING, AND THAT IS A DECISION RATHER THAN AN
+ *   OVERSIGHT. The obvious design is an endpoint that answers "does this address have
+ *   an account?", so stage one can refuse a stranger before they type anything. That
+ *   endpoint would be a directory lookup open to anybody: it would answer the exact
+ *   question the server's identical 401 exists to refuse, and it would answer it
+ *   faster and with a `200`. So the address is taken on trust here and the server
+ *   decides once, at the end. A typo therefore costs one password entry, and the
+ *   `Change` action on stage two is what makes that recoverable.
+ *
+ * ★ THE PASSWORD INPUT IS UNMOUNTED ON STAGE ONE, NOT HIDDEN ON IT. A hidden
+ *   `type="password"` is still in the document: a password manager will fill it, and
+ *   a reader tabbing through stage one lands in a field that stage has not reached.
+ *   Not rendering it is the only form of "not asked for yet" the browser believes too.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AppBrand from '../components/AppBrand';
 import { num, pluralise } from '../data/format';
-import { LEDGER_SCALE, recordsFloor } from '../data/ledgerScale';
+import { LEDGER_SCALE, recordsFloor, STORE_SCALE } from '../data/ledgerScale';
 import { useLedgerSummary, type LedgerObject } from '../data/ledgerSummary';
 import { capTotals, describeCapTotal, loadReadCaps, type ReadCapList } from '../data/readCaps';
 import { isSuperAdmin, signIn, signOut, useSession } from '../data/session';
@@ -76,6 +99,13 @@ function readFrom(state: unknown): string | null {
 /**
  * What this deployment's ledger holds — the tables, and the rows in each.
  *
+ * ★ ★ THE HEADLINE IS ABOUT **THIS STORE**, AND THE ORACLE SOURCE IS A SEPARATE, LABELLED
+ *   REFERENCE ONE PARAGRAPH DOWN. That distinction is the whole of the most recent change
+ *   here: the headline used to quote `LEDGER_SCALE` (Oracle, 197 M rows, dated 2026-09-22)
+ *   while the deployment it was drawn on holds 8,059,638 rows. Both figures still appear;
+ *   they are simply no longer allowed to swap labels — see `STORE_SCALE` in
+ *   `data/ledgerScale.ts` for the argument and `store:scale` for how it was taken.
+ *
  * ★ EVERY STATE THE READ CAN REACH IS DRAWN, INCLUDING THE ONE THAT FAILS.
  *   `useLedgerSummary` returns a four-case union rather than a nullable summary
  *   plus flags, so there is no path here that can fall through to an empty list and
@@ -98,10 +128,10 @@ function readFrom(state: unknown): string | null {
  *   would hide two of the objects the API serves. They go below a rule, excluded
  *   from the total, with the store they came from named.
  *
- * ★ THE FIGURE IS THE TOGGLE AND THE LISTS ARE FOLDED BEHIND IT. The two numbers are
- *   the answer a reader came for; the thirty-four rows are the proof and the
- *   provenance note is the caveat. Folding them means the sign-in card opens with
- *   the fact showing and the evidence one click away, instead of thirty-four rows
+ * ★ THE FIGURE IS THE TOGGLE AND THE LISTS ARE FOLDED BEHIND IT. The headline numbers are
+ *   the answer a reader came for; the one-row-per-object list is the proof and the
+ *   provenance note is the caveat. Folding them means the sign-in card opens with the
+ *   fact showing and the evidence one click away, instead of a fifty-odd row list
  *   setting the card's height on every visit.
  *
  *   `<details>`/`<summary>` RATHER THAN A BUTTON AND A `useState`. The disclosure is
@@ -269,159 +299,138 @@ function LedgerSnapshot() {
   const ledger = summary.objects.filter((object) => object.store === 'ledger');
   const app = summary.objects.filter((object) => object.store === 'app');
   /*
-   * ★ THE TOTAL IS A SUM OF WHAT IS SERVED, NOT A COUNT OF DISTINCT ROWS, AND THE
-   *   READER HAS TO BE TOLD.
+   * ★ THE THREE DERIVATIONS THAT FED THE CARD'S DESCRIPTION ARE GONE — DELETED, NOT LEFT
+   *   UNUSED, AND WHAT THEY CARRIED IS RECORDED HERE.
    *
-   *   `V_SEGMENT_LEGEND`, `V_ACCOUNT_POSITION` and `V_BUDGET_BY_ACCOUNT_PERIOD` have
-   *   no table on Oracle: they are composed over the base tables, so their rows are
-   *   already present in the total as base rows — 76,615 of them on the fund-04 take
-   *   of 2026-09-22, out of 197,019,139 across the 32 objects. Presented without
-   *   that, `197,019,139 records` reads as a row count of the ledger and overstates
-   *   it by the size of the three views.
+   *   This component used to print a paragraph under the figure, and the paragraph was
+   *   fed from three values derived at this exact point:
    *
-   *   ★ AND THE SCOPE, WHICH IS THE PART THIS COMMENT USED TO HAVE TO EXPLAIN AWAY.
-   *     It said these three views were "the only figures that follow the account
-   *     scope" and that the base tables were "counted whole, so a statement no fund
-   *     appears in" — both true of the endpoint as it was, and both the complaint
-   *     this change answers. They are counted through the scope now (see
-   *     `server/src/routes/meta.ts`, `countObjects`), so switching `FUND_CODE=02,04`
-   *     to `FUND_CODE=04` moves far more than the 920 rows it used to:
+   *     `scopeLine`   the account scope in words, built from `summary.scope`
+   *     `countedWhen` the age of the read, built from `summary.countedAt`
+   *     `composed`    the `V_`-prefixed objects, which are composed over base tables
    *
-   *         V_ACCOUNT_POSITION             1,272 →  1,262   (−10)
-   *         V_BUDGET_BY_ACCOUNT_PERIOD    74,955 → 74,045   (−910)
-   *         V_SEGMENT_LEGEND               1,308 →  1,308   (unscoped on purpose)
-   *         total                    197,020,059 → 197,019,139  (−920)
+   *   ★ THEY ARE NOT KEPT `just in case`, WHICH IS THE WHOLE POINT OF REMOVING THEM.
+   *     Each one existed to render inside that paragraph and nowhere else, so with the
+   *     paragraph gone they have nowhere left to render — and `noUnusedLocals` would
+   *     refuse them anyway. A derivation with no reader is not a spare part; it is a
+   *     claim about the payload that can drift out of step with the payload unnoticed.
    *
-   *     That table is kept because it is still the right shape for the views —
-   *     `−920 = −10 + −910`, and the third view is unmoved deliberately, since
-   *     `/api/coa/*` browses the whole chart of accounts and a legend scoped to one
-   *     fund would name a different set of levels than the pages it describes. What
-   *     it no longer means is that the total ignores the setting.
+   *   ★ WHAT THEY SAID THAT IS STILL TRUE, AND WHERE IT IS NOW ANSWERED INSTEAD:
    *
-   *   ★ THE ROWS THAT *CANNOT* FOLLOW THE SCOPE ARE STILL COUNTED WHOLE, AND THAT IS
-   *     NO LONGER A DISCLAIMER BUT A FIGURE. `PO_VENDORS` carries no account column:
-   *     a vendor is not in a fund, and asking which fund it belongs to has no answer.
-   *     The endpoint now reports `scopeMode: null` for every such object and totals
-   *     it in `unscopedObjects`, so the note below can say *how much of this total
-   *     the scope reaches* instead of conceding that none of it does.
+   *     The account scope is still read from this payload and still applied — by the
+   *     ledger routes that serve the pages behind sign-in, and on the Activity page,
+   *     which is where a reader is inside a session and has asked for figures. That is
+   *     the same reason the row counts moved there: the scope belongs where the reads
+   *     it narrows actually happen, not on a form nobody has signed in to yet.
    *
-   *   DERIVED FROM THE DATA, NOT FROM A LIST OF THREE NAMES. Every object this
-   *   ledger serves as a view is prefixed `V_` and no base table is; a hard-coded
-   *   triple would be a second source of truth for a fact the payload already
-   *   carries. The sentence appears only if such an object is actually counted.
+   *     The three composed `V_*` objects are still listed below, and this is the one
+   *     fact that was stated *only* in the deleted paragraph: their rows are already
+   *     present in the base tables beside them, so a reader adding the list up would
+   *     count them twice. The `V_` prefix is the visible half of the claim and
+   *     `server/src/routes/meta.ts` carries the derivation, so it stays recoverable —
+   *     it is simply no longer narrated on the sign-in card.
+   *
+   *     The Oracle source's own figure is still quoted, by `RecordedScale`, on the
+   *     states where this deployment's figure cannot be read — which is the same
+   *     sentence the deleted paragraph used, through `recordedProvenance()`.
    */
-  const composed = ledger.filter((object) => object.name.startsWith('V_'));
-
-  /**
-   * What the counts were narrowed to, in words — or `null` when the server declares none.
-   *
-   * ★ READ FROM THE PAYLOAD, NOT WRITTEN HERE. The scope is server configuration, and a
-   *   literal `Fund 04` in this component would keep saying so after the setting changed
-   *   — on the one screen whose job is to show what the setting did. `programs === null`
-   *   is the case worth wording carefully: the server's file is silent, so the program
-   *   list belongs to an organization row that does not exist until somebody signs in,
-   *   and the figure shown is therefore taken **by fund alone** — wider than what the
-   *   app will read a moment from now. Saying "fund 04" and stopping would overstate it.
-   */
-  const scopeLine = (() => {
-    const scope = summary.scope;
-    if (scope === null) return null;
-    const funds = scope.funds.map((f) => `fund ${f}`).join(', ');
-    const parts = [funds];
-    if (scope.programs === null) parts.push('every programme, until an organization is chosen');
-    else if (scope.programs.length > 0) parts.push(`programmes ${scope.programs.join('/')}`);
-    if (scope.startYear !== null) parts.push(`fiscal year ${scope.startYear} onward`);
-    return parts.join(' · ');
-  })();
-
-  /**
-   * What the note says about when this was read.
-   *
-   * ★ "AS THIS SCREEN LOADED" WAS TRUE AND IS NOW MISLEADING, WHICH IS A DIFFERENT
-   *   THING FROM BEING WRONG. It described a count — and there is no count here any
-   *   more. The card reads the descriptor list, which is a fact about the schema and
-   *   does not go stale the way a row total does, so dating it would attach a
-   *   timestamp to the one part of this payload that has no age.
-   *
-   *   The history, because it explains why the line is shaped this way: the claim was
-   *   about *this request* and was true while every request took its own count pass.
-   *   The server then memoised that pass per scope — so reloading could not start a
-   *   second 34-query pass over 197 M rows and starve the pool, which is what left this
-   *   card on "Counting the ledger…" — and a claim about the request stopped being a
-   *   claim about the figure. So the age was printed instead. Now the figures are gone
-   *   from this screen altogether (`?counts=false`), so there is nothing left to date.
-   *
-   *   `countedAt` is still honoured for a payload that carries one, because a caller
-   *   that asked for figures deserves the age of them. This screen simply never does.
-   */
-  const countedWhen = (() => {
-    if (summary.countedAt === null) return '— the descriptor list the API serves';
-    const at = new Date(summary.countedAt);
-    if (Number.isNaN(at.getTime())) return '— the descriptor list the API serves';
-    const seconds = Math.round((Date.now() - at.getTime()) / 1000);
-    if (seconds < 90) return 'less than a minute ago';
-    return `${Math.round(seconds / 60)} minutes ago, reused rather than counted again`;
-  })();
 
   /*
-   * ★ THE CARD LEADS WITH THE TABLE COUNT, THE RECORDED SCALE, AND THE LIVE CAP TOTAL.
+   * ★ THE CARD LEADS WITH THIS STORE'S OWN SHAPE, THEN THE BOUND ON WHAT WILL BE READ.
    *
-   *   This block used to read `32 tables · 197,019,139 records`, and the second half of
-   *   that was the most expensive read in the app: a `COUNT(*)` over `GL_BALANCES` at
-   *   157 M rows plus two composed views at ~13 s each, taken on every load of a page
-   *   nobody had signed in to yet. Measured across takes: 51 s, 67.5 s, 95.5 s, 204.3 s,
-   *   397.3 s and 307.7 s — the last of which lost its connection before answering. The
-   *   reported symptom was the screen sitting on "Counting the ledger…".
+   *   This block once read `32 tables · 197,019,139 records`, and the second half of that
+   *   was the most expensive read in the app: a `COUNT(*)` over `GL_BALANCES` at 157 M rows
+   *   plus two composed views at ~13 s each, taken on every load of a page nobody had
+   *   signed in to yet. Measured across takes: 51 s, 67.5 s, 95.5 s, 204.3 s, 397.3 s and
+   *   307.7 s — the last of which lost its connection before answering. The reported
+   *   symptom was the screen sitting on "Counting the ledger…".
    *
    *   Parallelising the count loop did not fix it (397.3 s sequential, 307.7 s with four
    *   workers), so the LIVE figure was removed from this screen instead of made faster.
    *   The request now asks for `counts=false` and the server answers from the descriptor
    *   list, which is exact and free.
    *
-   *   ★ ★ AND THE SCALE FIGURE COMES BACK — AS A *RECORDED* ONE, WHICH IS THE WHOLE
-   *     POINT OF THIS CHANGE. Management want a glimpse before they sign in, and a card
-   *     that says only "34 tables" gives them no sense of the data at all. So the three
-   *     figures are composed from what is *free*:
+   *   ★ ★ THEN IT WENT WRONG IN THE OTHER DIRECTION, AND THAT IS WHAT THIS CHANGE FIXES.
+   *     The scale figure came back as `LEDGER_SCALE` — the **Oracle** source, dated
+   *     2026-09-22 — and the headline read `55 tables the API serves · over 197 million`
+   *     over a store holding **8,059,638** rows. So the card had gone from a figure that
+   *     cost four minutes to a figure that was about the wrong database, in the one place
+   *     a reader is deciding whether the app they are opening is the real one.
    *
-   *       34 tables            the descriptor list — exact, and a schema fact
-   *       over 197 million     `LEDGER_SCALE`, measured off-line, WITH ITS DATE
+   *     ★ AND THE TWO HALVES DESCRIBED DIFFERENT SETS. `55` was the endpoint's
+   *       `objectCount` — descriptors unioned with the cap registry — and `197 million` was
+   *       34 descriptors counted on Oracle. A live count of one set beside a recorded total
+   *       of another, joined by a `·`. Two figures from two sources reading as one claim is
+   *       the shape of error the card exists to prevent, so the fix is not a new number: it
+   *       is making both halves facts about the same database.
+   *
+   *   ★ THE THREE FIGURES ARE NOW COMPOSED FROM WHAT IS *FREE*, AND ALL THREE ARE ABOUT
+   *     THIS DEPLOYMENT:
+   *
+   *       50 tables            `STORE_SCALE.tables` — every user table in the store
+   *       over 8 million       `STORE_SCALE.records`, floored, measured by `store:scale`
    *       up to N rows         the live cap total — a stored row, not a scan
    *
-   *     ★ THE MIDDLE ONE IS THE ONE THAT NEEDS CARE, AND IT IS HANDLED BY SAYING SO.
-   *       It is not this second's count and it does not pretend to be: the sentence
-   *       below names the day it was measured, the database it was measured against and
-   *       the scope it was taken under. That is the same rule the card applies in the
-   *       other direction when the server hands it a memoised figure — a number is
-   *       either current or accompanied by its date. A recorded figure *with* its
-   *       provenance is honest; the same figure presented as live is not.
+   *     ★ THE ROW FIGURE IS A *MEASURED SNAPSHOT*, AND IT IS FLOORED. It is a real
+   *       `COUNT(*)` over every table, so it is cheap enough to take on demand but not
+   *       cheap enough to take on every page load — hence a recorded constant rather than
+   *       a request, with its date and its store attached in the body below. `recordsFloor`
+   *       makes it `over 8 million` rather than `8,059,638` because a sync writes to this
+   *       store while the screen is up: a floor stays true as rows arrive, an exact figure
+   *       is a promise with an expiry.
    *
-   *     ★ AND IT IS A FLOOR (`over 197 million`), NOT THE EXACT `197,019,139`. An exact
-   *       figure is a promise that stops being true the moment a row is inserted;
-   *       `recordsFloor` is true before the next row and after it. See its own note —
-   *       it also survives a scope change, which the exact number would not.
+   *     ★ AND THE ORACLE FIGURE HAS NOT BEEN DELETED, ONLY DEMOTED AND LABELLED. It is
+   *       still the only thing that answers "how big was the ledger this came from", which
+   *       is a question management ask — so it stays in the body, quotes `LEDGER_SCALE`,
+   *       and names its database and its date. A number is either current or accompanied
+   *       by where it came from; what it must not do is sit behind this one's label, which
+   *       is what it was doing.
    *
    *   ★ WHAT IS STILL *NOT* HERE: THE LIVE COUNT, AND THE SCOPE EVIDENCE IT CARRIED. The
    *     sentence that compared `scopedRecords` against `ledgerRecords` — the one that
    *     showed fund 04 was actually narrowing the reads — cannot be made without a live
    *     pass, so it stays gone from this card. It belongs on the Activity page, which
-   *     counts these same objects inside a session where a wait is expected. The
-   *     recorded figure below is *not* a substitute for it: it is a scale reference,
-   *     and it says so.
+   *     counts these same objects inside a session where a wait is expected.
    */
   return (
     <details className="signin__scale">
       <summary className="signin__scale-head">
         <span className="signin__scale-figure">
-          {/* `pluralise` prints the number itself — `32 tables` — so the count is not
-              rendered separately here. It was, and the figure read
-              `32 tables · 10,378 10,378 records`. */}
-          {pluralise(summary.objectCount, 'table')} the API serves
-          {/* ★ THE RECORDED SCALE, IN THE HEADLINE, BECAUSE IT IS THE FIGURE MANAGEMENT
-              ARE LOOKING FOR. It is a floor with its date attached in the body below —
-              the headline carries the magnitude, the body carries the provenance, and
-              neither claims to be a live count. */}
-          {' · '}
-          {recordsFloor()}
+          {/*
+            ★ ★ THIS SENTENCE DESCRIBES THIS DEPLOYMENT'S STORE, AND IT DID NOT BEFORE.
+
+              It read `55 tables the API serves · over 197 million`, and the two halves
+              were not measurements of the same thing. `55` is `GET
+              /api/meta/ledger-summary`'s `objectCount` — the registered descriptors
+              unioned with the cap registry, deduplicated by table — i.e. what the *API is
+              configured to serve*. `over 197 million` was `LEDGER_SCALE`, a count of 34
+              descriptors taken against **Oracle** on 2026-09-22. On the deployment this
+              card is the front door of, the store holds **8,059,638** rows. So the
+              headline overstated the database by two orders of magnitude, in the one
+              place a reader is deciding whether what they are opening is the real one.
+
+            ★ AND IT PUT A LIVE COUNT BESIDE A RECORDED TOTAL OF A DIFFERENT SET, joined by
+              a `·` so the two read as one claim. That is the failure mode this card has
+              already been fixed for once — a figure presented in the present tense about a
+              store it did not measure — and the fix this time is to make both halves
+              facts about the same database.
+
+            ★ THE FIGURES NOW COME FROM `STORE_SCALE`, WHICH IS THIS STORE. `tables` is
+              every user table in the database (`sys.tables` / `sqlite_master`, shipped
+              tables excluded) and `records` is the sum of real `COUNT(*)`s over all of
+              them, cross-checked against `sys.partitions` — no object list and no account
+              scope, because the question is "how many rows are in this database" and any
+              restriction would make the answer to *that* question wrong. It is floored to
+              `over 8 million` by `recordsFloor` because a sync writes to this store while
+              the screen is up, so an exact figure would be a promise with an expiry.
+
+            ★ NEITHER FIGURE IS THE API'S OWN. `summary.objectCount` is 55 because it
+              counts the cap registry too, and 18 of those 55 cannot be counted at all —
+              so it is the right number for "what will this app read" (which the cap
+              sentence below answers) and the wrong one for "what is in this database".
+              The two sets are named separately for that reason rather than reconciled.
+          */}
+          {pluralise(STORE_SCALE.tables, 'table')}, {recordsFloor(STORE_SCALE)} rows
           {/*
             ★ THE CAP TOTAL IS APPENDED ONLY WHEN A CAP IS IN FORCE, AND THE CONDITION
               IS THE HONESTY OF THE SENTENCE RATHER THAN A LAYOUT CHOICE.
@@ -450,96 +459,36 @@ function LedgerSnapshot() {
       </summary>
 
       <div className="signin__scale-body">
-        <p className="signin__scale-note">
-          Read from <code>{summary.target}</code> {countedWhen}
-          {scopeLine === null ? (
-            <>, over every account &mdash; this server's configuration names no fund to narrow by.</>
-          ) : (
-            <>, restricted to {scopeLine}.</>
-          )}{' '}
-          The {pluralise(app.length, 'app-owned table')} the API also serves
-          {summary.appTarget === summary.target ? (
-            <> live in the same store and are listed below.</>
-          ) : (
-            <>
-              {' '}
-              live in <code>{summary.appTarget}</code> and are listed separately below.
-            </>
-          )}
-          {composed.length > 0 ? (
-            <>
-              {' '}
-              The {pluralise(composed.length, 'reporting view')} here
-              {' '}
-              {composed.length === 1 ? 'is' : 'are'} composed over the base tables rather than
-              stored, so they are listed alongside the tables they are built from.
-            </>
-          ) : null}
-          {/*
-            ★ THE ABSENCE OF ROW COUNTS IS STATED, NOT LEFT TO BE NOTICED.
-              A reader who saw `32 tables` alone and remembered `197,019,139 records`
-              would reasonably conclude the figures had broken. Saying that the counts
-              are not taken here — and where they are — is the difference between a
-              card that is deliberately quiet and one that looks broken.
+        {/*
+          ★ ★ THERE WAS A PARAGRAPH HERE AND IT IS DELETED — THE FIGURE ABOVE IS THE CARD.
 
-              ★ AND THE CAP SENTENCE ANSWERS THE QUESTION THAT REPLACES IT. A reader
-                who wants a scale figure now has one: not how many rows the ledger
-                holds (which costs a scan) but how many the app will read (which is a
-                stored row). The two are different claims and the card says which it
-                is making — see `describeCapTotal` for why the wording is `up to`. */}
-          {' '}This card lists what the ledger holds rather than how much of it there is:
-          counting the rows means a scan of every table, and the largest is 157 million
-          rows, which is not a wait to put in front of a sign-in form.
-          {/*
-            ★ THE RECORDED FIGURE'S PROVENANCE, STATED WHERE THE FIGURE IS QUOTED.
+            It ran to four sentences and it covered: the store the list was read from and
+            how many objects were in it, the account scope those reads were narrowed to,
+            the count of app-owned tables, the three composed `V_*` views, an explanation
+            of why no row counts are taken on this screen, and the Oracle provenance of the
+            figure for scale. Everything in it was accurate and every sentence had been
+            argued for on its own — and that is exactly what it had become: a paragraph
+            defending a headline to a reader who had not asked for the defence.
 
-              The headline says `over 197 million`. That is a figure taken off-line, and
-              the rule this card keeps is that a number is either current or accompanied
-              by its date — so it is accompanied by its date, its database and its scope,
-              here, immediately below it.
+            ★ THE REASON IT WENT IS THE REASON IT WAS WRITTEN. The figure above it is
+              "50 tables, over 8 million rows", and the point of putting a figure on a
+              sign-in card is that it can be read in passing. A reader who wants how the
+              number was taken can have it — the table list below is the same population
+              the paragraph was describing, and the pages behind sign-in do the explaining
+              where the reads actually happen.
 
-              ★ IT IS THE SAME SENTENCE THE FAILED-READ PATH USES, VIA `RecordedScale`, AND
-                THAT IS DELIBERATE RATHER THAN A SHORTCUT. Two copies of a provenance
-                sentence is how one of them silently stops being true — and this is now
-                the *second* place the recorded figure is quoted, which is exactly the
-                condition that made `RecordedScale` a component in the first place.
-          */}
-          {' '}
-          <strong>{recordsFloor()}</strong> records is a figure {recordedProvenance()} — stated
-          with its date rather than presented as this second&rsquo;s, because counting this ledger
-          live is a scan of 157 million rows and more. The live figures are on the Activity page
-          once you are signed in.
-          {capSummary !== null && capSummary.capped > 0 ? (
-            <>
-              {' '}
-              How much the app will <em>read</em> is bounded separately, and that is a stored
-              setting rather than a measurement: {describeCapTotal(capSummary)} out of{' '}
-              {pluralise(capSummary.total, 'ledger object')}, set in Administration › Read caps. The
-              objects with no cap are read whole.
-              {/*
-                ★ THE TWO LISTS ARE NOT THE SAME LIST, AND THE CARD SAYS SO.
-                  This card lists the 34 descriptors the API serves; the cap registry governs
-                  50 ledger objects, because it also covers the `WCSEXP_*` views and the two AP
-                  base tables that the live payables routes read but no descriptor describes.
-                  So a cap can exist on an object with no row above — and the headline total
-                  would include it while nothing on the card showed it.
+            ★ WHAT WAS IN IT THAT LIVES NOWHERE ELSE, NAMED SO IT IS NOT LOST: that the
+              three `V_*` objects below are composed over the base tables rather than
+              stored, so their rows are already present in the base tables listed beside
+              them. A reader adding the list up will count them twice. The `V_` prefix is
+              the visible half of that claim, and `server/src/routes/meta.ts` carries the
+              derivation — so it is recoverable, it is just no longer narrated here.
 
-                  The sentence is emitted ONLY when the two sets actually differ, and it names
-                  the count rather than the objects: a reader who wants the list has the Read
-                  caps page, and enumerating 21 view names on a sign-in card would be the
-                  opposite of what this card is for.
-              */}
-              {capSummary.total > summary.objectCount ? (
-                <>
-                  {' '}
-                  That register covers {capSummary.total - summary.objectCount} more objects than the
-                  list above — the extract views and the AP base tables the payables routes read,
-                  which no descriptor here describes.
-                </>
-              ) : null}
-            </>
-          ) : null}
-        </p>
+            ★ AND THE THREE DERIVATIONS THAT FED IT ARE DELETED WITH IT, at the top of this
+              component, with a comment recording where each of their facts is answered
+              now. Rebuilding this paragraph means rebuilding them; that is the intended
+              cost rather than an oversight.
+        */}
 
         <ul className="signin__ledger">
           {ledger.map((object) => (
@@ -750,17 +699,55 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /**
+   * Which of the two questions is on screen. `'email'` first, always — the split and
+   * its reasons are in the module header.
+   */
+  const [stage, setStage] = useState<'email' | 'password'>('email');
 
   const signedIn = user?.authenticated === true;
   const from = readFrom(location.state);
+  const address = email.trim();
+
+  /**
+   * Stage one: take the address, ask nothing, move on.
+   *
+   * ★ THE EMPTY-ADDRESS GUARD IS HERE AS WELL AS ON THE BUTTON. The button is disabled
+   *   while the field is empty, but implicit submission — Enter inside a text input —
+   *   does not consult the button's state in every browser, and advancing on an empty
+   *   address would put a blank value on a screen whose whole job is to state it.
+   */
+  function onAdvance(event: React.FormEvent) {
+    event.preventDefault();
+    if (address === '') return;
+    setProblem(null);
+    setStage('password');
+  }
+
+  /**
+   * Back to the address, which is how a mistyped one gets corrected.
+   *
+   * ★ IT CLEARS THE PASSWORD, AND THAT IS NOT TIDINESS. The password was typed for the
+   *   address being abandoned; carrying it forward would submit one account's secret
+   *   against another account's address. There is no case where keeping it is right.
+   */
+  function onBack() {
+    setProblem(null);
+    setPassword('');
+    setStage('email');
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy) return;
+    // ★ GUARDED HERE, NOT ONLY ON THE BUTTON — see the note on `onAdvance`. A request
+    //   with an empty password is refused 400 by the server's body schema, and that
+    //   would surface as a validation failure rather than as the half-filled form it
+    //   actually is.
+    if (busy || password === '') return;
     setBusy(true);
     setProblem(null);
     try {
-      const who = await signIn(email.trim(), password || undefined);
+      const who = await signIn(address, password);
       /*
        * ★ THE PAGE THEY WERE TRYING TO REACH OUTRANKS THE ROLE DEFAULT.
        *
@@ -778,6 +765,11 @@ export default function SignIn() {
       navigate(from ?? (isSuperAdmin(who) ? '/settings' : '/'), { replace: true });
     } catch (err) {
       setProblem(err instanceof Error ? err.message : 'The sign-in did not go through.');
+      // ★ CLEARED ON FAILURE, INCLUDING ON A NETWORK FAILURE WHERE RETYPING THE SAME
+      //   PASSWORD WOULD HAVE WORKED. A wrong password left in the box is the one
+      //   thing a reader is most likely to resubmit unchanged, and an empty field
+      //   says plainly that the next attempt starts from nothing.
+      setPassword('');
     } finally {
       setBusy(false);
     }
@@ -870,38 +862,61 @@ export default function SignIn() {
             </p>
           </div>
         ) : (
-          <form className="signin__body" onSubmit={onSubmit} noValidate>
+          /*
+           * ★ ONE <form>, TWO SUBMIT HANDLERS, CHOSEN BY STAGE.
+           *
+           *   Stage one's handler never leaves the browser — it validates the address is
+           *   present and moves on. Stage two's is the one that talks to the server. Both
+           *   are wired to `onSubmit` on the same element, so Enter works on both stages
+           *   and the browser's own submit machinery — which is what a password manager
+           *   watches — sees a single form throughout rather than two.
+           *
+           *   ★ A SECOND <form> WOULD HAVE BEEN THE EASY VERSION AND THE WORSE ONE. The
+           *     save-credential heuristic keys on a form that was submitted, and two
+           *     forms is two submissions it has to reconcile.
+           */
+          <form
+            className="signin__body"
+            onSubmit={stage === 'email' ? onAdvance : onSubmit}
+            noValidate
+          >
             <div className="signin__head">
               <h2 className="signin__title">Sign in</h2>
               <span className="signin__tag">{from ? 'to continue' : 'required'}</span>
             </div>
 
             {/*
-              ★ THE LEDE PARAGRAPH THAT SAT HERE IS GONE — the one paragraph between
-                this heading and the first field.
+              ★ THE NOTICE IS GATED TO STAGE TWO, AND NOT ONLY BECAUSE `onBack` CLEARS IT.
 
-                It said two things: that the application needs a session before it
-                will open anything, and that a session carries the organization whose
-                scope the registers filter by. Neither is a fact a person signing in
-                can act on. The heading above already says `Sign in` and the tag
-                beside it already says `required`, so the first sentence restated the
-                form's own furniture; the second explained the ledger rather than the
-                login, in the one place a reader has no way to check a claim about a
-                fund or a fiscal year.
+                `problem` can only be set by a submission, and only stage two submits —
+                so in practice it is already null by the time stage one renders. The gate
+                is here because that is a property of two other functions rather than of
+                this one: a notice reading "That did not sign in" above a form that asks
+                for one address and no credential describes something the reader cannot
+                see. Gating it makes the invariant local instead of relying on the fact
+                that leaving stage two happens to tidy up. Two guards, one of which is
+                load-bearing.
 
-                ★ IT WAS ALSO THE LARGEST BLOCK OF PROSE ON THE SCREEN, SITTING
-                  ABOVE THE FIELDS. A login form asks for two things. Sending the
-                  reader through a paragraph to reach them is what the removal is
-                  for.
+              ★ THERE IS NO "FORGOT PASSWORD" LINK HERE, AND ITS ABSENCE IS A DECISION
+                RATHER THAN AN OVERSIGHT.
 
-              ★ AND NOTHING CHECKED IT. Removing it breaks no assertion and no test —
-                the sentence existed only in this file. If the destination warning is
-                ever thought to be missing: it is not. The `signin__tag` reads
-                `to continue` when `from` is set, and the signed-in state's button
-                reads `Continue where you were`, so `from` stays defined and used.
+                There is no self-service reset: `/admin/users` is declared `built: false`,
+                there is no mail path out of this application, and the only way a password
+                is set is an operator running `npm run set:password -- --email <address>`.
+                A link promising a reset would therefore have nowhere to go, and the
+                honest version of it is a paragraph telling the reader to find an
+                administrator — which is a sentence on the login screen that changes
+                nothing for the reader and restates a runbook that belongs in `docs/`.
+
+                ★ THE PLACE THIS IS ACTUALLY A PROBLEM, NAMED: a member who forgets their
+                  password currently has no path at all, on screen or off it. The refusal
+                  is the generic 401, deliberately, so the server cannot be asked which
+                  accounts exist — which means nobody can even tell a locked-out member
+                  apart from a stranger. That is a gap in the feature, not in this file,
+                  and it should be closed with a reset flow rather than with a sentence
+                  here.
             */}
-
-            {problem ? (
+            {problem !== null && stage === 'password' ? (
               /* ★ ONE sentence for a wrong password and for an address that does not exist,
                  because that is what the endpoint does on purpose. The wording here must not
                  add an implication the server took trouble to avoid. */
@@ -914,92 +929,165 @@ export default function SignIn() {
             ) : null}
 
             <div className="field">
-              <label className="field__label" htmlFor="signin-email">
-                Email Address <span className="field__req">required</span>
-              </label>
-              {/*
-                ★ THE HINT THAT USED TO SIT UNDER THIS INPUT IS GONE, AND SO IS THE
-                  `aria-describedby` THAT POINTED AT IT.
+              {stage === 'email' ? (
+                <>
+                  <label className="field__label" htmlFor="signin-email">
+                    Email Address <span className="field__req">required</span>
+                  </label>
+                  {/*
+                    ★ THE HINT THAT USED TO SIT UNDER THIS INPUT IS GONE, AND SO IS THE
+                      `aria-describedby` THAT POINTED AT IT.
 
-                It explained which column the server looks an address up in — true, and
-                addressed to the wrong reader. This is the *first* field of the first
-                screen of the application, and its subject was `SUPER_ADMIN_EMAIL` and
-                `app_user`, which is a note for whoever maintains the login rather than
-                for whoever has to use it. The one fact a person signing in needs is
-                already in the input: the placeholder shows the address.
+                    It explained which column the server looks an address up in — true,
+                    and addressed to the wrong reader. This is the *first* field of the
+                    first screen of the application, and its subject was
+                    `SUPER_ADMIN_EMAIL` and `app_user`: a note for whoever maintains the
+                    login rather than for whoever has to use it.
 
-                ★ LEAVING `aria-describedby="signin-email-hint"` IN PLACE WOULD HAVE
-                  BEEN WORSE THAN LEAVING THE PARAGRAPH. A description pointing at an id
-                  that does not exist resolves to nothing, so it reads as "this field
-                  has no hint" while being indistinguishable in the source from one that
-                  has — the kind of dangling reference that is invisible until an
-                  accessibility audit reports it. If the hint ever comes back, the
-                  attribute comes back with it.
-              */}
-              <input
-                id="signin-email"
-                className="input"
-                type="email"
-                value={email}
-                autoComplete="username"
-                spellCheck={false}
-                autoFocus
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@oracleinsights.local"
-              />
+                    ★ LEAVING `aria-describedby="signin-email-hint"` IN PLACE WOULD HAVE
+                      BEEN WORSE THAN LEAVING THE PARAGRAPH. A description pointing at an
+                      id that does not exist resolves to nothing, so it reads as "this
+                      field has no hint" while being indistinguishable in the source from
+                      one that has — the kind of dangling reference that is invisible
+                      until an accessibility audit reports it. If the hint ever comes
+                      back, the attribute comes back with it.
+
+                    ★ AND THE PLACEHOLDER THAT STOOD IN FOR IT IS GONE TOO. It read
+                      `admin@oracleinsights.local`, which is the *bootstrap* address —
+                      the one account that is not in `app_user` and that the deployment
+                      may not even have configured. As a grey example in the application's
+                      first input it is indistinguishable from a suggestion, and the
+                      reader it misleads is the one account that could have signed in
+                      anyway. A placeholder that names a real address is a worse hint
+                      than no placeholder; the label above already says what to type.
+                  */}
+                  <input
+                    id="signin-email"
+                    name="email"
+                    className="input"
+                    type="email"
+                    value={email}
+                    autoComplete="username"
+                    spellCheck={false}
+                    autoFocus
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  {/*
+                    ★ THE ADDRESS IS STATED, NOT RE-ASKED, AND IT IS TEXT RATHER THAN A
+                      DISABLED OR READ-ONLY INPUT.
+
+                    A disabled input is not focusable, not submitted, and announced by a
+                      screen reader as a form control — one that cannot be used. A
+                      read-only input is a control the reader is invited to try. Neither
+                      is what this is: the address has been answered, the question is
+                      over, and what belongs on screen is the *fact*. So it is a
+                      `<span>`, and the only control beside it is the one that undoes it.
+
+                    ★ THE COST, NAMED: with no username input in the DOM at submit time,
+                      a password manager may not offer to save the credential. That is a
+                      real loss and it is the accepted half of the trade, because the
+                      alternative — a control on screen pretending to be editable — is a
+                      worse one on every other axis. The address is one line and the
+                      reader has just typed it.
+                  */}
+                  <span className="field__label" id="signin-address-label">
+                    Email Address
+                  </span>
+                  <div className="signin__address" aria-labelledby="signin-address-label">
+                    <span className="signin__address-value">{address}</span>
+                    <button type="button" className="signin__address-change" onClick={onBack}>
+                      Change
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="field">
-              <label className="field__label" htmlFor="signin-password">
-                Password
-              </label>
-              {/*
-                ★ THE HINT UNDER THIS INPUT IS GONE TOO, FOR THE SAME REASON AS THE ONE
-                  UNDER THE EMAIL FIELD — and the sentence it carried is worth keeping
-                  somewhere, because it is the one fact here that is *not* about how the
-                  form is built.
+            {/*
+              ★ THE PASSWORD FIELD EXISTS ONLY ON STAGE TWO, AND THAT IS LITERAL. It is
+                not hidden, not `disabled`, and not rendered at all while the address is
+                being asked for — see the module header for why that distinction is the
+                whole reason the split is worth making.
+            */}
+            {stage === 'password' ? (
+              <div className="field">
+                <label className="field__label" htmlFor="signin-password">
+                  Password <span className="field__req">required</span>
+                </label>
+                {/*
+                  ★ THE HINT UNDER THIS INPUT IS GONE, AND THE SENTENCE IT CARRIED IS
+                    KEPT SOMEWHERE THAT MATTERS MORE.
 
-                It said that an unknown address and a wrong password answer with one
-                sentence on purpose, so the form cannot be used to discover which
-                addresses exist. That is a real property of the endpoint, and its
-                consequence is the `notice--err` above: whatever goes wrong, the same
-                sentence comes back, and a reader has to be told not to read it as a
-                partial answer. The notice already states it in the place it matters —
-                at the moment it happens, rather than pre-emptively under a field.
+                  It said that an unknown address and a wrong password answer with one
+                  sentence on purpose, so the form cannot be used to discover which
+                  addresses exist. That is a real property of the endpoint, and its
+                  consequence is the `notice--err` above: whatever goes wrong, the same
+                  sentence comes back, and a reader has to be told not to read it as a
+                  partial answer. The notice says that at the moment it happens rather
+                  than pre-emptively under a field.
 
-                So the removal is a relocation, not a deletion. If the error notice is
-                ever reworded, this is the claim it has to keep.
+                  So the removal is a relocation, not a deletion. If the error notice is
+                  ever reworded, this is the claim it has to keep.
 
-                ★ AND THE `aria-describedby` GOES WITH THE PARAGRAPH. `Password` now has
-                  no description at all, which is correct — a described-by pointing at an
-                  id that does not exist fails silently and reads as a field that has
-                  none, so the two have to move together in both directions.
-              */}
-              <input
-                id="signin-password"
-                className="input"
-                type="password"
-                value={password}
-                autoComplete="current-password"
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+                  ★ AND THE `aria-describedby` GOES WITH THE PARAGRAPH. `Password` has no
+                    description at all, which is correct — a described-by pointing at an
+                    id that does not exist fails silently and reads as a field that has
+                    none, so the two have to move together in both directions.
+
+                  ★ `required` IS SHOWN BUT NOT SET. The form carries `noValidate` and the
+                    submit handler is the guard, so an attribute would add a second,
+                    browser-drawn refusal that fires before the server is asked and
+                    describes the field rather than the request. The badge is there for
+                    the same reason it is on the address: it is what makes a disabled
+                    `Sign in` button self-explanatory instead of broken.
+                */}
+                <input
+                  id="signin-password"
+                  name="password"
+                  className="input"
+                  type="password"
+                  value={password}
+                  autoComplete="current-password"
+                  autoFocus
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            ) : null}
 
             <div className="idcard__actions">
-              <button
-                type="submit"
-                className="btn btn--primary"
-                disabled={busy || email.trim() === ''}
-                aria-describedby={email.trim() === '' ? 'signin-blocked' : undefined}
-              >
-                {busy ? 'Signing in…' : 'Sign in'}
-              </button>
-              {email.trim() === '' ? (
-                <p className="field__hint" id="signin-blocked">
-                  An email address is required. The password is not, for an address the server
-                  already knows.
-                </p>
-              ) : null}
+              {stage === 'email' ? (
+                /*
+                 * ★ IT IS A SUBMIT BUTTON AND NOT A `type="button"` WITH AN `onClick`,
+                 *   WHICH IS THE ONE THING THAT MAKES ENTER WORK FOR FREE. A reader who
+                 *   types an address and presses Enter is the commonest way through this
+                 *   screen; a plain button would leave that key doing nothing at all.
+                 *
+                 * ★ DISABLED WHILE THE FIELD IS EMPTY, AND THE `required` BADGE ABOVE IS
+                 *   THE WHOLE EXPLANATION. The sentence that used to sit here said an
+                 *   email was required and that the password was not, "for an address the
+                 *   server already knows" — which was true when it was written and is
+                 *   now false twice over: the password is required for every account, and
+                 *   there is nothing on this stage that could ask for it. Rather than
+                 *   reword a hint into the space between a label and a button, it is
+                 *   gone: `Email Address … required` names the field, `Next` names the
+                 *   action, and a disabled button beside a field marked required needs no
+                 *   sentence to explain itself.
+                 */
+                <button type="submit" className="btn btn--primary" disabled={address === ''}>
+                  Next
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={busy || password === ''}
+                >
+                  {busy ? 'Signing in…' : 'Sign in'}
+                </button>
+              )}
             </div>
 
             {/*
@@ -1043,10 +1131,12 @@ export default function SignIn() {
                 after the action and not before it — see the scroll cap in
                 `styles/signin.css`.
 
-              ★ AND IT IS STILL NOT A FOOTNOTE. `.signin__foot` below the card is
-                about the screen (what it does not protect); this is about the data
-                (what is behind it). Same reason it does not belong under the lede:
-                the subject is the ledger, not the form.
+              ★ AND IT IS NOT A FOOTNOTE. The card has nothing left below it: the
+                paragraph that used to sit there is gone, and with it the distinction
+                this comment drew between the screen (what it does not protect) and the
+                data (what is behind it). What survives is one place, not two — the
+                scale belongs to the ledger, so it sits beside the button that opens
+                the ledger, and the card ends there.
             */}
             <LedgerSnapshot />
           </form>
@@ -1054,29 +1144,35 @@ export default function SignIn() {
       </div>
 
       {/*
-        ★ THE FOOT NOTE SAYS WHAT THE SCREEN IS NOT. A login screen invites a reader to
-          assume it is what keeps the data in, and in this app that assumption would be
-          wrong.
+        ★ THE FOOT NOTE IS GONE, AND THE ARGUMENT FOR IT IS WORTH RECORDING PRECISELY
+          BECAUSE IT WAS A GOOD ONE THAT LOST.
 
-        ★ THIS SENTENCE USED TO LEAD WITH \"THE EXTRACT ITSELF IS SERVED AS A STATIC
-          FILE\", AND THAT STOPPED BEING THE POINT WHEN THE REGISTERS WERE POINTED AT
-          THE LIVE LEDGER. The extract is still a static file answered whether or not
-          anybody signs in — but nothing the reader is about to use reads it any more,
-          so naming it first warned about a bypass of a thing the application no
-          longer goes through, and read as an aside about a file rather than about the
-          data. The fact that survives the change is the one level down: the API is
-          what refuses, and this screen is a convenience in front of it.
+        It read: "This screen is for the reader, not for the data. Every register is
+        answered by the server, which re-checks the session on each request, and the
+        guarded writes are refused outright for anybody without one." Every word of that
+        is true, and it named the mechanism — re-checking the session — rather than the
+        promise, which is the harder and better half of the craft.
 
-        ★ IT NAMES THE MECHANISM (\"re-checks the session on each request\") RATHER THAN
-          THE PROMISE (\"is secure\"). A promise is not checkable and every application
-          makes it; the mechanism is what a reader can go and look at, and it is also
-          the reason the two sentences above it are safe to say at all.
+        ★ AND IT WAS STILL THE WRONG SENTENCE FOR THIS SCREEN.
+
+          It answered a question the reader has not asked yet. Nobody arriving at a login
+          form is weighing whether the application's authorization is enforced somewhere
+          other than here; they are deciding whether to type an email. The paragraph's
+          subject was the security architecture, and its position was the one place on
+          the screen a reader looks last.
+
+          ★ THE CLAIM DID NOT NEED THE SENTENCE. Anyone who signs in is told the same
+            thing at the moment it matters: `.idcard`'s hint on the signed-in card says
+            signing out only drops this browser's copy of the token, and that there is no
+            revoke endpoint. That is the architecture note in the one place it is
+            actionable — beside the button whose limits it describes.
+
+          ★ AND THE LIVE PROOF OF IT IS IN THE OTHER DIRECTION FROM THE PROSE. Asking the
+            server without a session answers 401; asking a guarded route with somebody
+            else's organization answers 403. Both were confirmed by request, not by
+            reading the middleware — so the property the footnote asserted is verified,
+            and it is verified in `server/src/scripts/smoke.ts` where it belongs.
       */}
-      <p className="signin__foot">
-        This screen is for the reader, not for the data. Every register is answered by the server,
-        which re-checks the session on each request, and the guarded writes are refused outright for
-        anybody without one.
-      </p>
     </div>
   );
 }

@@ -300,9 +300,21 @@ GO
 -- ----------------------------------------------------------------------------
 --  app_user — who may sign in, and which tenant they see.
 --
---  ★ NO PASSWORD COLUMN, DELIBERATELY. See the source file: a column named
---    `password_hash` holding nothing would be worse than its absence, because a
---    reader would assume it was the real thing.
+--  ★ `password_hash` HOLDS A SALTED SCRYPT DERIVATIVE, NEVER A PLAINTEXT
+--    PASSWORD — `scrypt$N$r$p$salt$key`, written and read by
+--    `server/src/auth/password.ts`. The cost parameters travel with each row so
+--    raising them later does not invalidate the rows written today.
+--
+--    It is NULLABLE because "this account has no password" is a real state and
+--    not an empty password. Every row that exists today predates the column, so
+--    a sign-in for such a row is REFUSED rather than allowed — an absent hash
+--    must never come to mean "any password will do". An operator sets one with
+--    `npm run set:password -- --email <address>`.
+--
+--  ★ THE BOOTSTRAP PAIR IN `.env` IS CHECKED BEFORE THIS TABLE, so it remains the
+--    way in on a fresh store whose `app_user` is empty. It is a deployment
+--    convenience rather than an account: gitignored, six digits, no lockout. The
+--    change is that it is no longer the only credential the server can check.
 --
 --  ★ `organization_id` IS NULLABLE EVEN THOUGH EVERY USER BELONGS TO ONE.
 --    "Belongs to an organization" and "has been given one here yet" are different
@@ -323,6 +335,16 @@ CREATE TABLE dbo.app_user (
                     CONSTRAINT CK_app_user_role CHECK (role IN ('super_admin','member')),
 
   organization_id INT NULL,
+
+
+  -- A salted scrypt derivative, never a plaintext password. NULL means no
+  -- credential has been set for this account, and the sign-in path REFUSES such
+  -- a row rather than accepting anything. See the header note.
+  --
+  -- 200 characters is room for `scrypt$N$r$p$salt$key` at the current settings
+  -- (about 130) with space for them to grow — a longer derived key or a wider
+  -- salt is a change that must not need a schema change to land.
+  password_hash   NVARCHAR(200) NULL,
 
   created_at      NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126)),
 

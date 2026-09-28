@@ -129,7 +129,7 @@
  *
  * ★ `--text-muted` AND NOT `--text-faint` FOR THE CHEVRON. Faint fails AA and this
  * marker is the only thing on the card saying the block can be opened — see
- * `.signin__foot` for the same reasoning applied to a sentence. */
+ * `.signin__scale-head` for the same reasoning applied to a glyph. */
 .signin__scale-head {
   display: flex;
   align-items: center;
@@ -327,7 +327,7 @@
 
 /* ★ `not counted` IS NOT A NUMBER, SO IT IS NOT SET LIKE ONE — AND IT IS NOT SET IN
    `--text-faint` EITHER. The faint token fails AA for text a reader is expected to
-   read (see `.signin__foot`), and this is the one cell on the card that is telling
+   read (see `.signin__scale-head`), and this is the one cell on the card that is telling
    the reader something is missing. Italic, in the muted colour, and never a `0`. */
 .signin__ledger-count--none {
   font-style: italic;
@@ -634,20 +634,94 @@
   margin-top: 0;
 }
 
-/* --- the footnote ---------------------------------------------------------- */
+/* --- the stated address: stage two's replacement for an input -------------- */
 
-.signin__foot {
-  /* Follows the card, which is what keeps the two left edges aligned. */
-  width: min(580px, 100%);
-  margin: 0;
-  font-size: 0.6875rem;
-  line-height: 1.55;
-  text-align: center;
-  /* `--text-muted` and not `--text-faint`: this sits on `--app-bg`, and
-     `--text-faint` (#a3a3a3 on #f5f5f5) fails AA at any size for text a reader is
-     expected to read. The faint token is for labels standing in for a value that
-     is absent, not for a sentence. */
-  color: var(--text-muted);
+/* ★ THIS IS WHAT REPLACED A SECOND INPUT, AND IT HAS TO LOOK LIKE AN ANSWER RATHER
+   THAN LIKE A FIELD THAT FAILED TO LOAD.
+ *
+ * On stage two the address is settled: it was asked for, it was given, and the only
+ * thing left to do with it is undo it. So it is text, and the one control beside it
+ * is the one that changes it.
+ *
+ * ★ EVERY BOX METRIC BELOW IS COPIED FROM `.input` — same padding, same border width,
+ *   same font size, same line-height. A reader pressing `Next` must not see the card
+ *   jump by four pixels between the two stages, and the surest way to prevent that is
+ *   to not invent a second set of numbers. The four lines that differ are the fill and
+ *   the edge, and those are the four that are supposed to.
+ *
+ * ★ SUNKEN FILL, DASHED EDGE. That is the whole visible difference from a field, and
+ *   it is deliberate that it is carried by colour and border rather than by a
+ *   `disabled` or `readonly` attribute: both of those are form controls, and this is
+ *   not one. Nothing here is announced as a control that cannot be used. */
+.signin__address {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* ★ `--text-body`, NOT THE `--text-muted` EVERY OTHER SECONDARY LINE ON THIS CARD USES.
+ *
+ * Those are provenance — the reader can skip them and lose nothing. This one cannot be
+ * skipped: it is the answer to the question the previous stage asked, and the whole
+ * reason stage two does not re-ask it. Muting it would make the address the quietest
+ * thing on a screen whose entire premise is that it is settled.
+ *
+ * `overflow-wrap: anywhere` for the reason `.signin__scale-note` has it: an email
+ * address has no break opportunity in it, and this card is held at 580px.
+ *
+ * ★ AND IT IS NOT IN `--text-faint`, which is the token that would say "this value is
+ *   absent" — the exact opposite of what this line is claiming. */
+.signin__address-value {
+  min-width: 0;
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* ★ A TEXT BUTTON, NOT A SECOND `.btn`.
+ *
+ * The action row below already ends the card with the primary button, and two
+ * button-shaped things in a column this short read as a choice between them. `Change`
+ * is a correction, not the point of the screen, and it is set as one.
+ *
+ * ★ `margin-left: auto` RATHER THAN A SPACER ELEMENT, so the control sits at the far
+ *   edge whether the address is eighteen characters or forty-eight — and so nothing
+ *   has to be added to the markup to keep it there. */
+.signin__address-change {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Thickening the rule rather than changing the colour: `--primary-color` is already at
+   its contrast ceiling against this fill, and a hover that moved it would be a hover
+   that made the text harder to read. */
+.signin__address-change:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* ★ REQUIRED, BECAUSE THE RULE ABOVE REMOVED THE BORDER. A `border: 0` button loses the
+   browser's default focus ring along with its box, so without this the control would be
+   keyboard-reachable and invisible from the keyboard — the one combination that makes
+   an accessibility bug unfindable by the person it affects. */
+.signin__address-change:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* --- narrow screens -------------------------------------------------------- */

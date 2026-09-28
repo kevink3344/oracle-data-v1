@@ -512,6 +512,33 @@ const COLUMN_ADDITIONS: readonly { table: string; column: string; declaration: s
     column: 'background_strength',
     declaration: 'INTEGER',
   },
+  {
+    /**
+     * `app_user.password_hash` — a salted scrypt derivative, or NULL.
+     *
+     * ★ THIS ONE IS A LOCK, NOT A READING, AND THAT CHANGES WHAT A MISTAKE COSTS.
+     *   The entries above are columns a screen reads; a store that never received
+     *   one shows a stale picture or a 500. This column *is* the credential. A
+     *   store that never receives it answers every member sign-in with
+     *   `no such column: password_hash` — and, worse, a store that receives the
+     *   column but not the values has members who can no longer get in at all.
+     *
+     * ★ IT IS NULLABLE AND THAT IS THE SAFE DIRECTION. `app_user` ships empty, so
+     *   in practice no row is affected today. When a row does exist without a hash
+     *   the sign-in is REFUSED (`authenticate()` treats an absent hash as a failed
+     *   comparison), which is the recoverable failure: an operator runs
+     *   `npm run set:password` and the account works. The alternative — treating
+     *   an absent hash as "no password required" — would make the column's absence
+     *   a back door, which is the exact behaviour this change exists to remove.
+     *
+     * ★ `TEXT` WITH NO DECLARED LENGTH, like every other string on this arm. SQLite
+     *   columns are typeless, so the declaration is documentation; the SQL Server
+     *   arm below carries the real 200-character bound.
+     */
+    table: 'app_user',
+    column: 'password_hash',
+    declaration: 'TEXT',
+  },
 ];
 
 /**
@@ -652,6 +679,31 @@ const COLUMN_ADDITIONS_SQLSERVER: readonly { table: string; column: string; decl
     table: 'dbo.project',
     column: 'background_strength',
     declaration: 'INT NULL',
+  },
+  {
+    /**
+     * `app_user.password_hash` — a salted scrypt derivative, or NULL.
+     *
+     * ★ THIS IS THE COLUMN THE WHOLE MECHANISM WAS BUILT IN ANTICIPATION OF. The
+     *   note on `applyColumnAdditionsSqlServer` above predicted it — *"the day a
+     *   SQL Server app store needs a column added"* — and named the background
+     *   image as the first case. This is the second, and it is the one where being
+     *   wrong matters most: the live `dbo.app_user` is guarded by
+     *   `IF OBJECT_ID(...) IS NULL`, so a `password_hash` added only to the DDL body
+     *   would never reach it, and every sign-in would fail with
+     *   `Invalid column name 'password_hash'` instead of with a credential check.
+     *
+     * ★ `NVARCHAR(200) NULL`, VERBATIM, INCLUDING THE `NULL`. The stored string
+     *   `scrypt$16384$8$1$<24-char salt>$<88-char key>` is about 130 characters; 200
+     *   leaves room for a wider salt or a longer key without a second migration.
+     *   The `NULL` is the same NULL the SQLite arm declares, so the two paths cannot
+     *   drift into different shapes — which is the rule this pair of lists exists to
+     *   keep. It is nullable so a row carries "no credential set", and
+     *   `authenticate()` refuses such a row rather than accepting any password.
+     */
+    table: 'dbo.app_user',
+    column: 'password_hash',
+    declaration: 'NVARCHAR(200) NULL',
   },
 ];
 

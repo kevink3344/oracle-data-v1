@@ -121,21 +121,22 @@ export function registerAuth(api: Api): void {
     summary: 'Sign in',
     description:
       'Exchanges credentials for a session token and the identity the token stands for.\n\n' +
-      '**The credentials are checked differently depending on who the address belongs to**, and the ' +
-      'difference is the honest state of this server rather than an oversight:\n\n' +
+      '**A password is required, and it is checked for every account.** What it is checked *against* ' +
+      'differs with the kind of account:\n\n' +
       '  - **The bootstrap account** (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` in `.env`) is checked ' +
       'against the configured password. It is a credential for *one identity* — the account that exists ' +
       'before any tenant does — and answers "is this the bootstrap account?" and nothing else. It is ' +
       'bound to the organization marked `is_default = 1`.\n\n' +
-      '  - **Any other address** is looked up in `app_user` and, if found, signed in. **There is no password ' +
-      'to check**: `app_user` has no password column on purpose — see the schema in `data/sql/turso/01-app.sql`. ' +
-      'A password sent with such an address is ignored rather than compared against nothing and reported ' +
-      'as wrong. This means an address in `app_user` is an identity *claim*, not a proof, and the API does ' +
-      'not pretend otherwise.\n\n' +
-      'An address that is in neither place and one whose bootstrap password is wrong get the **same** ' +
-      '401, with the same message, so this endpoint cannot be asked which addresses are configured. ' +
-      'That said, the member path has no secret to protect — an `app_user` row signs in on its address ' +
-      'alone — so the 401 protects the *bootstrap* address, not the user directory.\n\n' +
+      '  - **Any other address** is looked up in `app_user` and the password is checked against that ' +
+      "row's stored `scrypt` hash. The hash records its own cost parameters, so raising them later " +
+      'strengthens new passwords without invalidating the ones already stored.\n\n' +
+      '**An unknown address, a wrong password, and a row that has no password set all get the same 401 ' +
+      'with the same message.** This endpoint cannot be asked which addresses have accounts here. The ' +
+      'three cases are also made to take about the same time — the paths with no hash to compare against ' +
+      'still perform one derivation — so the answer cannot be read out of the response time instead. A ' +
+      'row that predates the password column is therefore *refused* rather than admitted: an absent hash ' +
+      'is a failed comparison, not a skipped one. An operator sets one with ' +
+      '`npm run set:password -- --email <address>`, and until then that account simply cannot sign in.\n\n' +
       '**403 is returned when the account exists but has no organization.** `app_user.organization_id` is ' +
       'nullable, and "belongs to an organization" and "has not been given one yet" are deliberately ' +
       'different states: an unassigned account cannot be shown the default tenant\'s data, because nobody ' +
@@ -158,14 +159,14 @@ export function registerAuth(api: Api): void {
           }),
         password: z
           .string()
+          .min(1)
           .max(200)
-          .optional()
           .openapi({
             description:
-              'Only meaningful for the bootstrap account. Optional because most accounts have no password ' +
-              'to supply — see the endpoint description. An empty string is *not* treated as a match for a ' +
-              'configured password; an unset `SUPER_ADMIN_PASSWORD` refuses the sign-in rather than letting ' +
-              'an empty field through.',
+              'The password for the address. **Required** — every account now has a secret to prove, so a ' +
+              'request without one is refused 400 by this schema rather than reaching the handler and ' +
+              'being reported as a wrong password. `min(1)` because an empty string is not a password any ' +
+              'account can have: the operator script refuses to store one.',
           }),
       })
       .openapi('SignInBody'),
@@ -179,7 +180,7 @@ export function registerAuth(api: Api): void {
     status: 200,
     errors: [400, 401, 403, 500, 503],
     handler: async ({ body }) => {
-      const { email, password } = body as { email: string; password?: string };
+      const { email, password } = body as { email: string; password: string };
       // `authenticate` trims and lower-cases; passing the raw value through is
       // deliberate, so there is one place that decides what "the same address" means.
       return (await authenticate(email, password)) as SessionResponse;

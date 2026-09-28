@@ -480,18 +480,22 @@ export async function refreshSession(): Promise<void> {
 /**
  * Exchange credentials for a session, and keep it.
  *
- * Throws with the server's message, which is the same sentence for a wrong
- * password and for an unknown address on purpose — the endpoint's own note
- * explains why, and a client that added detail here would undo it.
+ * ★ THE PASSWORD IS NOT OPTIONAL ANY MORE. It used to be: a row in `app_user` was
+ *   signed in on the strength of its address, so the field was often left blank and
+ *   sent as nothing. The server now refuses a request without one at the schema, so
+ *   a caller that omitted it would get a 400 that reads like a bug in this function
+ *   rather than like a credential a reader never typed.
+ *
+ * Throws with the server's message, which is the same sentence for a wrong password,
+ * for an unknown address, and for an account that has no password set on purpose —
+ * the endpoint's own note explains why, and a client that added detail here would
+ * undo it.
  */
-export async function signIn(email: string, password?: string): Promise<SessionUser> {
-  const body: { email: string; password?: string } = { email };
-  if (password) body.password = password;
-
+export async function signIn(email: string, password: string): Promise<SessionUser> {
   const res = await fetch('/api/auth/sign-in', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw await readError(res);
 

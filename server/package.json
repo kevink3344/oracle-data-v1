@@ -17,6 +17,8 @@
     "smoke": "tsx src/scripts/smoke.ts",
     "geocode": "tsx src/scripts/geocode-vendor-sites.ts",
     "ledger:scale": "tsx src/scripts/ledger-scale.ts",
+    "store:scale": "tsx src/scripts/store-scale.ts",
+    "set:password": "tsx src/scripts/set-password.ts",
     "oracle:run": "tsx src/scripts/oracle-run.ts",
     "pull:ap": "node scripts/pull-ap-extract.mjs",
     "pull:invoices": "node scripts/pull-invoices-extract.mjs",

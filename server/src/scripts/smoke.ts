@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../app.js';
+import { hashPassword } from '../auth/password.js';
 import { config, DB_MODES } from '../config/env.js';
 import { applyPragmas, closeDb, dbStatus, probeDb, storeDriver } from '../db/client.js';
 import * as queryGuard from '../db/query-guard.js';
@@ -4194,6 +4195,17 @@ async function main(): Promise<void> {
   const ORG_SLUG = 'smoke-check-organization-temporary';
   const ORG_NAME = 'Smoke Check Organization (temporary)';
   const MEMBER_EMAIL = 'smoke-check-member@example.test';
+  /**
+   * The member account's password, hashed per run below.
+   *
+   * ★ IT IS A LITERAL IN A TEST FILE, WHICH IS FINE, AND IT IS WORTH SAYING WHY
+   *   SO IT IS NOT COPIED ELSEWHERE. The account is created and deleted inside a
+   *   single run of this suite; it exists for seconds, only against the store the
+   *   suite was pointed at, and the row it belongs to is asserted gone at the
+   *   end. There is nothing here to leak. The same literal in `set-password.ts`
+   *   or a seeding script would be a different thing entirely.
+   */
+  const MEMBER_PASSWORD = 'smoke-check-member-password';
 
   const clearOrganization = async (): Promise<void> => {
     await execute('DELETE FROM organization WHERE slug = :slug', { slug: ORG_SLUG });
@@ -4215,11 +4227,11 @@ async function main(): Promise<void> {
     return first.id;
   };
 
-  const signIn = (email: string, password?: string): Promise<Response> =>
+  const signIn = (email: string, password: string): Promise<Response> =>
     fetch(`${base}/api/auth/sign-in`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(password === undefined ? { email } : { email, password }),
+      body: JSON.stringify({ email, password }),
     });
 
   let superToken = '';
@@ -4290,7 +4302,14 @@ async function main(): Promise<void> {
     assert.ok(email !== undefined && password !== undefined, 'no bootstrap account — see the check above');
 
     const wrongPassword = await signIn(email, `${password}!wrong`);
-    const unknownAddress = await signIn('nobody-at-all@example.test');
+    // ★ THE UNKNOWN ADDRESS IS SENT A PASSWORD TOO, AND IT HAS TO BE. `password`
+    //   became required when `app_user.password_hash` landed, so an address-only
+    //   POST is now refused by the schema with a 400 before `authenticate()` ever
+    //   runs — and a 400 is not the refusal this check is about. Sending a
+    //   password is what puts both requests in front of the same handler so the
+    //   equality below is a statement about that handler rather than about the
+    //   validator.
+    const unknownAddress = await signIn('nobody-at-all@example.test', `${password}!wrong`);
 
     assert.equal(wrongPassword.status, 401, `a wrong bootstrap password answered ${wrongPassword.status}`);
     assert.equal(unknownAddress.status, 401, `an unknown address answered ${unknownAddress.status}`);
@@ -5546,11 +5565,25 @@ async function main(): Promise<void> {
     //   own: the pre-delete above is what makes a run after a crashed run work.
     await clearMember();
     await execute(
-      'INSERT INTO app_user (email, display_name, role, organization_id) VALUES (:email, :name, :role, :org)',
-      { email: MEMBER_EMAIL, name: 'Smoke Check Member', role: 'member', org: await defaultOrgId() },
+      'INSERT INTO app_user (email, display_name, role, organization_id, password_hash) ' +
+        'VALUES (:email, :name, :role, :org, :hash)',
+      {
+        email: MEMBER_EMAIL,
+        name: 'Smoke Check Member',
+        role: 'member',
+        org: await defaultOrgId(),
+        // ★ THE HASH IS NOT OPTIONAL ANY MORE, AND THIS IS THE CHECK THAT WOULD
+        //   CATCH IT IF IT WERE. A row with a NULL hash is refused by
+        //   `authenticate()` — deliberately, because reading an absent hash as
+        //   "no password required" is the back door the column closed. So a
+        //   member inserted without one signs in with a 401 and the FORBIDDEN
+        //   path below is never reached, which would leave the one distinction
+        //   `requireSuperAdmin` exists to make untested.
+        hash: await hashPassword(MEMBER_PASSWORD),
+      },
     );
 
-    const signedIn = await signIn(MEMBER_EMAIL);
+    const signedIn = await signIn(MEMBER_EMAIL, MEMBER_PASSWORD);
     assert.equal(signedIn.status, 200, `the member account could not sign in (${signedIn.status})`);
     const { data } = (await signedIn.json()) as { data: SignedIn };
     assert.equal(data.user.role, 'member', 'a row with role=member signed in as something else');
