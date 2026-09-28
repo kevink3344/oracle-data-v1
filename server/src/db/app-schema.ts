@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { REPO_ROOT, config } from '../config/env.js';
+import { PACKAGE_ROOT, REPO_ROOT, config } from '../config/env.js';
 import { storeDriver } from './client.js';
 import type { SqlDriver } from './driver.js';
 
@@ -68,7 +68,62 @@ export interface AppSchemaStatus {
   error: string | null;
 }
 
-const APP_SCHEMA_FILE = path.join(REPO_ROOT, 'data', 'sql', 'turso', '01-app.sql');
+/**
+ * Where the app-store DDL is read from — a LIST, because the git location and the
+ * deployed location are different directories.
+ *
+ * ★ THE FILE LIVES IN `data/sql/` IN GIT AND IN `server/ddl/` WHEN DEPLOYED, and
+ *   that is the same split as `.env` rather than a quirk to be tidied away. The
+ *   deploy publishes `server/` alone (see the workflow's `package: server`), so
+ *   nothing above it travels: on App Service `REPO_ROOT` resolves to `/home/site`
+ *   while the code and everything it owns sit in `/home/site/wwwroot`.
+ *
+ *   The DDL is the one repo-root file the running process needs, and it needs it
+ *   at *request* time — the schema is applied lazily, on the first app-store call,
+ *   not at build time — so it cannot simply be inlined into the bundle.
+ *
+ *   Shipping a copy inside the package is what makes the deployed process work,
+ *   and `scripts/copy-ddl.mjs` is what puts it there. `npm run build` runs it, so
+ *   a build that produced a runnable `dist/` also produced a runnable `ddl/`.
+ *
+ * ★ ORDER MATTERS: THE PACKAGE COPY FIRST. In the package it is authoritative and
+ *   current. `REPO_ROOT` is the development fallback, for the case where `npm run
+ *   build` has not been run and the source is executed directly (`npm run dev` and
+ *   the smoke suite both run `src/` through tsx).
+ *
+ * ★ NAME EVERY PATH THAT WAS TRIED. The failure this replaces named exactly one
+ *   path, and it was a path that could not exist on the host reading the log — so
+ *   the message pointed at `/home/site/data/...` and said nothing about the copy
+ *   in `wwwroot/ddl/` that the fix would add. Listing the candidates makes the
+ *   next occurrence one line to compare against reality.
+ */
+const DDL_ROOTS: readonly string[] = [
+  path.join(PACKAGE_ROOT, 'ddl'),
+  path.join(REPO_ROOT, 'data', 'sql'),
+];
+
+/** The DDL file's name — identical in both dialect folders. */
+const APP_SCHEMA_NAME = '01-app.sql';
+
+/**
+ * Resolve the DDL to apply for a store dialect.
+ *
+ * ★ THIS THROWS RATHER THAN RETURNING A PATH THAT MIGHT NOT EXIST, because a path
+ *   is only useful here if it can be read, and the caller needs a message naming
+ *   what was missing. `apply()` treats this and a read failure alike, so both
+ *   arrive as the same `failed` status carrying the paths attempted.
+ */
+function findSchemaFile(dialect: 'turso' | 'sqlserver'): string {
+  const candidates = DDL_ROOTS.map((root) => path.join(root, dialect, APP_SCHEMA_NAME));
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found) return found;
+
+  throw new Error(
+    `no ${dialect} app schema file on disk. Looked in: ${candidates.join(' | ')}. ` +
+      '`npm run build` copies these into the package via scripts/copy-ddl.mjs, so a ' +
+      'deployment packaged without that step has no DDL to apply.',
+  );
+}
 
 /**
  * ★ THE SAME TABLES, IN T-SQL — A SECOND FILE, NOT A TRANSLATION.
@@ -86,8 +141,10 @@ const APP_SCHEMA_FILE = path.join(REPO_ROOT, 'data', 'sql', 'turso', '01-app.sql
  *   not currently read this file — see the note on `APP_TABLES` — so the honest
  *   position is: the SQLite file is gated, this one is not yet, and adding a
  *   table to one without the other is a change the suite will not catch.
+ *
+ * Which of the two is applied is decided at run time by the store's dialect — see
+ * `findSchemaFile()` above.
  */
-const APP_SCHEMA_FILE_SQLSERVER = path.join(REPO_ROOT, 'data', 'sql', 'sqlserver', '01-app.sql');
 
 /**
  * The tables `01-app.sql` owns, as opposed to the ones the extract ships.
@@ -215,7 +272,7 @@ async function apply(): Promise<AppSchemaStatus> {
   //   syntax. A future `APP_DB_URL` pointing at SQL Server under a libSQL ledger
   //   would then get the right DDL without this function learning about it.
   const isSqlServer = store.dialect === 'sqlserver';
-  const schemaFile = isSqlServer ? APP_SCHEMA_FILE_SQLSERVER : APP_SCHEMA_FILE;
+  const schemaFile = findSchemaFile(isSqlServer ? 'sqlserver' : 'turso');
 
   let source: string;
   try {
@@ -762,6 +819,32 @@ export class AppErrorLike extends Error {
     this.name = 'AppError';
     this.status = status;
     this.code = code;
+  }
+
+  /**
+   * ★ THIS METHOD IS THE DIFFERENCE BETWEEN A LEGIBLE 503 AND A BARE 500.
+   *
+   *   `http/errors.ts` recognises what to render with `isAppError`, and the version
+   *   of that guard this class was written against tested `instanceof AppError`.
+   *   `AppErrorLike` is deliberately *not* an `AppError` — the note above explains
+   *   why it cannot import one — so the guard was false, `errorHandler` skipped its
+   *   own branch, every later branch failed to match, and the throw landed in the
+   *   final `res.status(500)` with the generic `INTERNAL` message. Measured in the
+   *   deploy log: this class threw `status: 503, code: 'DB_UNAVAILABLE'` with a
+   *   message naming the missing DDL path, and the browser received a bare 500.
+   *
+   *   The whole point of the message written below (`requireAppSchema`'s `why`) is
+   *   that it names the cause and the fix. `name` was already set to `'AppError'`
+   *   for exactly this recognition, but the guard tested the class and ignored the
+   *   name, so the intent and the implementation disagreed and only the guard was
+   *   load-bearing. Both halves are now aligned: this method provides the shape,
+   *   and `isAppError` accepts it.
+   *
+   * The return type is written out rather than imported so that `db/` stays free of
+   * `http/` — it is structurally `ErrorBody`, and `errorHandler` only serialises it.
+   */
+  toBody(): { error: { code: string; message: string } } {
+    return { error: { code: this.code, message: this.message } };
   }
 }
 

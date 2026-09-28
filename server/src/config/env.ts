@@ -24,6 +24,29 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
+/**
+ * The `server/` package's own root — the directory that is deployed.
+ *
+ * ★ `REPO_ROOT` AND THIS ARE NOT INTERCHANGEABLE AT RUN TIME, AND ONLY ONE OF
+ *   THEM TRAVELS.
+ *
+ *   The deploy publishes `server/` alone (see `.github/workflows/main_oracle(dev).yml`,
+ *   `package: server`), so on App Service the whole repo collapses to
+ *   `/home/site/wwwroot` and `REPO_ROOT` resolves one level *above* it, to
+ *   `/home/site`. Anything resolved through `REPO_ROOT` is therefore pointing at
+ *   a directory that was never uploaded.
+ *
+ *   That was harmless for as long as nothing at run time needed a repo-root file.
+ *   It stopped being harmless when the app-store DDL did: `/home/site/data/sql/
+ *   sqlserver/01-app.sql` does not exist, `apply()` threw, and every app-owned
+ *   endpoint answered 503 — see `db/app-schema.ts`.
+ *
+ *   Both paths are computed from `import.meta.url` and resolve identically from
+ *   `src/` (tsx) and from `dist/` (compiled), which is what makes this usable: a
+ *   file copied into the package is found in dev and deployed by the same code.
+ */
+export const PACKAGE_ROOT = path.resolve(HERE, '..', '..');
+
 /** Read the repo-root `.env` into `process.env`, without overwriting it. */
 function loadDotEnv(): void {
   const file = path.join(REPO_ROOT, '.env');

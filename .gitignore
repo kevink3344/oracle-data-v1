@@ -90,3 +90,9 @@ data/backup/
 # process can serve the app on its own origin — which is what the deploy relies
 # on. Generated on every build, never edited: see `server/scripts/copy-web.mjs`.
 server/public/
+
+# The app-store DDL, copied here by `npm run build` so that `db/app-schema.ts`
+# can find it from inside the deployed package. The deploy publishes `server/`
+# alone, so `data/sql/` is not there to read — see `server/scripts/copy-ddl.mjs`.
+# `data/sql/` stays the source of truth; this folder is generated on every build.
+server/ddl/

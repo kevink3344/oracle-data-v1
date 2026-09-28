@@ -11,8 +11,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -b",
+    "build": "tsc -b && node scripts/copy-ddl.mjs",
     "build:web": "node scripts/copy-web.mjs",
+    "copy:ddl": "node scripts/copy-ddl.mjs",
     "typecheck": "tsc -b --force",
     "openapi": "tsx src/scripts/emit-openapi.ts",
     "smoke": "tsx src/scripts/smoke.ts",

@@ -168,6 +168,47 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * ★ `instanceof` ALONE SILENTLY DISCARDS THE ONE ERROR THE DATABASE LAYER THROWS.
+ *
+ *   `db/app-schema.ts` cannot import this class — `db/` is used by scripts that
+ *   never build a request, and the dependency would be circular the day an error
+ *   handler wants to read `dbStatus()`. So it declares a stand-in, `AppErrorLike`,
+ *   which carries `status` and `code` and sets `name = 'AppError'` precisely so
+ *   that this guard recognises it.
+ *
+ *   It did not. `instanceof` tests the prototype chain, `AppErrorLike` extends
+ *   `Error`, and the guard was false — so `errorHandler` skipped the branch that
+ *   would have rendered it, matched nothing else, and fell through to its final
+ *   `res.status(500)`. Measured: `requireAppSchema` threw `status: 503, code:
+ *   'DB_UNAVAILABLE'` with a message naming the missing DDL file, and the browser
+ *   received a bare 500 with `INTERNAL`. A 503 that says "set this" arrived as a
+ *   500 that says nothing, which is the worst of both — an operator cannot act on
+ *   either the status or the body.
+ *
+ * ★ THE SHAPE IS CHECKED, NOT JUST THE NAME. `name` is a plain writable property
+ *   that any `Error` can carry, so matching on it alone would let an unrelated
+ *   throw that happened to set it be rendered as a typed error body — and the
+ *   `toBody()` call below would then fail *inside the error handler*, turning a
+ *   recoverable failure into an unhandled one. Requiring a numeric `status`, a
+ *   string `code` and a callable `toBody` means a match is always safely
+ *   serialisable. `instanceof` stays first: for a real `AppError` it is strictly
+ *   stronger and costs nothing to prefer.
+ *
+ * The predicate still says `AppError` rather than a structural type so every caller
+ * keeps the full member set (`details`, the static factories). The stand-in is
+ * documented as exactly that — a local substitute — and the fields this handler
+ * touches are the ones the shape check guarantees.
+ */
 export function isAppError(e: unknown): e is AppError {
-  return e instanceof AppError;
+  if (e instanceof AppError) return true;
+  if (typeof e !== 'object' || e === null) return false;
+
+  const candidate = e as { name?: unknown; status?: unknown; code?: unknown; toBody?: unknown };
+  return (
+    candidate.name === 'AppError' &&
+    typeof candidate.status === 'number' &&
+    typeof candidate.code === 'string' &&
+    typeof candidate.toBody === 'function'
+  );
 }
