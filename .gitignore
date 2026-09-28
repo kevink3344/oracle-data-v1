@@ -85,3 +85,8 @@ data/oracle/checks.json.bak
 #   statement that it is unimportant. `data/backup/_manifest.json` records the
 #   source, the timestamp and the reason, for whoever finds these files next.
 data/backup/
+
+# The app's build output, copied here by `npm run build:web` so that the API
+# process can serve the app on its own origin — which is what the deploy relies
+# on. Generated on every build, never edited: see `server/scripts/copy-web.mjs`.
+server/public/

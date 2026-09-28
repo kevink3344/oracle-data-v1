@@ -944,6 +944,28 @@ function ledgerScopeConfig(): LedgerScopeConfig {
   };
 }
 
+/**
+ * ★ THE LISTEN ADDRESS DEFAULTS TO LOOPBACK, EXCEPT WHERE LOOPBACK CANNOT WORK.
+ *
+ * `127.0.0.1` is the right default on a development machine. It is the only
+ * address the Vite proxy in `app/vite.config.ts` ever dials, and it keeps this
+ * server — which is pointed at a live database and can be configured to allow
+ * writes — off the local network.
+ *
+ * It is the wrong default on App Service, and it fails silently there. The
+ * platform's front end is a separate process that reaches the app across the
+ * container network, so a server bound to loopback accepts nothing it sends. The
+ * deployment then looks alive while serving the platform's own "waiting for your
+ * content" page, which reads as a failed deploy rather than as a server bound to
+ * the wrong interface. `WEBSITE_HOSTNAME` is set by App Service on every plan and
+ * is not set anywhere else, so it is what separates the two cases.
+ *
+ * An explicit `HOST` wins over both.
+ */
+function defaultHost(): string {
+  return str('WEBSITE_HOSTNAME') === undefined ? '127.0.0.1' : '0.0.0.0';
+}
+
 // Resolved into a local first, because the app store's default is a question
 // about the ledger: see `resolveAppDb`.
 const db = resolveDb();
@@ -952,7 +974,7 @@ export const config: Config = {
   nodeEnv: str('NODE_ENV') ?? 'development',
   isProduction: str('NODE_ENV') === 'production',
   port: Number.isFinite(port) ? port : 5181,
-  host: str('HOST') ?? '127.0.0.1',
+  host: str('HOST') ?? defaultHost(),
   corsOrigins:
     corsRaw === undefined
       ? true

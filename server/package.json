@@ -12,6 +12,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -b",
+    "build:web": "node scripts/copy-web.mjs",
     "typecheck": "tsc -b --force",
     "openapi": "tsx src/scripts/emit-openapi.ts",
     "smoke": "tsx src/scripts/smoke.ts",
