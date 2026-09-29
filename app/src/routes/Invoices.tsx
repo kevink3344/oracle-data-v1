@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { loadFiscalYears, loadInvoices, type FiscalYear, type Invoice, type InvoiceAccount, type InvoiceCheck, type InvoicesExtract, type PoCoverage } from '../data/invoices';
+import { windowFromSettings, windowOriginSentence } from '../data/fiscalWindow';
 import ErrorNotice from '../components/ErrorNotice';
 import FilterCombo, { type ComboOption } from '../components/FilterCombo';
 import PinButton from '../components/PinButton';
@@ -415,9 +416,21 @@ export default function Invoices() {
    *    that project's level `0450` has **52 in-scope invoices** and exactly **1** of them falls in
    *    the newest year. The other 51 run back to 2024-05-31.
    *
-   * ★ `null` MEANS "THE SERVER'S DEFAULT", NOT "NO FILTER". Sending no params lets the server pick
-   *   the newest year it carries, so a ledger that gains a year moves the default with it. A
-   *   hard-coded newest year in the client would freeze it.
+   * ★ THE WINDOW NOW OPENS WHERE THE ORGANIZATION OPENS, WHICH IS THE SECOND HALF OF THAT FIX.
+   *   `null` used to fall through to the server's default of *the newest year it carries*, so this
+   *   register — and the checks register beside it — silently discarded every year before it. An
+   *   organization whose Settings say **Start FY 2022** has a window that opens in FY2022, so that
+   *   is where both registers open now; `data/fiscalWindow.ts` owns the decision, including what to
+   *   do when Start FY is a year the ledger no longer carries.
+   *
+   * ★ `null` STILL MEANS "NO RANGE SENT", NOT "NO FILTER", AND IT IS NOW A DEGRADATION RATHER THAN
+   *   A DEFAULT. It is the state this page is in until the year list arrives, and the state it stays
+   *   in if that list cannot be read — in which case the server applies its own newest-year default
+   *   and the register still loads. A missing year list must not block a register.
+   *
+   * ★ AND THE SERVER'S DEFAULT IS STILL THE ONE THAT MOVES. The floor is taken from Start FY and the
+   *   ceiling from the year list this page just read, so a ledger that gains a year widens the
+   *   window on the next visit rather than freezing at a year hard-coded here.
    */
   const [years, setYears] = useState<FiscalYear[]>([]);
   const [fyRange, setFyRange] = useState<{ start: number; end: number } | null>(null);
@@ -492,6 +505,52 @@ export default function Invoices() {
       });
     return () => controller.abort();
   }, []);
+
+  /**
+   * Where this organization's Start FY puts the window — the default, and what it had to become.
+   *
+   * ★ DERIVED RATHER THAN STORED, SO THE DISCLOSURE CANNOT DRIFT FROM THE DECISION. `fyRange`
+   *   below is what the register is actually under; this is what Settings asked for. Both are
+   *   needed to say *"you have moved it"*, and holding only one would make that unprovable.
+   */
+  const settingsWindow = useMemo(
+    () => (scopeTenant ? windowFromSettings(scopeTenant.startFy, years) : null),
+    [scopeTenant, years],
+  );
+
+  /**
+   * The default, applied once — at the first moment both halves of the answer exist.
+   *
+   * ★ IT NEEDS BOTH, WHICH IS WHY IT IS AN EFFECT RATHER THAN A `useState` INITIALISER. The years
+   *   come from the ledger and Start FY comes from the session, and they arrive independently (the
+   *   session is usually second). Defaulting in the initialiser would run before either existed;
+   *   defaulting inside the year-list effect would run before the session had been read and would
+   *   bake in the newest year — the very default this replaces.
+   *
+   * ★ IT APPLIES ONCE, AND THE GUARD IS A REF RATHER THAN `fyRange === null`. A session
+   *   notification arriving mid-session must not move the register under a reader who is reading
+   *   it, and a reader who has moved the picker must not be overruled by a re-render. The two
+   *   `setFyRange` calls below are the reader's and there are no others, so the ref is the only
+   *   thing standing between a session refresh and a register that moves by itself.
+   */
+  const defaulted = useRef(false);
+  useEffect(() => {
+    if (defaulted.current || !settingsWindow) return;
+    defaulted.current = true;
+    setFyRange({ start: settingsWindow.start, end: settingsWindow.end });
+  }, [settingsWindow]);
+
+  /**
+   * The second sentence of the window line: whose floor this is, and whether it is still in force.
+   *
+   * ★ THE SENTENCE ITSELF LIVES IN `data/fiscalWindow.ts`, BECAUSE THE CHECKS REGISTER STATES THE
+   *   SAME WINDOW AND MUST STATE IT IN THE SAME WORDS. What stays here is the call: this memo exists
+   *   only to keep the string off the render path.
+   */
+  const windowOrigin = useMemo(
+    () => windowOriginSentence(settingsWindow, fyRange),
+    [settingsWindow, fyRange],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -862,22 +921,36 @@ export default function Invoices() {
       */}
       {data && scopeMoved && fileScope ? (
         <p className="scopenote" role="note">
-          <span className="scopenote__flag">Scope difference</span> The register below was built with{' '}
-          <strong>{scope?.label ?? scopeLabel(fileScope, fileScope.programs)}</strong> applied in the extract query, but
-          the scope above the search box is now{' '}
-          <strong>{scopeLabel(liveScope, scopeTenant?.programs ?? [])}</strong>. The invoices
-          shown are the ones the file holds — the app cannot re-apply a different fund and program
-          to them, because on this register the rule lives in the SQL, not in the browser. Re-run{' '}
-          <code>node server/scripts/pull-invoices-extract.mjs</code> with the new scope to rebuild it.
+          <span className="scopenote__flag">Scope difference</span>
+          {/* `.scopenote` is `display:flex; gap:8px`, so bare text runs beside the flag become flex
+              items of their own and the gap lands between them. This note holds two `<strong>`s and
+              a `<code>`, so it wrapped into fragments; the trap is recorded on `.scopenote__text`. */}
+          <span className="scopenote__text">
+            The register below was built with{' '}
+            <strong>{scope?.label ?? scopeLabel(fileScope, fileScope.programs)}</strong> applied in the extract query, but
+            the scope above the search box is now{' '}
+            <strong>{scopeLabel(liveScope, scopeTenant?.programs ?? [])}</strong>. The invoices
+            shown are the ones the file holds — the app cannot re-apply a different fund and program
+            to them, because on this register the rule lives in the SQL, not in the browser. Re-run{' '}
+            <code>node server/scripts/pull-invoices-extract.mjs</code> with the new scope to rebuild it.
+          </span>
         </p>
       ) : null}
 
       {/*
         ★ A LINK FROM A CHECK LANDED HERE, AND THE NOTE SAYS WHAT IT FOUND.
 
-        Two states, and neither is an error. A miss is the usual outcome — this register holds 126
-        invoices and the checks window carries 9,451 links, so nine in ten links name an invoice
-        this window does not contain — and a miss that said nothing would look like a click that did
+        ★★ "A MISS IS THE USUAL OUTCOME" WAS TRUE OF THE EXTRACTS AND IS NOT TRUE OF THE REGISTERS.
+          When this was written the two pages read different things — 126 invoices from a file
+          against 9,451 links in the checks window — so nine links in ten named an invoice this
+          register did not hold, and the note was mostly a refusal. Both registers now read the same
+          live years and open on the organization's `Start FY`, so a link that carries the check's
+          window arrives at an invoice that is in it: a miss now usually means the invoice sits on
+          a check outside the window, or the two pages were left on different year ranges. The note
+          below still says "not in this register" rather than "not in this window" because that is
+          the register's own framing, and the register's window is stated in the line above it.
+
+        Neither state is an error. A miss that said nothing would look like a click that did
         nothing at all. The other state is several invoices sharing one number, where the page has
         to admit that it cannot tell which one the check settled rather than opening the first
         silently. The note is not a `ScopeNotApplied`-style caveat about the page: it is the answer
@@ -888,28 +961,34 @@ export default function Invoices() {
           {arrival.kind === 'missed' ? (
             <>
               <span className="scopenote__flag">Not in this register</span>
-              No invoice in this register carries the number <strong>{arrival.number}</strong>
-              {wantedVendor ? (
-                <>
-                  {' '}
-                  against <strong>{wantedVendor}</strong>
-                </>
-              ) : null}
-              . The check you came from covers the whole fiscal year; this register is the{' '}
-              {scope?.label ?? 'scoped'} slice of it — {num(data.invoices.length)} invoices — and it
-              drops any invoice with no distribution for the scope to test. So the invoice is real
-              and it is not in this window. Nothing has been filtered: the whole register is below.
+              {/* One flex item, or the six text runs break the note into fragments — see
+                  `.scopenote__text` in budgets.css. */}
+              <span className="scopenote__text">
+                No invoice in this register carries the number <strong>{arrival.number}</strong>
+                {wantedVendor ? (
+                  <>
+                    {' '}
+                    against <strong>{wantedVendor}</strong>
+                  </>
+                ) : null}
+                . The check you came from covers the whole fiscal year; this register is the{' '}
+                {scope?.label ?? 'scoped'} slice of it — {num(data.invoices.length)} invoices — and it
+                drops any invoice with no distribution for the scope to test. So the invoice is real
+                and it is not in this window. Nothing has been filtered: the whole register is below.
+              </span>
             </>
           ) : (
             <>
               <span className="scopenote__flag">
                 {num(arrival.count)} share the number
               </span>
-              {num(arrival.count)} invoices in this register carry the number{' '}
-              <strong>{arrival.number}</strong>, and the vendor the check paid does not single one
-              out. The register is filtered to those {num(arrival.count)} and the panel shows the
-              first of them — compare the vendor and the amount with the check before reading it as
-              the invoice that was settled. An invoice number is not an identity on these extracts.
+              <span className="scopenote__text">
+                {num(arrival.count)} invoices in this register carry the number{' '}
+                <strong>{arrival.number}</strong>, and the vendor the check paid does not single one
+                out. The register is filtered to those {num(arrival.count)} and the panel shows the
+                first of them — compare the vendor and the amount with the check before reading it as
+                the invoice that was settled. An invoice number is not an identity on these extracts.
+              </span>
             </>
           )}
         </p>
@@ -1139,9 +1218,9 @@ export default function Invoices() {
             ★ IT NAMES THE DATES, NOT JUST THE YEARS. "FY2027" is a label; "2026-07-01 –
               2027-06-30" is the thing a reader can check an invoice date against. */}
         {data ? (
-          <p className="invwindow">
-            <span className="invwindow__flag">Window</span>
-            <span className="invwindow__text">
+          <p className="fywindow">
+            <span className="fywindow__flag">Window</span>
+            <span className="fywindow__text">
               {data.window.fiscalYear > 0 ? (
                 <>
                   <strong>
@@ -1158,12 +1237,21 @@ export default function Invoices() {
                   <strong>{data.window.to}</strong>.{' '}
                 </>
               )}
-              {/* ★ THE SENTENCE THAT PREVENTS THE FALSE CONCLUSION, AND IT NAMES THE
-                  CONTROL. A reader who has not noticed the year selects needs to be told
-                  where the rest of the data is, not merely that a bound exists. */}
-              {data.window.fiscalYearEnd > data.window.fiscalYear
-                ? 'Widen the year range above to include more.'
-                : `Invoices dated before ${data.window.from} are outside this window — widen the year range above to include them.`}
+              {/* ★ WHERE THE FLOOR CAME FROM, WHICH IS THE SECOND HALF OF THE SAME FIX.
+                  Stating the bound tells a reader what they are looking at; naming
+                  `Settings → Organizations → Start FY` as its source tells them how to
+                  change it for good, rather than leaving them to move this control on
+                  every visit.
+
+                  ★ AND IT REPLACED AN OLDER CLOSING SENTENCE RATHER THAN JOINING IT. This
+                  line used to end with "Widen the year range above to include more." or,
+                  on a single-year window, "Invoices dated before 2026-07-01 are outside
+                  this window". Both said the same thing the shared sentence says — and
+                  said it in words the Checks tab did not use. The `{' '}` is not
+                  decoration: two adjacent JSX expressions separated only by a newline
+                  lose that newline, so without it the sentences run together. */}
+              {' '}
+              {windowOrigin}
             </span>
           </p>
         ) : null}
@@ -2148,56 +2236,21 @@ function InvoicePanel({
             serves. The figures below are now counted in this page, at load, against the same
             register the links open. The defect's shape is worth keeping in view: not one number was
             mis-summed, and the page still lied.
+
+            ★ THE COVERAGE NOTE ITSELF IS NOW RETIRED, ON STAFF'S INSTRUCTION. It was accurate,
+            load-time and debuggable — and it was six lines of prose above every invoice on the
+            page, repeated in full in the panel for each one. Prose that repeats per record stops
+            being read: by the third invoice a reader opens they are scrolling past it, so the
+            paragraph cost attention on every invoice and bought comprehension on almost none. The
+            row above and the tooltips on it still answer the question at the invoice level —
+            "none — no order was raised against it", "— not in this app's order register", "— not yet
+            compared with the order register" — so what is lost is the population-level comparison,
+            not the answer. If it is wanted back it belongs said once above the register rather than
+            once per invoice. Nothing it counted was wrong: `po` is still fetched and still feeds
+            those tooltips, and the numbers are unchanged if the note is ever restored.
           */}
-          {po ? (
-            <p className="invnote">
-              An invoice names its order on its <em>lines</em>, not on its header — the column this
-              view labels &ldquo;purchase order&rdquo; is null on all {num(po.named + po.notNamed)}{' '}
-              rows of it, and that is why the row above is the first place this page has ever been
-              able to answer the question. <strong>{num(po.named)} of them name an order</strong> —{' '}
-              {money(po.namedValue)} of the {money(po.namedValue + po.notNamedValue)} in scope — and{' '}
-              <strong>{num(po.notNamed)} name none</strong>, which is an answer rather than a gap: a
-              prepaid card, a travel reimbursement, use tax and a standing charge all spend money
-              without raising an order, and they carry {money(po.notNamedValue)} between them
-              {po.largestNotNamed ? `, ${money(po.largestNotNamed.value)} of it on a single invoice` : ''}.{' '}
-              The register these links open is the{' '}
-              {po.register.kind === 'oracle' ? 'live ledger' : 'frozen extract this build serves'} —{' '}
-              {po.register.fund.length ? `fund ${po.register.fund.join('/')}` : 'one fund'}
-              {po.register.program.length ? ` · program ${po.register.program.join('/')}` : ''}
-              {po.register.minDate && po.register.maxDate
-                ? `, orders dated ${po.register.minDate} to ${po.register.maxDate}`
-                : po.register.maxDate
-                  ? `, newest order ${po.register.maxDate}`
-                  : ''}
-              , {num(po.register.orders)} orders over {num(po.register.lines)} lines — and it holds{' '}
-              {po.inRegister === po.named ? (
-                <>
-                  <strong>every one of those {num(po.named)}</strong> invoices, and{' '}
-                  {po.numbersInRegister === po.distinctNumbers
-                    ? `all ${num(po.distinctNumbers)} of their order numbers`
-                    : `${num(po.numbersInRegister)} of their ${num(po.distinctNumbers)} order numbers`}
-                </>
-              ) : (
-                <>
-                  <strong>{num(po.inRegister)} of those {num(po.named)}</strong> invoices and{' '}
-                  {num(po.numbersInRegister)} of their {num(po.distinctNumbers)} order numbers
-                </>
-              )}
-              .{' '}
-              {po.notInRegister > 0 ? (
-                <>
-                  The other {num(po.notInRegister)} — {money(po.notInRegisterValue)} — are printed
-                  with their number and without a link, because the order is real and the register
-                  has no row for it.{' '}
-                </>
-              ) : null}
-              That comparison is made when the page loads, against the same register these links open,
-              so a number is never reported missing from a register the reader can open in the next
-              tab. The account rows below answer a narrower version of the same question — which
-              orders are charged to <em>this</em> account — so one of those links can legitimately
-              come back empty while this row&rsquo;s number is a live order.
-            </p>
-          ) : null}
+          {/* The per-invoice coverage note that stood here is retired — see the comment above for
+              what it said and why. `po` is still loaded, and still supplies the row's tooltips. */}
         </section>
 
 <AccountSection invoice={invoice} onFilter={onFilter} scopeLabel={scopeLabel} />

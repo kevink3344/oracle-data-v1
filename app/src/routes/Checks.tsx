@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { loadChecks, type Check, type CheckInvoice, type ChecksExtract } from '../data/checks';
-import { loadInvoices, type InvoiceAccount } from '../data/invoices';
+import { loadFiscalYears, loadInvoices, type FiscalYear, type InvoiceAccount } from '../data/invoices';
+import { windowFromSettings, windowOriginSentence } from '../data/fiscalWindow';
 import {
   askAssistant,
   loadAssistantStatus,
@@ -467,6 +468,30 @@ export default function Checks() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
+  /**
+   * ★★ THE FISCAL-YEAR WINDOW, AND THE FIX FOR *"WE ARE ONLY SHOWING CHECKS FOR THE CURRENT
+   *    FISCAL YEAR"*.
+   *
+   *   The route was always bounded — `resolveWindow` defaults to the newest year `GL_PERIODS`
+   *   carries — and the page never said so. So a reader whose organization starts in FY2022 typed a
+   *   check number issued in 2023 and was answered *"No check of the 4,218 in this window matches
+   *   <number>"*: a sentence about a window the page had named nowhere, over a register it had
+   *   quietly cut from every year the tenant cares about down to one.
+   *
+   *   The window now opens where the organization's own window opens — `Settings → Organizations →
+   *   Start FY`, the same row the account scope already obeys — through the newest year the ledger
+   *   carries. `data/fiscalWindow.ts` owns that decision, including what to do when Start FY is not
+   *   a year the ledger still holds.
+   *
+   * ★ `null` MEANS "NO RANGE SENT", NOT "NO WINDOW", AND IT IS A DEGRADATION RATHER THAN A
+   *   DEFAULT. It is the state this page is in until the year list arrives, and the state it stays
+   *   in if that list cannot be read — in which case the server applies its own newest-year default
+   *   and the register still loads. A missing year list must not block a register; `Invoices.tsx`
+   *   states the same rule of the same control.
+   */
+  const [years, setYears] = useState<FiscalYear[]>([]);
+  const [fyRange, setFyRange] = useState<{ start: number; end: number } | null>(null);
+
   const [query, setQueryRaw] = useState('');
   const [page, setPage] = useState(1);
 
@@ -493,10 +518,107 @@ export default function Checks() {
   const [selected, setSelected] = useState<Check | null>(null);
   const [open, setOpen] = useState(false);
 
+  // The year list, once. A failure here is survivable and silent: the picker renders without it and
+  // the register still loads on the server's default, which is the state this page was in before
+  // the window became a choice. A missing year list must not block a register.
+  useEffect(() => {
+    const controller = new AbortController();
+    loadFiscalYears(controller.signal)
+      .then(setYears)
+      .catch(() => {
+        if (!controller.signal.aborted) setYears([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  /**
+   * Where this organization's Start FY puts the window — the default, and what it had to become.
+   *
+   * ★ IT IS DERIVED RATHER THAN STORED, SO THE DISCLOSURE CANNOT DRIFT FROM THE DECISION. `fyRange`
+   *   below is what the register is actually under; this is what Settings asked for. Both are
+   *   needed to say *"you have moved it"*, and holding only one would make that statement
+   *   unprovable.
+   */
+  const settingsWindow = useMemo(
+    () => (scopeTenant ? windowFromSettings(scopeTenant.startFy, years) : null),
+    [scopeTenant, years],
+  );
+
+  /**
+   * The default, applied once — at the first moment both halves of the answer exist.
+   *
+   * ★ IT NEEDS BOTH, WHICH IS WHY IT IS AN EFFECT RATHER THAN A `useState` INITIALISER. The years
+   *   come from the ledger and Start FY comes from the session, and they arrive independently (the
+   *   session is usually second). Defaulting in the initialiser would run before either existed;
+   *   defaulting inside the year-list effect would run before the session had been read and would
+   *   bake in the newest year — which is the bug being fixed, restated.
+   *
+   * ★ IT APPLIES ONCE, AND THE GUARD IS A REF RATHER THAN `fyRange === null`. A session
+   *   notification arriving mid-session must not silently move the register under a reader who is
+   *   reading it, and a reader who has moved the picker must not be overruled by a re-render.
+   */
+  const defaulted = useRef(false);
+  useEffect(() => {
+    if (defaulted.current || !settingsWindow) return;
+    defaulted.current = true;
+    setFyRange({ start: settingsWindow.start, end: settingsWindow.end });
+  }, [settingsWindow]);
+
+  const defaultRange = useMemo(
+    () =>
+      settingsWindow ? { start: settingsWindow.start, end: settingsWindow.end } : null,
+    [settingsWindow],
+  );
+  const movedFromSettings =
+    !!fyRange &&
+    !!defaultRange &&
+    (fyRange.start !== defaultRange.start || fyRange.end !== defaultRange.end);
+
+  /**
+   * The second sentence of the window line: whose floor this is, and whether it is still the one in
+   * force.
+   *
+   * ★ THE SENTENCE ITSELF LIVES IN `data/fiscalWindow.ts`, BECAUSE THE INVOICES REGISTER STATES THE
+   *   SAME WINDOW AND MUST STATE IT IN THE SAME WORDS. What stays here is the call: this memo exists
+   *   only to keep the string off the render path.
+   */
+  const windowOrigin = useMemo(
+    () => windowOriginSentence(settingsWindow, fyRange),
+    [settingsWindow, fyRange],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
-    Promise.all([loadChecks(controller.signal), loadInvoices(controller.signal)])
+    /*
+      ★★ BOTH READS TAKE THE SAME WINDOW, AND LEAVING THE SECOND ONE BLANK WAS A REAL DEFECT.
+      
+      This page shows the *scoped* register: a check is shown only when one of its accounts is in
+      the tenant's fund and programs (`scopedChecks` below, `inScope`). The account segments do not
+      come from `Table1` — a check table carries a number, a date, a vendor and an amount, and
+      nothing about which level the money was booked to — so they arrive from the **invoices**
+      register, joined by `CHECK_ID` into `accountsByCheck`.
+      
+      That second read used to be sent with no `fyStart`/`fyEnd` while the first one was windowed,
+      which meant the join could only ever see accounts for the checks in the *server's* default
+      year. Every check from an earlier year therefore joined to an empty account list, `some(...)`
+      returned false, and the check was dropped — so widening the picker would have appeared to do
+      nothing at all. The reader would have changed FY2022 to FY1998, watched the window line and
+      the "N checks here" total change, and still seen the same 65 rows. A window that is stated
+      but not actually widened is worse than the silent one it replaced.
+      
+      ★ THE SAME RANGE GOES TO BOTH, NOT JUST A CORRESPONDING ONE. Two different windows would make
+        the join lossy in a way that is invisible on screen: a check inside the window whose invoice
+        is outside it joins to nothing and disappears, with the row count and the window line both
+        still reporting the wider window.
+      
+      ★ A `Map` AND NOT A `Record`, because a check id is a number in the hundreds of thousands and
+        an object keyed by those relies on integer-key ordering that nothing here should depend on.
+    */
+    Promise.all([
+      loadChecks(controller.signal, fyRange ?? undefined),
+      loadInvoices(controller.signal, fyRange ?? undefined),
+    ])
       .then(([checks, invoices]) => {
         const accountsByCheck = new Map<number, InvoiceAccount[]>();
         for (const invoice of invoices.invoices) {
@@ -513,7 +635,7 @@ export default function Checks() {
         setError(e instanceof Error ? e.message : String(e));
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, fyRange]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -740,32 +862,65 @@ export default function Checks() {
       </div>
 
       {/*
-        ★ THE SUBTITLE AND THE SCOPE NOTE ARE GONE, ON STAFF'S INSTRUCTION.
+        ★ THE SUBTITLE AND THE SCOPE NOTE ARE STILL GONE, BUT THE WINDOW IS NOW STATED.
 
           The scope note said *"Showing 65 of 4,218 checks"* — the one place a reader learned that
-          this register is a slice of the ledger rather than all of it. That is knowingly given up.
-          The row count and the window are still derivable from the table and its pager, and the SQL
-          trace below prints the statement and therefore the scope predicate.
+          this register is a slice of the ledger rather than all of it. That row-count-of-total is
+          still knowingly given up; the window line inside the filter bar replaces it, and it is the
+          half that mattered, because a reader who cannot see that a check was excluded cannot
+          discover that they were looking too narrow. The SQL trace below still prints the statement
+          and therefore the scope predicate.
       */}
       <SqlNote trace={data?.traces ?? null} label="the checks register, as the ledger received it" />
 
       {/*
         ★ A LINK FROM AN INVOICE ARRIVED WITH A CHECK THAT IS NOT IN THIS WINDOW.
 
-        It should not be reachable: the invoices register only offers the link for tells its own
-        links carry, and every one of those resolved to a check in this file when the two extracts
-        were last pulled. So this note is a guard on the extract staying in step rather than an
-        everyday state — and it says which check and why, because a click that lands on an
-        unfiltered register with no explanation reads as a broken link, not as a window that moved.
+        ★★ THE WINDOW IS THE LIKELIER CAUSE NOW, AND THE NOTE ONLY NAMED THE OTHER ONE. This note
+          was written when the register was effectively unfiltered, so a missing check could only
+          mean the two extracts had drifted out of step. It still leads with that single cause in
+          words — re-run the extract — while the much more ordinary explanation is that the reader
+          followed a link to a check issued before the year range they are looking through. A note
+          that names only the rare cause sends an operator to re-pull a 1.2-million-row extract over
+          a picker they can see on the page. So it now names the window first and the extract
+          second, and the window half is stated in the register's own years and dates rather than
+          left to the reader to remember from the line above.
+
+        It says which check and why, because a click that lands on an unfiltered register with no
+        explanation reads as a broken link, not as a window that moved.
       */}
       {data && missing ? (
         <p className="scopenote" role="note">
           <span className="scopenote__flag">Not in this window</span>
-          No check in this register has the identity <strong>{missing}</strong>. The invoices
-          register only links a check it holds a payment link for, so this is the two extracts
-          having been pulled at different times — re-run{' '}
-          <code>node server/scripts/pull-ap-extract.mjs</code> to bring them back into step. The
-          whole register is below.
+          {/* ★ THE PROSE IS ONE FLEX ITEM ON PURPOSE. `.scopenote` is `display:flex; gap:8px`, so
+              each bare text run beside the flag becomes a flex item of its own — and this note now
+              carries five `<strong>`s and a `<code>`, so unwrapped it broke into eight ragged
+              fragments each preceded by an 8px gap, with `), and a check issued outside it…` starting
+              its own line under the date. The trap is recorded on `.scopenote__text` in budgets.css;
+              this note grew into it. */}
+          <span className="scopenote__text">
+            No check in this register has the identity <strong>{missing}</strong>. This register is
+            bounded to{' '}
+            <strong>
+              {fyRange
+                ? fyRange.start === fyRange.end
+                  ? `FY${fyRange.start}`
+                  : `FY${fyRange.start}–${fyRange.end}`
+                : 'the newest year the ledger carries'}
+            </strong>
+            {data.window.from && data.window.to ? (
+              <>
+                {' '}
+                (checks dated <strong>{data.window.from}</strong> to{' '}
+                <strong>{data.window.to}</strong>)
+              </>
+            ) : null}
+            , and a check issued outside it is not searched — widen the year range above and the link
+            will resolve. If the check does fall inside the window, then the two extracts were pulled
+            at different times, which is the rarer case the invoices register normally prevents:
+            re-run <code>node server/scripts/pull-ap-extract.mjs</code> to bring them back into step.
+            The whole register is below.
+          </span>
         </p>
       ) : null}
 
@@ -900,7 +1055,142 @@ export default function Checks() {
               Clear “{query.trim()}”
             </button>
           ) : null}
+
+          {/*
+            ★ THE FISCAL-YEAR RANGE, AND IT OPENS WHERE THE ORGANIZATION OPENS.
+
+            The register was always bounded to a fiscal year and the page never said so, so a
+            reader hunting a check number issued in 2023 was told there was no match among “the
+            4,218” — every one of them in the newest year. `Settings → Organizations → Start FY` is
+            the floor the tenant already declared, so it is the floor this opens on.
+
+            ★ IT SITS LAST BECAUSE IT IS THE COARSEST QUESTION. Check number, vendor and invoice
+              number all narrow *within* a year; this decides which years exist to narrow.
+
+            ★ TWO NATIVE `<select>`S, BECAUSE THE OPTIONS COME FROM THE LEDGER — a year offered here
+              is a year `GL_PERIODS` really carries, so the server can never refuse a value the
+              control itself put in the list. The four-digit years are what a payables reader
+              recognises without being taught.
+
+            ★ IT RENDERS ONLY ONCE BOTH THE YEAR LIST AND THE RANGE EXIST. Until then the register
+              has already loaded on the server's own default — a control that has nothing to show
+              must not hold up the table it filters.
+          */}
+          {years.length > 0 && fyRange ? (
+            <div className="fyrange" role="group" aria-label="Fiscal year range">
+              <label className="sr" htmlFor="check-fy-start">
+                First fiscal year
+              </label>
+              <select
+                id="check-fy-start"
+                className="fselect fselect--fy"
+                value={String(fyRange.start)}
+                onChange={(e) => {
+                  const start = Number(e.target.value);
+                  // ★ THE END FOLLOWS THE START UNLESS THE READER HAS WIDENED IT PAST IT.
+                  //   Picking a start later than the current end would otherwise send a reversed
+                  //   range, which the server refuses — a 400 for a gesture the control invited.
+                  setFyRange((prev) => {
+                    const end = prev && prev.end >= start ? prev.end : start;
+                    return { start, end };
+                  });
+                  setPage(1);
+                }}
+                title="The first fiscal year to include"
+              >
+                {years.map((y) => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    FY{y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+              <span className="fyrange__dash" aria-hidden="true">
+                –
+              </span>
+              <label className="sr" htmlFor="check-fy-end">
+                Last fiscal year
+              </label>
+              <select
+                id="check-fy-end"
+                className="fselect fselect--fy"
+                value={String(fyRange.end)}
+                onChange={(e) => {
+                  const end = Number(e.target.value);
+                  setFyRange((prev) => {
+                    const start = prev && prev.start <= end ? prev.start : end;
+                    return { start, end };
+                  });
+                  setPage(1);
+                }}
+                title="The last fiscal year to include"
+              >
+                {years.map((y) => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    FY{y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {/* ★ THE WAY BACK. Moving the start is a real gesture and a reader who has moved it needs
+              to be able to undo it without guessing which year Settings holds — so this names that
+              year rather than sending them to the Settings screen to look it up. */}
+          {!ai && movedFromSettings && settingsWindow && settingsWindow.asked > 0 ? (
+            <button
+              type="button"
+              className="fchip"
+              onClick={() => setFyRange({ start: settingsWindow.start, end: settingsWindow.end })}
+              title="Set the year range back to this organization's Start FY"
+            >
+              Back to Start FY {settingsWindow.asked}
+            </button>
+          ) : null}
         </div>
+
+        {/*
+          ★★ THE WINDOW, STATED — AND THIS LINE IS THE OTHER HALF OF THE FIX.
+
+          Widening the register is not enough on its own. The bound is real (the view behind it
+          holds 1,246,676 checks, so an unbounded read is a way to ask for a hang) and the reader
+          may still move it — which means a reader can still end up looking at a slice without
+          knowing it. So the slice is always named.
+
+          ★ IT NAMES THE DATES AS WELL AS THE YEARS. “FY2022” is a label; “2021-07-01” is a fact a
+            check date can be held against.
+
+          ★ IT IS UNCONDITIONAL, NOT GATED ON “DID THE WINDOW COST ANYTHING”. A note shown only
+            when rows were dropped would be absent on the default view — which is precisely the
+            view the reader was on when they concluded the data was missing.
+
+          ★ IT IS A PLAIN SENTENCE RATHER THAN A `.notice` BOX. Nothing is wrong; a window is a
+            fact about the register. Dressing a fact as a warning is how a reader learns to ignore
+            warnings.
+        */}
+        {data ? (
+          <p className="fywindow">
+            <span className="fywindow__flag">Window</span>
+            <span className="fywindow__text">
+              {data.window.fiscalYear > 0 ? (
+                <>
+                  <strong>
+                    {data.window.fiscalYearEnd > data.window.fiscalYear
+                      ? `FY${data.window.fiscalYear}–${data.window.fiscalYearEnd}`
+                      : `FY${data.window.fiscalYear}`}
+                  </strong>{' '}
+                  — checks dated <strong>{data.window.from}</strong> to{' '}
+                  <strong>{data.window.to}</strong>.{' '}
+                </>
+              ) : (
+                <>
+                  Checks dated <strong>{data.window.from}</strong> to{' '}
+                  <strong>{data.window.to}</strong>.{' '}
+                </>
+              )}
+              {windowOrigin}
+            </span>
+          </p>
+        ) : null}
 
         <AssistantAnswerBlock
           answer={answer}
@@ -945,6 +1235,35 @@ export default function Checks() {
             <p>
               No check of the {num(index.length)} in this window matches <strong>{query.trim()}</strong>.
             </p>
+            {/*
+              ★ THE SECOND PARAGRAPH THE OLD MESSAGE DID NOT HAVE, AND THE ONE THAT MATTERS.
+
+              “in this window” was doing all the work of disclosing the fiscal bound, in a sentence
+              whose subject was the search. A reader who typed a check number issued in 2023 read
+              the whole message as “this check does not exist”, because nothing on the line said
+              which window it was in — and the register had been silently narrowed from every year
+              the tenant cares about down to one. So the miss now says which window it searched, and
+              names the control that moves it.
+            */}
+            {data && fyRange ? (
+              <p className="chkempty__hint">
+                This register is bounded to{' '}
+                <strong>
+                  {fyRange.start === fyRange.end
+                    ? `FY${fyRange.start}`
+                    : `FY${fyRange.start}–${fyRange.end}`}
+                </strong>
+                {data.window.from && data.window.to ? (
+                  <>
+                    {' '}
+                    (checks dated <strong>{data.window.from}</strong> to{' '}
+                    <strong>{data.window.to}</strong>)
+                  </>
+                ) : null}
+                . A check issued before <strong>{data.window.from || 'this window'}</strong> is not
+                searched — widen the year range above to include it.
+              </p>
+            ) : null}
             <p className="chkempty__hint">
               Every word has to appear somewhere in the check or in one of its invoices, so a
               two-word search is an &ldquo;and&rdquo;, not a phrase. Check numbers match on their

@@ -278,6 +278,26 @@ const ChecksResponse = z
         Table2: z.array(z.record(z.unknown())),
       }),
     }),
+    /**
+     * ★ THE WINDOW IS ON THE WIRE, AS A SIBLING OF `body`, EXACTLY AS THE INVOICES ROUTE SENDS IT.
+     *
+     *   It was missing here, and the absence was the same defect this register had on the client:
+     *   the page could not say which years it had been given. A reader searching for a check
+     *   issued outside the newest year was told *"no check of the 4,218 in this window matches"* —
+     *   a statement about a window the page never named.
+     *
+     * ★ IT IS THE **REQUESTED** WINDOW, NOT THE DATES THE ROWS HAPPEN TO SPAN. The declared block
+     *   is what a client can check its own request against; the measured span is a different fact
+     *   and the page derives that one from the rows itself.
+     */
+    window: z
+      .object({
+        from: z.string(),
+        to: z.string(),
+        fiscalYear: z.number().int(),
+        fiscalYearEnd: z.number().int(),
+      })
+      .optional(),
   })
   .openapi('ApChecks');
 
@@ -368,6 +388,9 @@ export function apRouter(): Router {
       'Payment documents and the invoices each one settled, for a fiscal-year window. ' +
       '`?fyStart=` and `?fyEnd=` choose the years (see `/api/ap/fiscal-years` for the ones the ' +
       'ledger carries); both blank means the newest year.\n\n' +
+      '★ **THE WINDOW APPLIED IS RETURNED**, as a `window` block beside `body`: `from`/`to` are ' +
+      'the chosen years\' period span and `fiscalYear`/`fiscalYearEnd` name them. A client that ' +
+      'cannot say which years it was given cannot explain a row that is missing.\n\n' +
       '★ THE WINDOW IS ALWAYS BOUNDED, EVEN THOUGH IT IS A PARAMETER. The underlying view holds ' +
       '1,246,676 rows against this window\'s 4,218, so an unbounded read is a way to ask for a ' +
       'hang — a year the ledger does not carry is a **400 naming the years that exist**, never ' +
@@ -470,6 +493,25 @@ export function apRouter(): Router {
 
       const envelope: ApEnvelope = {
         body: { ResultSets: { Table1: checks.rows, Table2: links.rows } },
+        // ★ A SIBLING OF `body`, FOR THE REASON `ApEnvelope` ALREADY RECORDS: the result-set shape
+        //   is a third-party contract and a third table in it would be a break, while a block
+        //   *about* the document is not. `ApEnvelope` declared this field from the start; this
+        //   route simply never filled it in.
+        //
+        // ★ THIS REGISTER NEEDED IT MORE THAN THE OTHER ONE DID. A check is looked up by its
+        //   number, and its number says nothing about which year it was issued in — so a reader
+        //   hunting a 2023 check was told there was no match among "the 4,218", every one of
+        //   which had been silently narrowed to the newest fiscal year.
+        //
+        // ★ THE DATES ARE THE CHOSEN YEARS' PERIOD SPAN, read out of `GL_PERIODS` by
+        //   `resolveWindow` rather than computed as `fy - 1 + '-07-01'`. This ledger's fiscal year
+        //   is Jul→Jun and that is a fact about the periods, not about the number.
+        window: {
+          from,
+          to,
+          fiscalYear: win.fiscalYear,
+          fiscalYearEnd: win.fiscalYearEnd,
+        },
       };
       return raw(JSON.stringify(envelope));
     },

@@ -5,6 +5,13 @@
  * from `GL_PERIODS` by the server, so the response carries the dates it covers and this module
  * reports them rather than the page assuming a range.
  *
+ * ★ THE WINDOW IS A DEFAULT THE PAGE PICKS, NOT A CONSTANT THE LEDGER IMPOSES, and that is the fix
+ *   for *"we are only showing Checks for the current fiscal year"*. With no parameters the route
+ *   answers the **newest** year it carries, so a tenant whose organization starts in FY2022 was
+ *   searching a register that had been cut to FY2027 — and the only hint was the phrase "in this
+ *   window" inside the no-match message. `loadChecks` now takes a range and both registers open on
+ *   the organization's `Start FY`; see `data/fiscalWindow.ts` for how that floor is chosen.
+ *
  * ★ IT USED TO READ `data/oracle/checks.json`, AND IT NO LONGER DOES. The frozen file was a
  *   point-in-time snapshot — its window ends `2026-08-11` — so a page built on it described a
  *   register the ledger had already moved past. The live route returns a byte-identical shape
@@ -80,6 +87,17 @@ interface RawInvoiceLink {
 
 export interface ChecksEnvelope {
   body: { ResultSets: { Table1: RawCheck[]; Table2: RawInvoiceLink[] } };
+  /**
+   * The window the server applied, as a sibling of `body`.
+   *
+   * ★ OPTIONAL BECAUSE IT IS OPTIONAL ON THE WIRE, not because it may be ignored. The route did not
+   *   send this block at all until the fiscal-year default was added — it is the same defect the
+   *   invoices route had already fixed — so the field is declared optional and the reader below
+   *   falls back to the dates the rows themselves span. Same shape as `loadInvoices`. `0` on either
+   *   year means the server declared none, which is rendered as "no year to name", never as year
+   *   zero.
+   */
+  window?: { from?: string; to?: string; fiscalYear?: number; fiscalYearEnd?: number };
 }
 
 /**
@@ -132,8 +150,27 @@ export interface ChecksExtract {
   checks: Check[];
   /** Checks whose invoices sum to the check exactly — what the page prints. */
   reconciled: number;
-  /** The dates actually present in the file, so the page can state its own scope. */
-  window: { from: string; to: string };
+  /**
+   * The fiscal years this register was **asked** for, carried on the response itself.
+   *
+   * ★ IT IS THE DECLARED WINDOW, NOT THE SPAN THE ROWS HAPPEN TO COVER, and the difference is the
+   *   whole point. A reader hunting a 2023 check needs to know which years this register was given,
+   *   not the earliest date it happened to return — the second is narrower than the first whenever
+   *   a year holds no checks, and reporting it as the window would turn "we asked for FY2022–2027"
+   *   into the false claim "this register starts in 2023".
+   *
+   * `0` on either year means the server declared none, which the page renders as "no year to name"
+   * rather than as year zero. Field for field the same as `InvoicesExtract.window`.
+   */
+  window: { from: string; to: string; fiscalYear: number; fiscalYearEnd: number };
+  /**
+   * The dates actually present in the rows, which are narrower than the bound.
+   *
+   * ★ IT WAS CALLED `window` UNTIL THE WINDOW BECAME A CHOICE, AND THE RENAME IS THE HONESTY. It
+   *   was the measured span of the newest year's rows reporting itself as *the* window, because
+   *   there was only ever one window and nobody had asked for a different one.
+   */
+  observed: { from: string; to: string };
   links: number;
   /**
    * Whether this extract carries the order column at all.
@@ -202,8 +239,31 @@ const figure = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export async function loadChecks(signal?: AbortSignal): Promise<ChecksExtract> {
-  const res = await fetch(sqlUrl(URL), { signal });
+/**
+ * The register URL for a fiscal-year range.
+ *
+ * ★ THE RANGE IS A QUERY PARAM, NOT A SECOND ENDPOINT, so the SQL trace flag and the window
+ *   compose in one URL. `sqlUrl` owns the trace flag; this adds the years and leaves it alone.
+ *   The same helper shape exists in `data/invoices.ts` for the same reason.
+ *
+ * ★ AN ABSENT RANGE SENDS NO PARAMS AT ALL, AND THAT IS NOT THE SAME AS "NO WINDOW". It asks the
+ *   server for its own default — the newest year it carries — which is what this page did before
+ *   the window became a choice, and therefore the correct degradation for a ledger whose year list
+ *   could not be read. Sending `fyStart=<newest>` explicitly would work and would freeze the
+ *   default in the client, so a ledger that gained a year would keep opening on the old one.
+ */
+function registerUrl(fy?: { start: number; end: number }): string {
+  const base = sqlUrl(URL);
+  if (!fy) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}fyStart=${fy.start}&fyEnd=${fy.end}`;
+}
+
+export async function loadChecks(
+  signal?: AbortSignal,
+  fy?: { start: number; end: number },
+): Promise<ChecksExtract> {
+  const res = await fetch(registerUrl(fy), { signal });
   if (!res.ok) {
     /**
      * ★ THE REFUSAL NAMES THE LEDGER, BECAUSE THAT IS NOW THE ONLY SOURCE.
@@ -283,10 +343,32 @@ export async function loadChecks(signal?: AbortSignal): Promise<ChecksExtract> {
 
   const dates = checks.map((c) => c.date).filter(Boolean).sort();
 
+  /**
+   * ★ THE WINDOW COMES OFF THE RESPONSE, AND FALLS BACK TO THE ROWS THEMSELVES.
+   *
+   *   `envelope.window` is what the server was **asked** for; `dates` is what it found. The two are
+   *   different facts and the page needs the first one to say which years it is looking at — the
+   *   measured span cannot: a window of FY2022–2027 whose oldest check is dated 2023-01-04 would
+   *   report itself as starting in 2023, which is the same false conclusion in the other
+   *   direction.
+   *
+   *   The row-derived fallback stays for a deployment whose server predates the block, and it is
+   *   the safe direction there: an absent window names no years, which reads as "this is what the
+   *   rows cover" rather than as a claim the page cannot support.
+   */
+  const rawWindow = envelope.window ?? null;
+  const window = {
+    from: rawWindow?.from || dates[0] || '',
+    to: rawWindow?.to || dates[dates.length - 1] || '',
+    fiscalYear: figure(rawWindow?.fiscalYear),
+    fiscalYearEnd: figure(rawWindow?.fiscalYearEnd) || figure(rawWindow?.fiscalYear),
+  };
+
   return {
     checks,
     reconciled,
-    window: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
+    window,
+    observed: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
     links: links.length,
     ordersMeasured,
     orders: { named, links: links.length },
