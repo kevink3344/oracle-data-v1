@@ -45,6 +45,17 @@
  * create form rather than a second implementation of them, and the sentence under the
  * start year is the same `startFyEffect`.
  *
+ * ── ★ AND MAKING AN ACCOUNT IS THE SAME GESTURE IN THE SAME PLACE
+ *
+ * `+ New` on the account register slides `NewUserPanel` in from the right, with the
+ * same shell and the same Escape, trap and resize — and, deliberately, the same
+ * remembered width, because it asks the account panel's own six questions and nothing
+ * else. It began as a form that opened inside the accordion underneath the list, and
+ * the reason it is not one now is not that a drawer looks better: the fields were
+ * pushed further down the page by every row the register gained, so the act of adding
+ * an account scrolled the fields for it out of reach. Only one of the two account
+ * panels is ever open, which is the rule the organization pair already follows.
+ *
  * The panel does **not** post the four fields. It posts only the ones that differ,
  * because `PATCH /api/organizations/{slug}` refuses a body that names no fields with
  * `400 BAD_REQUEST` — deliberately, so an empty update cannot answer `200` and let a
@@ -743,15 +754,13 @@ export default function Settings() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersReloadKey, setUsersReloadKey] = useState(0);
 
-  // The create form. `userDraftComplete` is the only implementation of "is this
-  // finished" and `diffOfUser` of "what changed", exactly as the organization form
-  // shares `draftComplete` and `diffOf` with its panel.
+  // ★ THE CREATE PANEL'S OPEN/CLOSED STATE IS ALL THIS PAGE KEEPS OF IT. The draft,
+  //   the busy flag, the refusal and the accepted-field list moved into the panel
+  //   with the form, which is where `UserPanel` has always kept its own — the route
+  //   answers one question (`userCreated`) about a create, and that answer is a
+  //   notice in the register rather than a field in a form.
   const [userFormOpen, setUserFormOpen] = useState(false);
-  const [userDraft, setUserDraft] = useState<UserDraft>(BLANK_USER);
-  const [userBusy, setUserBusy] = useState(false);
   const [userCreated, setUserCreated] = useState<AppUser | null>(null);
-  const [userFormProblem, setUserFormProblem] = useState<string | null>(null);
-  const [userFormAccepts, setUserFormAccepts] = useState<string[]>([]);
 
   /** The account whose panel is open, or `null`. A row, not a boolean — see `editing`. */
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
@@ -890,51 +899,6 @@ export default function Settings() {
       setFormAccepts(acceptedValues(err));
     } finally {
       setBusy(false);
-    }
-  }
-
-  const userReady = userDraftComplete(userDraft, true);
-
-  /** A keystroke in the account form. Clears the refusal, for the reason `editDraft` does. */
-  function editUserDraft(patch: Partial<UserDraft>) {
-    setUserFormProblem(null);
-    setUserDraft((current) => ({ ...current, ...patch }));
-  }
-
-  async function onCreateUser(event: React.FormEvent) {
-    event.preventDefault();
-    if (userBusy || !userReady) return;
-    setUserBusy(true);
-    setUserFormProblem(null);
-    setUserFormAccepts([]);
-    try {
-      const row = await createUser({
-        email: userDraft.email.trim(),
-        name: userDraft.name.trim(),
-        role: userDraft.role,
-        organizations: [...userDraft.memberships].sort((a, b) => a - b),
-        // ★ OMITTED, NOT `null`, WHEN THE ANSWER WAS NEVER NEEDED. The server infers
-        //   the sign-in organization from a single membership and refuses a stated
-        //   `null` outright — so "there is no answer" and "the answer is nothing" are
-        //   two different requests and only one of them is legal.
-        ...(userDraft.primary === null ? {} : { primaryOrganizationId: userDraft.primary }),
-        password: userDraft.password,
-      });
-      setUserCreated(row);
-      setUserFormOpen(false);
-      // ★ RESET WHOLE, INCLUDING THE ROLE, UNLIKE THE ORGANIZATION FORM. That one
-      //   deliberately keeps the fund, the programs and the year, because they describe
-      //   the tenant the administrator is *in* and re-choosing them per row is busywork.
-      //   There is no equivalent argument here: the last account's role describes the
-      //   last account, and carrying `super_admin` forward as a pre-filled default is a
-      //   mistake one keystroke away from being made. Back to `staff`.
-      setUserDraft(BLANK_USER);
-      setUsersReloadKey((k) => k + 1);
-    } catch (err: unknown) {
-      setUserFormProblem(err instanceof Error ? err.message : 'The account was not recorded.');
-      setUserFormAccepts(acceptedValues(err));
-    } finally {
-      setUserBusy(false);
     }
   }
 
@@ -1223,15 +1187,22 @@ export default function Settings() {
                 {users.counts.total} {users.counts.total === 1 ? 'account' : 'accounts'}
               </span>
             ) : null}
+            {/*
+              ★ IT OPENS A DIALOG RATHER THAN DISCLOSING A FORM, WHICH IS WHY IT NO
+                LONGER CARRIES `aria-expanded`. The thing it controls is not a region
+                that appears beside the button — it is a panel that takes the screen, so
+                it is announced as a dialog and `aria-haspopup` is the truthful
+                attribute. The row's own `Edit` button already says it this way, and two
+                buttons opening two drawers should not describe themselves differently.
+            */}
             <button
               type="button"
               className="btn btn--primary btn--sm"
-              aria-expanded={userFormOpen}
-              aria-controls="user-new"
+              aria-haspopup="dialog"
+              aria-controls="user-new-panel"
               onClick={() => {
-                setUserFormOpen((v) => !v);
                 setUserCreated(null);
-                setUserFormProblem(null);
+                setUserFormOpen(true);
                 // The same rule the organization panel follows: a form for a record that
                 // does not exist and a panel for one that does are not allowed both open,
                 // because being on screen together invites typing into the wrong one.
@@ -1385,6 +1356,10 @@ export default function Settings() {
                       aria-label={`Edit ${row.name}`}
                       onClick={() => {
                         setUserCreated(null);
+                        // ★ THE SAME RULE, FROM THE OTHER SIDE. Whichever of the two
+                        //   panels is opened last is the only one open — `+ New` above
+                        //   closes this one, and this one closes `+ New`.
+                        setUserFormOpen(false);
                         setEditingUser(row);
                       }}
                     >
@@ -1418,108 +1393,6 @@ export default function Settings() {
             </details>
           ) : null}
 
-          {userFormOpen ? (
-            <form className="userform" id="user-new" onSubmit={onCreateUser} noValidate>
-              <h3 className="userform__title">New account</h3>
-              <p className="chart-note">
-                The address is the key sign-in looks the row up by, and it is lower-cased on write —
-                so it is the one field that cannot be changed afterwards. A name and a role can be
-                patched later; an address cannot, which is why the panel shows it read-only.
-              </p>
-
-              {userFormProblem ? (
-                <div className="notice notice--err" role="alert">
-                  <p>
-                    <strong>That was refused.</strong>
-                  </p>
-                  <p>{userFormProblem}</p>
-                  {userFormAccepts.length ? (
-                    <p>
-                      This register accepts {userFormAccepts.map((v) => `“${v}”`).join(', ')} here.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="field">
-                <label className="field__label" htmlFor="user-new-name">
-                  Name <span className="field__req">required</span>
-                </label>
-                <input
-                  id="user-new-name"
-                  className="input"
-                  type="text"
-                  autoComplete="off"
-                  value={userDraft.name}
-                  placeholder="e.g. A. Person"
-                  onChange={(event) => editUserDraft({ name: event.target.value })}
-                />
-                <p className="field__hint">
-                  What the header and the avatar show. Nothing in the ledger is keyed by it.
-                </p>
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="user-new-email">
-                  Email <span className="field__req">required</span>
-                </label>
-                <input
-                  id="user-new-email"
-                  className="input"
-                  type="email"
-                  autoComplete="off"
-                  value={userDraft.email}
-                  placeholder="e.g. a.person@wcpss.net"
-                  onChange={(event) => editUserDraft({ email: event.target.value })}
-                />
-                <p className="field__hint">
-                  Stored lower-cased, and refused if another account already holds it.
-                  {users?.bootstrapEmail ? (
-                    <>
-                      {' '}
-                      The bootstrap address <code>{users.bootstrapEmail}</code> is refused here as
-                      well — a row for it would never be reached, because <code>.env</code> answers
-                      first.
-                    </>
-                  ) : null}
-                </p>
-              </div>
-
-              <RoleField
-                idPrefix="user-new"
-                value={userDraft.role}
-                register={users}
-                onChange={(role) => editUserDraft({ role })}
-              />
-
-              <MembershipPicker
-                idPrefix="user-new"
-                orgs={list?.items ?? []}
-                memberships={userDraft.memberships}
-                primary={userDraft.primary}
-                onChange={editUserDraft}
-              />
-
-              <PasswordField
-                idPrefix="user-new"
-                value={userDraft.password}
-                onChange={(password) => editUserDraft({ password })}
-                label="First password"
-                hint="Eight characters minimum. It is hashed on arrival and never returned — no route on this server can read one back — so it is worth copying down now."
-              />
-
-              <div className="idcard__actions">
-                <button type="submit" className="btn btn--primary" disabled={!userReady || userBusy}>
-                  {userBusy ? 'Recording…' : 'Create account'}
-                </button>
-                <p className="field__hint">
-                  {userReady
-                    ? 'The name, the address, the role, the organizations and the first password are the whole record. Nothing is written to Oracle.'
-                    : 'A name, an address, at least one organization and a password of eight characters are required. An account with a choice of organizations also has to say which one it signs in to.'}
-                </p>
-              </div>
-            </form>
-          ) : null}
         </div>
       </section>
 
@@ -1589,6 +1462,33 @@ export default function Settings() {
           setUsersReloadKey((k) => k + 1);
         }}
       />
+
+      {/*
+        ★ BESIDE THE EDIT PANEL, NOT INSIDE THE ACCORDION. `+ New` slides this in from
+          the right exactly as `Edit` slides that one in, so the two acts are the same
+          gesture in the same place — and the register behind it is left alone while an
+          account is being composed.
+
+        ★ `onCreated` DOES NOT CLOSE THIS PANEL ITSELF. The panel closes on its own
+          successful write, because it is the only thing that knows the write landed and
+          the only thing holding a draft that is now stale. This callback is the page's
+          half: the notice in the register, and the re-read that brings the counts back
+          from the server that derived them.
+      */}
+      <NewUserPanel
+        open={userFormOpen}
+        orgs={list?.items ?? []}
+        register={users}
+        onClose={() => setUserFormOpen(false)}
+        onCreated={(row) => {
+          setUserCreated(row);
+          // ★ THE REGISTER IS RE-READ RATHER THAN APPENDED TO, for the reason the edit
+          //   panel's save gives: `counts` is four numbers the **server** derived, and a
+          //   page that pushed the new row into its own array would leave the header
+          //   counting one fewer account than the list is showing.
+          setUsersReloadKey((k) => k + 1);
+        }}
+      />
     </div>
   );
 }
@@ -1619,12 +1519,19 @@ const FOCUSABLE =
 const ORG_PANEL_WIDTH_KEY = 'settings-org-panel-w';
 
 /**
- * ★ A SECOND KEY, AND THE REASON IS THAT THE TWO PANELS ARE NOT THE SAME WIDTH.
+ * ★ TWO ACCOUNT PANELS, ONE WIDTH, AND THE ORGANIZATION PANEL DELIBERATELY NOT ON IT.
  *   The organization panel holds a name, a fund, a program list and a start year —
- *   four fields and a preview. The account panel holds a name, a role, a checkbox
- *   list, a radio group and a password box. Sharing one key would mean widening the
- *   account panel to read an email moves the organization panel underneath it, which
- *   is a settings page rearranging itself while nobody asked it to.
+ *   four fields and a preview. The account panels hold a name, an address, a role, a
+ *   checkbox list, a radio group and a password box. Sharing a key across *that*
+ *   boundary would mean widening the account panel to read an email moves the
+ *   organization panel underneath it, which is a settings page rearranging itself
+ *   while nobody asked it to.
+ *
+ * ★ BUT `UserPanel` AND `NewUserPanel` DO SHARE ONE, AND THE FIELDS ARE WHY. They ask
+ *   the same six questions in the same order — the only difference is that one is
+ *   filled from a row and one is empty — so two keys would mean a person who widened
+ *   the register's panel to read a long address has to widen the other panel to read
+ *   the address they are typing.
  */
 const USER_PANEL_WIDTH_KEY = 'settings-user-panel-w';
 
@@ -2807,6 +2714,339 @@ function UserPanel({
             : patch === null
               ? 'Nothing has changed yet, so there is nothing to send. An update that names no fields is refused rather than treated as a no-op.'
               : `Sends only what differs — ${describeUserPatch(patch)}. Nothing is written to Oracle, and no password is sent by this button.`}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * A new account, composed in a panel that slides in from the right.
+ *
+ * ── ★ IT IS THE THIRD DRAWER ON THIS PAGE, AND THE SHELL IS THE SAME ON PURPOSE
+ *
+ * Escape closes, Tab is trapped, focus goes back to the `+ New` button, the body is
+ * locked while it is open, the width is dragged and remembered. The markup is repeated
+ * rather than extracted for the reason `UserPanel` gives: the fields inside share
+ * nothing with the organization panel's, and pulling the shell out would mean a
+ * component taking `children` and passing the whole lifecycle down — more machinery
+ * than three uses justify. The part that must not diverge is the behaviour, and it is
+ * copied exactly.
+ *
+ * ── ★ BUT IT SHARES THE ACCOUNT PANEL'S WIDTH, WHERE THE OTHER TWO DO NOT SHARE ONE
+ *
+ * `USER_PANEL_WIDTH_KEY` is used by both account panels and `ORG_PANEL_WIDTH_KEY` by
+ * neither of them, and the distinction is the fields rather than the count. These two
+ * panels ask the same six questions in the same order, so two widths would mean a
+ * person who widened the register's panel to read a long address has to widen the
+ * create panel to read the address they are typing. The organization panel holds four
+ * scope inputs and is genuinely a different shape, which is the case its own note
+ * makes.
+ *
+ * ── ★ IT WAS AN INLINE FORM, AND THE REASON IT STOPPED BEING ONE IS NOT AESTHETIC
+ *
+ * It used to open inside the accordion, under the list. That works while the register
+ * is short and stops working as soon as it is not: the fields appeared below however
+ * far the list had grown, so the act of adding an account pushed the fields for that
+ * account off the screen. A drawer has its own scroll and its own position, and it does
+ * not move because the register behind it grew a row.
+ *
+ * ── ★ THE DRAFT SURVIVES A CLOSE AND IS EMPTIED ONLY BY A SUCCESSFUL CREATE
+ *
+ * Escape on a half-typed account is far more often a mis-press than a decision to throw
+ * the work away, so what was typed stays typed and re-opening the panel shows it again.
+ * The one thing that clears it is the write landing, where every field is stale by
+ * definition. That reset is **whole, including the role**, unlike the organization
+ * form which deliberately keeps the fund, the programs and the year: those describe the
+ * tenant the administrator is *in*, and there is no equivalent here — the last
+ * account's role describes the last account, and carrying `super_admin` forward as a
+ * pre-filled default is a mistake one keystroke from being made.
+ */
+function NewUserPanel({
+  open,
+  orgs,
+  register,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  orgs: readonly Organization[];
+  register: UserList | null;
+  onClose: () => void;
+  onCreated: (row: AppUser) => void;
+}) {
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  // ★ THE SAME TWO REASONS `UserPanel` HAS THESE, AND THE SAME KEY.
+  const [width, setWidth] = useState<number | null>(() => readStoredWidth(USER_PANEL_WIDTH_KEY));
+  const [resizing, setResizing] = useState(false);
+  const [rendered, setRendered] = useState(0);
+
+  const [draft, setDraft] = useState<UserDraft>(BLANK_USER);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [accepts, setAccepts] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    document.body.classList.add('is-locked');
+    return () => {
+      document.body.classList.remove('is-locked');
+      openerRef.current?.focus?.();
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+      if (items.length === 0) return;
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => setRendered(panelRef.current?.getBoundingClientRect().width ?? 0);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
+  useEffect(() => {
+    document.body.classList.toggle('is-resizing', resizing);
+    return () => document.body.classList.remove('is-resizing');
+  }, [resizing]);
+
+  const ready = userDraftComplete(draft, true);
+
+  /** A keystroke. Clears the refusal, for the reason the organization form's `editDraft` gives. */
+  function edit(patch: Partial<UserDraft>) {
+    setProblem(null);
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function onCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !ready) return;
+    setBusy(true);
+    setProblem(null);
+    setAccepts([]);
+    try {
+      const row = await createUser({
+        email: draft.email.trim(),
+        name: draft.name.trim(),
+        role: draft.role,
+        organizations: [...draft.memberships].sort((a, b) => a - b),
+        // ★ OMITTED, NOT `null`, WHEN THE ANSWER WAS NEVER NEEDED. The server infers
+        //   the sign-in organization from a single membership and refuses a stated
+        //   `null` outright — so "there is no answer" and "the answer is nothing" are
+        //   two different requests and only one of them is legal.
+        ...(draft.primary === null ? {} : { primaryOrganizationId: draft.primary }),
+        password: draft.password,
+      });
+      setDraft(BLANK_USER);
+      onCreated(row);
+      onClose();
+    } catch (err: unknown) {
+      setProblem(err instanceof Error ? err.message : 'The account was not recorded.');
+      setAccepts(acceptedValues(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <aside
+      ref={panelRef}
+      id="user-new-panel"
+      className={`drawer userpanel newuserpanel${open ? ' is-open' : ''}${resizing ? ' is-resizing' : ''}`}
+      style={width === null ? undefined : ({ '--drawer-w': `${width}px` } as CSSProperties)}
+      role="dialog"
+      aria-modal="true"
+      aria-label="New account"
+      aria-hidden={!open}
+      tabIndex={-1}
+    >
+      <ResizeGrip
+        value={width ?? rendered}
+        onChange={(next) => {
+          const clamped = clampWidth(next);
+          setWidth(clamped);
+          storeWidth(USER_PANEL_WIDTH_KEY, clamped);
+        }}
+        onReset={() => {
+          setWidth(null);
+          storeWidth(USER_PANEL_WIDTH_KEY, null);
+        }}
+        onDraggingChange={setResizing}
+        controls="user-new-panel"
+        label="Resize the new-account panel"
+      />
+
+      <div className="drawer__head">
+        <div className="drawer__eyebrow">
+          Users &amp; roles · <code>new</code>
+        </div>
+        <h2 className="drawer__name">New account</h2>
+        <div className="drawer__meta">
+          {/*
+           * ★ A STATEMENT ABOUT WHAT THE PANEL WILL MAKE, NOT A PREVIEW OF IT.
+           *   `UserPanel`'s head describes the stored row and says why; this panel has
+           *   no stored row, and inventing a live reading of the draft here would be a
+           *   second, weaker answer to a question the fields below already answer. So
+           *   the line states the rule the form is built on instead.
+           */}
+          A name, an address, a role, the organizations it belongs to and a first password — and
+          every account belongs to <b>at least one organization</b>, because that is what it signs
+          in to.
+        </div>
+        <button
+          ref={closeRef}
+          type="button"
+          className="drawer__close"
+          onClick={onClose}
+          aria-label="Close the new-account panel"
+        >
+          <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path
+              d="M1 1l10 10M11 1L1 11"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div className="drawer__body">
+        <form className="userform" id="user-new" onSubmit={onCreate} noValidate>
+          {problem ? (
+            <div className="notice notice--err" role="alert">
+              <p>
+                <strong>That was refused.</strong>
+              </p>
+              <p>{problem}</p>
+              {accepts.length ? (
+                <p>This register accepts {accepts.map((v) => `“${v}”`).join(', ')} here.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <p className="chart-note">
+            The address is the key sign-in looks the row up by, and it is lower-cased on write — so
+            it is the one field that cannot be changed afterwards. A name and a role can be patched
+            later, which is why <strong>Edit</strong> on the row shows the address and will not let
+            it be typed into; this is the only screen that can choose one.
+          </p>
+
+          <div className="field">
+            <label className="field__label" htmlFor="user-new-name">
+              Name <span className="field__req">required</span>
+            </label>
+            <input
+              id="user-new-name"
+              className="input"
+              type="text"
+              autoComplete="off"
+              value={draft.name}
+              placeholder="e.g. A. Person"
+              onChange={(event) => edit({ name: event.target.value })}
+            />
+            <p className="field__hint">
+              What the header and the avatar show. Nothing in the ledger is keyed by it.
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="user-new-email">
+              Email <span className="field__req">required</span>
+            </label>
+            <input
+              id="user-new-email"
+              className="input"
+              type="email"
+              autoComplete="off"
+              value={draft.email}
+              placeholder="e.g. a.person@wcpss.net"
+              onChange={(event) => edit({ email: event.target.value })}
+            />
+            <p className="field__hint">
+              Stored lower-cased, and refused if another account already holds it.
+              {register?.bootstrapEmail ? (
+                <>
+                  {' '}
+                  The bootstrap address <code>{register.bootstrapEmail}</code> is refused here as
+                  well — a row for it would never be reached, because <code>.env</code> answers
+                  first.
+                </>
+              ) : null}
+            </p>
+          </div>
+
+          <RoleField
+            idPrefix="user-new"
+            value={draft.role}
+            register={register}
+            onChange={(role) => edit({ role })}
+          />
+
+          <MembershipPicker
+            idPrefix="user-new"
+            orgs={orgs}
+            memberships={draft.memberships}
+            primary={draft.primary}
+            onChange={edit}
+          />
+
+          <PasswordField
+            idPrefix="user-new"
+            value={draft.password}
+            onChange={(password) => edit({ password })}
+            label="First password"
+            hint="Eight characters minimum. It is hashed on arrival and never returned — no route on this server can read one back — so it is worth copying down now."
+          />
+        </form>
+      </div>
+
+      <div className="drawer__foot">
+        <button type="submit" className="btn btn--primary" form="user-new" disabled={!ready || busy}>
+          {busy ? 'Recording…' : 'Create account'}
+        </button>
+        <button type="button" className="btn btn--system" onClick={onClose}>
+          Close
+        </button>
+        <p className="userpanel__note">
+          {ready
+            ? 'The name, the address, the role, the organizations and the first password are the whole record. Nothing is written to Oracle. Closing this panel without creating keeps what has been typed.'
+            : 'A name, an address, at least one organization and a password of eight characters are required. An account with a choice of organizations also has to say which one it signs in to.'}
         </p>
       </div>
     </aside>

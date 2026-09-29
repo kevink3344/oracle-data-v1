@@ -763,7 +763,14 @@
 /* --- the new-account form ---------------------------------------------- */
 
 /* The same shape as `.orgform`, and the same dashed rule for the same reason: the
-   form is an alternative to the list above it, not a section of the panel. */
+   organization form is an alternative to the list above it, not a section of the
+   panel.
+
+   ★ THE ACCOUNT FORM USED TO SHARE THIS SHAPE AND NO LONGER DOES — it lives in
+   `.newuserpanel`, which undoes the three inline-only rules below. What is kept is
+   everything that is about the *fields*: the spacing between them, the title, the
+   password row, the recessed sign-in radios. Those should be identical in both
+   account panels, and the form class is how they are. */
 .userform {
   margin-top: 18px;
   padding-top: 18px;
@@ -918,6 +925,34 @@
   /* ★ AND NOT THE DASHED RULE THE CREATE FORM USES. There, the form is an
      alternative to the list. Here it is a continuation of the same record, so the
      rule is solid and the block is not bounded off from the account it belongs to. */
+}
+
+/* ★ THE PASSWORD BLOCK'S TWIN, FOR THE CREATE PANEL. `.userpanel .drawer__body form > * + *`
+   is scoped to `.userpanel`, and this panel is a `.userpanel` too — so the fields inside
+   the create form space themselves by the same rule as the edit form's, with no second
+   declaration. That is the point of reusing the class: two panels asking the same six
+   questions should not answer them with different gaps. */
+
+/* The one thing that genuinely differs: the create form is the whole body of its drawer,
+   so the three properties `.userform` sets for the inline case are all wrong here.
+   ★ `margin-top` AND `padding-top` ARE NOT COSMETIC. Both exist to separate the inline
+   form from the list above it — and in a drawer there is no list above it, so they would
+   push the first field 36px down from a header that already has its own padding.
+   ★ `max-width` IS THE ONE THAT MATTERS. 640px is a reading measure for a full-width
+   page; the drawer is a narrow column, so the cap does nothing at its default size and
+   silently stops the panel growing past 640px when it is dragged wide — the fields would
+   stay narrow in a panel twice their width. Unset, the fields use the panel. */
+.newuserpanel .userform {
+  margin-top: 0;
+  padding-top: 0;
+  max-width: none;
+}
+
+/* The footer's note holds the same slot the edit panel's does and is given the same
+   share of the row, so `Create account` and `Close` sit where `Save changes` and
+   `Close` sit in the panel beside it. */
+.newuserpanel .drawer__foot {
+  align-items: center;
 }
 
 @media (max-width: 900px) {
