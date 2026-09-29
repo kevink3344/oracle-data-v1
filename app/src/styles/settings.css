@@ -1,10 +1,12 @@
 /* ==========================================================================
-   Settings — the organization register, and the sign-in screen.
+   Settings — the organization register, the account register, and the sign-in
+   screen.
 
-   Two pages share this sheet because they are the two halves of one thing: the
-   register is what a super admin may change, and the sign-in screen is where the
-   role that decides that comes from. Splitting them into two files would put the
-   `.idcard` both of them use in neither.
+   Three pages share this sheet because they are the three halves of one thing:
+   the organization register is what a super admin may change, the account
+   register is who may sign in to change it, and the sign-in screen is where the
+   role that decides all of it comes from. Splitting them into separate files
+   would put the `.idcard` all of them use in none of them.
 
    ★ IT EXTENDS RATHER THAN REDECLARES. The page is a `.stack` of `.panel`s with a
    `.page-head` above them, like every other screen in the app; the fields are
@@ -22,6 +24,14 @@
                   rest are exactly right, so it is reused with those three
                   restated instead of a parallel set of near-identical rules.
      - `.org*`  — the register rows. Nothing like them exists.
+     - `.user*` — the account register: a second set of rows on the same page,
+                  with six explicit columns rather than `.orgrow`'s five, plus
+                  the two forms and the panel that write to them. It reuses
+                  `.opt*` for both of its tickable lists, because a checkbox row
+                  and a radio row are the same row and a second shape for the
+                  same idea is how a page starts looking like two pages.
+     - `.roledoc*` / `.roledocs` — the capability table, in a native `<details>`
+                  rather than the `.acc` accordion: it is a footnote, not a panel.
      - `.preview` — the sentence that says what the selection reads, built to sit
                   between the last field and the submit button.
 
@@ -513,5 +523,421 @@
   .orgrow__act {
     justify-content: flex-start;
     margin-top: 6px;
+  }
+}
+
+/* ===========================================================================
+   THE ACCOUNT REGISTER — the second half of the page.
+   ======================================================================== */
+
+/* --- the rows ---------------------------------------------------------- */
+
+.userlist {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ★ SIX EXPLICIT COLUMNS, NOT `repeat(auto-fit, …)`.
+   The identity card above uses `auto-fit` and is right to: four short facts that
+   want to be however many the panel is wide. This is a register, and a register's
+   rows have to line up *with each other* — an account whose email is short would
+   otherwise sit in a different arrangement from the one below it, and the column
+   that moved would be the one being compared across rows.
+
+   Every column is `minmax(0, …)` for the reason `.orgrow` gives, and the three
+   trailing `auto`s are the three content-sized facts. The first two are the
+   matched pair a reader scans down: who, and the address the identity is keyed
+   by. */
+.userrow {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(0, 1.6fr)
+    minmax(0, 1.4fr)
+    minmax(0, auto)
+    minmax(0, auto);
+  gap: 4px 14px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  /* Present at 3px on every row and only ever coloured, so a row that gains its
+     marker does not shift its contents 3px to the right. Same rule as `.orgrow`. */
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.userrow + .userrow {
+  margin-top: 6px;
+}
+
+.userrow__who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* `flex-wrap` so the two chips drop below a long name instead of stretching the
+     column — three chips and a name is a wider first column than this register
+     can afford on a 900px panel. */
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.userrow__name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+.userrow__mail,
+.userrow__mail code {
+  font-size: 0.75rem;
+  color: var(--text-body);
+  /* The longest thing in the row and the one allowed to wrap: an address has no
+     spaces, so without this it pushes its column wider instead. */
+  overflow-wrap: anywhere;
+}
+
+.userrow__orgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--text-body);
+  min-width: 0;
+}
+
+.userrow__org {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+/* The marker on the one organization a session arrives in. `faint` and uppercase
+   rather than a chip: it is not a state the account is in, it is a distinction
+   between two entries in a list, and a chip would rank it against the role chip in
+   the column beside it. */
+.userrow__pin {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+
+.userrow__seen {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* The two states that stop a sign-in. Both are printed on the row as well as in
+   the panel, because finding them is the thing an administrator opens this
+   register to do. `.orgrow__none`'s colour and weight, applied to the two places
+   this register has to shout. */
+.userrow__none,
+.userrow__never {
+  color: var(--warn-fg);
+  font-weight: 700;
+}
+
+.userrow__act {
+  display: flex;
+  justify-content: flex-end;
+  align-self: center;
+}
+
+/* Two classes, like `.btn--sm.orgrow__edit` and for the same reason: this sheet
+   loads after `components.css`, so `.btn--sm` alone would only tie. */
+.btn--sm.userrow__edit {
+  padding: 3px 10px;
+  font-size: 0.6875rem;
+}
+
+/* --- the role doctrine, in a `<details>` ------------------------------- */
+
+/* Not `.acc`. `.acc` is a panel header — count, button, whole body — for panels
+   that are the page. This is a footnote somebody opens on purpose, and the native
+   element brings its own keyboard behaviour and its own "expandable" announcement
+   to screen readers, which a hand-rolled accordion would have to be taught. */
+.roledocs {
+  margin-top: 18px;
+  font-size: 0.8125rem;
+}
+
+.roledocs > summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.roledocs > summary:hover {
+  color: var(--text-heading);
+}
+
+/* Focus lands on the `<summary>`, and the browser default ring on a padded block
+   is drawn tight to the text box rather than around the clickable area. */
+.roledocs > summary:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.roledocs .chart-note {
+  margin-top: 10px;
+}
+
+.roledoc {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.roledoc__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.roledoc__label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.roledoc__code {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* Two columns because the two lists are meant to be read against each other —
+   "may" beside "may not" is the whole content of the table. `auto-fit` lets them
+   stack in a narrow panel without a breakpoint. */
+.roledoc__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 18px;
+  margin-top: 10px;
+}
+
+.roledoc__col {
+  min-width: 0;
+}
+
+.roledoc__heading {
+  margin: 0 0 4px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.roledoc__list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.roledoc__list li + li {
+  margin-top: 4px;
+}
+
+/* The withheld column keeps its own heading colour and nothing else. Tinting the
+   whole column red would say a permission is a fault, and for two of the three
+   roles the list is simply a boundary. */
+.roledoc__col--no .roledoc__heading {
+  color: var(--text-muted);
+}
+
+/* --- the new-account form ---------------------------------------------- */
+
+/* The same shape as `.orgform`, and the same dashed rule for the same reason: the
+   form is an alternative to the list above it, not a section of the panel. */
+.userform {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border-strong);
+  max-width: 640px;
+}
+
+.userform__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* The form's children alternate between fields and the wrapping notes that belong
+   to the field above them, so the spacing is done by adjacency rather than by
+   `.field + .field` — which would leave the first note touching the first field. */
+.userform > * + * {
+  margin-top: var(--space-6);
+}
+
+.userform .notice {
+  margin-top: 0;
+}
+
+/* The role summary sits directly under the `<select>` and is a statement about
+   the chosen role rather than a hint about the control. */
+.rolefield__summary {
+  margin-top: 6px;
+}
+
+/* ★ THE SIGN-IN RADIOS, SET BACK FROM THE CHECKBOXES.
+   Same `.picklist .opt` rows — they are the control this app already uses for a
+   list of tickable things, and inventing a second one for radios would be two
+   shapes for one idea. What makes the group read as a different question is the
+   recess and the rule: it is indented, it is a `<fieldset>`, and it has a legend
+   where the checkbox list has a label. */
+.userform__primary {
+  margin: 10px 0 0;
+  padding: 10px 10px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  /* Indented, so it is visibly a question *about* what was ticked above it. */
+  margin-left: 12px;
+}
+
+.userform__primary .opt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  border-color: var(--border);
+}
+
+.userform__primary .opt:hover {
+  background: var(--surface-hover);
+}
+
+.userform__primary .opt:focus-within {
+  border-color: var(--primary-color);
+  outline: 2px solid var(--tertiary-color);
+  outline-offset: -1px;
+}
+
+/* `.field__hint` is a note about a control above it and carries its own 6px; in
+   the two places this register uses it to answer a question the reader has just
+   asked — nothing ticked, no sign-in organization chosen — the answer wants to be
+   *beside* the thing it is about, at the same weight, in the warning colour. */
+.userform__pause {
+  color: var(--warn-fg);
+  font-weight: 700;
+}
+
+/* The password row. The input is the only flexible item; the two buttons are
+   content-sized and stay put while the field grows or the panel is dragged. */
+.userform__pw {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userform__pw .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The name element the organization picker needed and the program picker did not
+   have. `.opt__code` is the program number — `flex: none`, monospaced, bold — and
+   an organization name is none of those three, so it gets its own class rather
+   than three overrides on a class whose name would then be wrong. */
+.opt__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/* --- the account panel -------------------------------------------------- */
+
+/* Nothing here is load-order dependent, for the reason the organization panel's
+   block states: `panel.css` is imported first, so every rule either uses a
+   compound selector that outranks the drawer's or only sets properties the drawer
+   never sets. */
+
+/* ★ THE BODY HOLDS TWO FORMS, AND THEY SPACE SEPARATELY.
+   `>` on the body puts air between the patch form and the password form; the
+   second rule puts air between the children inside each. One rule for both would
+   either double the gap between the forms or collapse the gaps inside them. */
+.userpanel .drawer__body > * + * {
+  margin-top: var(--space-6);
+}
+
+.userpanel .drawer__body form > * + * {
+  margin-top: var(--space-6);
+}
+
+.userpanel .notice,
+.userpanel .acc__warn,
+.userpanel .chart-note {
+  margin-top: 0;
+}
+
+.userpanel .drawer__foot {
+  align-items: center;
+}
+
+.userpanel__note {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Said where the absence is: no Remove, no Disable, no un-role — and the reason.
+   A `.chart-note` promoted no further than a recess and a rule on the left, so it
+   reads as a statement about the record rather than a warning about it. */
+.userpanel__no-delete {
+  padding: 8px 10px;
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+/* The password block, set back from the fields above it: it is a second request
+   against the same account and the divider is what says so. */
+.userpanel__pw {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+  /* ★ AND NOT THE DASHED RULE THE CREATE FORM USES. There, the form is an
+     alternative to the list. Here it is a continuation of the same record, so the
+     rule is solid and the block is not bounded off from the account it belongs to. */
+}
+
+@media (max-width: 900px) {
+  /* One column, like `.orgrow`: five facts that were a table become a stack. */
+  .userrow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .userrow__seen {
+    margin-top: 2px;
+  }
+  /* The button is the last cell, so in one column it lands under the last fact —
+     where `flex-end` would push it to the far edge of the row, away from the
+     account it edits. */
+  .userrow__act {
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+  /* Six columns' worth of indentation on a phone is most of the width. */
+  .userform__primary {
+    margin-left: 0;
   }
 }

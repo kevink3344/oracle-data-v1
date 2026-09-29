@@ -239,6 +239,10 @@ export const ROUTING_APP_TABLES = [
   'table_count_snapshot',
   'organization',
   'app_user',
+  // Which organizations an account belongs to — one, or many. Beside `app_user`
+  // rather than folded into it because `app_user.organization_id` answers a
+  // different question: which organization the account SIGNS IN TO.
+  'app_user_organization',
   'user_pin',
   // Vendor-site geography (vendor-site-map.md). `geo_origin` is the place a
   // driving distance is measured from; `vendor_site_geo` holds one site's pin and

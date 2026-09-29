@@ -50,6 +50,34 @@
  * `400 BAD_REQUEST` — deliberately, so an empty update cannot answer `200` and let a
  * caller believe it edited something. "Nothing has changed" is therefore a state this
  * page has to work out for itself, which is what `diffOf` returning `null` is for.
+ *
+ * ── ★ AND A SECOND REGISTER, BECAUSE "WHO ELSE EXISTS" IS TWO QUESTIONS
+ *
+ * The page holds two accordions: the tenants, and the accounts and the roles they
+ * hold, read from `GET /api/users`. They belong on one page because they are one
+ * decision seen from two sides — an account has to belong to at least one
+ * organization, so the second register means nothing without the first, and the first
+ * is a list of tenants nobody can sign in to until the second names somebody. The
+ * rail's `/admin/users` leaf, which pointed at a screen of its own, is **retired
+ * rather than repointed**: the feature lives here, and a second address for it would
+ * be a second thing to keep true.
+ *
+ * ★ NOTHING HERE DELETES, DISABLES OR UN-ROLES ANYBODY, AND THAT IS A DECISION
+ *   RATHER THAN AN UNFINISHED HALF. A register like this is the natural place to put a
+ *   `Remove` button, and the reason there is not one is that none of the three things
+ *   it would do is reversible from this screen: `app_user` rows are referenced by the
+ *   writes those accounts made, and nothing in this app can un-read a ledger somebody
+ *   has already read. The write endpoints offer create, patch and set-password; this
+ *   page offers exactly that and says so where the button would have been.
+ *
+ * ── ★ TWO STATES ARE SHOWN AND NOT REPAIRED, AND THE SERVER COUNTS THEM
+ *
+ * An account can hold no organization, or no password. **Both cannot sign in**, for
+ * two different reasons, and `counts.unassigned` and `counts.withoutPassword` are the
+ * server's queue rather than something derived here from the rows — "derived on the
+ * client" is where two screens start disagreeing about the same account. They are
+ * printed as a queue with the action named, because a register that listed both as
+ * ordinary rows would show a person an account that looks fine and is not.
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
@@ -57,6 +85,7 @@ import { Link } from 'react-router-dom';
 import { Chip } from '../components/Chip';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
 import {
+  ApiError,
   acceptedValues,
   createOrganization,
   loadOrganizationOptions,
@@ -70,8 +99,18 @@ import {
   type ProgramOption,
 } from '../data/organizations';
 import { fiscalYearStart, rowsInScope, scopeSpoken, type Scope } from '../data/scope';
-import { isSuperAdmin, refreshSession, useSession } from '../data/session';
+import { isSuperAdmin, refreshSession, roleLabel, useSession, type Role } from '../data/session';
 import { useShowSql } from '../data/showSql';
+import {
+  createUser,
+  loadUsers,
+  setUserPassword,
+  updateUser,
+  type AppUser,
+  type RoleCapability,
+  type UserList,
+  type UserUpdate,
+} from '../data/users';
 import { useStore } from '../state/store';
 
 /** The program pairs the chart of accounts offers under one fund. */
@@ -231,6 +270,184 @@ function describePatch(patch: OrganizationUpdate): string {
   }
   if (patch.startFy !== undefined) parts.push('the start fiscal year');
   return sentenceList(parts);
+}
+
+// ---------------------------------------------------------------------------
+// The account register — a second set of helpers, for a second record.
+// ---------------------------------------------------------------------------
+
+/** The draft the account form works on, in the create form and the edit panel both. */
+interface UserDraft {
+  name: string;
+  email: string;
+  role: Role;
+  /** The organization ids this account belongs to. Never empty on a saveable draft. */
+  memberships: number[];
+  /** Which of those it signs in to, or `null` while that is still unanswered. */
+  primary: number | null;
+  /** Create only. Changing an existing account's password is a separate request. */
+  password: string;
+}
+
+/**
+ * ★ `staff` AND NOT `roles[0]`, AND THAT IS THE WHOLE REASON THIS CONSTANT EXISTS.
+ *
+ * `roles` arrives most-privileged-first *deliberately* — `routes/users.ts` says so
+ * where it builds it, so that a picker which simply binds to its first entry is a
+ * picker whose default is `super_admin`, "a thing to be aware of rather than to accept
+ * by accident". This screen is that picker, so it applies the default itself: the
+ * least privileged role is preselected while the list stays in the server's order.
+ */
+const BLANK_USER: UserDraft = {
+  name: '',
+  email: '',
+  role: 'staff',
+  memberships: [],
+  primary: null,
+  password: '',
+};
+
+/** The server's own minimum, which the form checks so the refusal is not the first news. */
+const PASSWORD_MIN = 8;
+
+/**
+ * The three roles, for the one place a `<select>` has to get a `string` back.
+ *
+ * ★ THIS IS NOT A SECOND VOCABULARY. The options are rendered from `register.roles` —
+ *   the server's list, in the server's order — and this array exists only so that
+ *   `event.target.value`, which is a `string` by construction, can be narrowed to
+ *   `Role` without a cast. A fourth role on the wire renders as an option and then
+ *   fails to narrow here, which is a visible bug rather than a silent one.
+ */
+const ROLE_VALUES: readonly Role[] = ['super_admin', 'administrator', 'staff'];
+
+function asRole(value: string): Role | null {
+  return ROLE_VALUES.some((role) => role === value) ? (value as Role) : null;
+}
+
+/** The server's capability entry for one role, or `null` when it sent no table. */
+function capabilityFor(register: UserList | null, role: Role): RoleCapability | null {
+  if (!register) return null;
+  return register.capabilities.find((entry) => entry.role === role) ?? null;
+}
+
+/**
+ * The day part of a server timestamp.
+ *
+ * ★ IT SLICES AND DOES NOT PARSE. `new Date(...)` on an ISO string reads it as UTC and
+ *   then renders it in the browser's zone, which moves every timestamp before 05:00
+ *   local to the day before — a drawer confidently saying somebody signed in on the
+ *   12th when the register says the 13th. The first ten characters of an ISO 8601
+ *   string are the day and nothing has to be interpreted to get them.
+ */
+function dayPart(value: string): string {
+  return value.slice(0, 10);
+}
+
+/** Two id lists compared as sets — the same argument `samePrograms` makes. */
+function sameIds(a: readonly number[], b: readonly number[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+  return left.every((id, i) => id === right[i]);
+}
+
+/**
+ * Whether a draft carries everything the server requires of an account.
+ *
+ * ★ THE SIGN-IN ORGANIZATION IS REQUIRED ONLY WHEN THERE IS A CHOICE. `resolvePrimary`
+ *   in `routes/users.ts` insists on an explicit `primaryOrganizationId` when more than
+ *   one organization is named, and *infers* it when exactly one is — because with one
+ *   membership there is only one possible answer, so filling it in is not a choice
+ *   being made on the caller's behalf. Requiring it always would refuse a save the
+ *   server would accept; never requiring it would post a two-membership body the
+ *   server refuses with a 400 about a field the form never showed.
+ *
+ * ★ `create` IS A PARAMETER BECAUSE OF THE ADDRESS. A new account is named by its
+ *   email, and `PATCH` cannot change one — `UserUpdate` has no `email` field at all —
+ *   so the address is required in one form and read-only in the other.
+ */
+function userDraftComplete(draft: UserDraft, create: boolean): boolean {
+  if (draft.name.trim() === '') return false;
+  if (create && draft.email.trim() === '') return false;
+  if (draft.memberships.length === 0) return false;
+  if (draft.memberships.length > 1 && draft.primary === null) return false;
+  if (create && draft.password.length < PASSWORD_MIN) return false;
+  return true;
+}
+
+/**
+ * The fields of an account that actually differ, or `null` when none do.
+ *
+ * ★ `organizations` IS SENT WHENEVER THE SET MOVED, EVEN IF THE SIGN-IN ANSWER DID
+ *   NOT — and the primary rides along with it. The patch **replaces** the set rather
+ *   than merging into it, so a set sent without its primary is how a patch removes an
+ *   account's way in without saying so: the server's `resolvePrimary` keeps the current
+ *   primary when the new set still contains it, infers it when the set has one entry,
+ *   and refuses otherwise. Sending it explicitly whenever the set is touched means the
+ *   request says which organization the account signs in to instead of leaving the
+ *   server to work it out from a set this form just rewrote.
+ *
+ * ★ AND `primaryOrganizationId: null` IS NOT REPRESENTABLE, WHICH IS NOT AN OVERSIGHT.
+ *   `UserUpdate` has no `null` in it, because the server refuses one: an account with
+ *   no sign-in organization cannot sign in, so clearing it is not a thing a patch is
+ *   allowed to do however it is spelled.
+ */
+function diffOfUser(row: AppUser, draft: UserDraft): UserUpdate | null {
+  const patch: UserUpdate = {};
+
+  const name = draft.name.trim();
+  if (name !== row.name) patch.name = name;
+  if (draft.role !== row.role) patch.role = draft.role;
+
+  const held = row.organizations.map((org) => org.id);
+  const moved = !sameIds(draft.memberships, held);
+  if (moved) patch.organizations = [...draft.memberships].sort((x, y) => x - y);
+  if (draft.primary !== null && (moved || draft.primary !== row.primaryOrganizationId)) {
+    patch.primaryOrganizationId = draft.primary;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** What a patch touched, as words, for the panel's success notice. */
+function describeUserPatch(patch: UserUpdate): string {
+  const parts: string[] = [];
+  if (patch.name !== undefined) parts.push('the name');
+  if (patch.role !== undefined) parts.push('the role');
+  if (patch.organizations !== undefined) parts.push('the organizations');
+  if (patch.primaryOrganizationId !== undefined) parts.push('the sign-in organization');
+  return sentenceList(parts);
+}
+
+/**
+ * A password worth handing to somebody, for when the administrator has none in mind.
+ *
+ * ★ REJECTION SAMPLING, NOT `n % alphabet.length`. The modulo is what everybody writes
+ *   and it is quietly biased: 256 is not a multiple of 56, so the first 32 characters
+ *   come up marginally more often than the last 24. The bias is around one part in
+ *   10^7 per character, nobody would ever measure it, and that is exactly the argument
+ *   for spending three lines so that it is not there — a generator that is *nearly*
+ *   uniform is a thing a reviewer has to check rather than a thing they can read.
+ *
+ * ★ THE ALPHABET DROPS `l`, `I`, `O` AND `0`. A generated password is read off one
+ *   screen and typed into another, and those four are the pairs people get wrong.
+ *   Length is bought instead: sixteen characters over fifty-six symbols.
+ */
+const PASSWORD_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/** The largest multiple of the alphabet length that fits in a byte — the accept floor. */
+const PASSWORD_CEILING = 224;
+
+function suggestPassword(length = 16): string {
+  const out: string[] = [];
+  const byte = new Uint8Array(1);
+  while (out.length < length) {
+    crypto.getRandomValues(byte);
+    const n = byte[0] ?? 0;
+    if (n >= PASSWORD_CEILING) continue;
+    out.push(PASSWORD_ALPHABET[n % PASSWORD_ALPHABET.length]!);
+  }
+  return out.join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +735,27 @@ export default function Settings() {
    */
   const [editing, setEditing] = useState<Organization | null>(null);
 
+  /* ── The account register, which is a second read of a second thing ───────── */
+
+  const [usersOpen, setUsersOpen] = useState(true);
+  const [users, setUsers] = useState<UserList | null>(null);
+  const [userProblem, setUserProblem] = useState<string | null>(null);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersReloadKey, setUsersReloadKey] = useState(0);
+
+  // The create form. `userDraftComplete` is the only implementation of "is this
+  // finished" and `diffOfUser` of "what changed", exactly as the organization form
+  // shares `draftComplete` and `diffOf` with its panel.
+  const [userFormOpen, setUserFormOpen] = useState(false);
+  const [userDraft, setUserDraft] = useState<UserDraft>(BLANK_USER);
+  const [userBusy, setUserBusy] = useState(false);
+  const [userCreated, setUserCreated] = useState<AppUser | null>(null);
+  const [userFormProblem, setUserFormProblem] = useState<string | null>(null);
+  const [userFormAccepts, setUserFormAccepts] = useState<string[]>([]);
+
+  /** The account whose panel is open, or `null`. A row, not a boolean — see `editing`. */
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+
   // The register is a super-admin screen, so a session that may not read it never
   // sends the request. The server would answer 403 anyway — this is the polite half,
   // not the control.
@@ -547,6 +785,45 @@ export default function Settings() {
       controller.abort();
     };
   }, [may, reloadKey]);
+
+  /**
+   * ★ A SECOND EFFECT RATHER THAN A THIRD PROMISE IN THE FIRST ONE.
+   *
+   * The two registers are independent reads of independent endpoints. Folding them
+   * into one `Promise.all` would make a failure of either blank the whole page — a 403
+   * or a 500 on `/api/users` would take the organization list down with it, and the
+   * organization list is the half that still works. Kept apart, each panel reports what
+   * it could not read while the other renders, which is the same argument `data/users.ts`
+   * makes for not being `organizations.ts`.
+   *
+   * They share nothing but the route. Each has its own reload key, so a new account does
+   * not re-read the tenants and a new tenant does not re-read the accounts.
+   */
+  useEffect(() => {
+    if (!may) return;
+    const controller = new AbortController();
+    let live = true;
+    setUsersLoading(true);
+
+    loadUsers(controller.signal)
+      .then((payload) => {
+        if (!live) return;
+        setUsers(payload);
+        setUserProblem(null);
+      })
+      .catch((err: unknown) => {
+        if (!live || controller.signal.aborted) return;
+        setUserProblem(err instanceof Error ? err.message : 'The register could not be read.');
+      })
+      .finally(() => {
+        if (live) setUsersLoading(false);
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [may, usersReloadKey]);
 
   /**
    * Seed the form from the tenant this session is *in*, once.
@@ -616,6 +893,51 @@ export default function Settings() {
     }
   }
 
+  const userReady = userDraftComplete(userDraft, true);
+
+  /** A keystroke in the account form. Clears the refusal, for the reason `editDraft` does. */
+  function editUserDraft(patch: Partial<UserDraft>) {
+    setUserFormProblem(null);
+    setUserDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function onCreateUser(event: React.FormEvent) {
+    event.preventDefault();
+    if (userBusy || !userReady) return;
+    setUserBusy(true);
+    setUserFormProblem(null);
+    setUserFormAccepts([]);
+    try {
+      const row = await createUser({
+        email: userDraft.email.trim(),
+        name: userDraft.name.trim(),
+        role: userDraft.role,
+        organizations: [...userDraft.memberships].sort((a, b) => a - b),
+        // ★ OMITTED, NOT `null`, WHEN THE ANSWER WAS NEVER NEEDED. The server infers
+        //   the sign-in organization from a single membership and refuses a stated
+        //   `null` outright — so "there is no answer" and "the answer is nothing" are
+        //   two different requests and only one of them is legal.
+        ...(userDraft.primary === null ? {} : { primaryOrganizationId: userDraft.primary }),
+        password: userDraft.password,
+      });
+      setUserCreated(row);
+      setUserFormOpen(false);
+      // ★ RESET WHOLE, INCLUDING THE ROLE, UNLIKE THE ORGANIZATION FORM. That one
+      //   deliberately keeps the fund, the programs and the year, because they describe
+      //   the tenant the administrator is *in* and re-choosing them per row is busywork.
+      //   There is no equivalent argument here: the last account's role describes the
+      //   last account, and carrying `super_admin` forward as a pre-filled default is a
+      //   mistake one keystroke away from being made. Back to `staff`.
+      setUserDraft(BLANK_USER);
+      setUsersReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      setUserFormProblem(err instanceof Error ? err.message : 'The account was not recorded.');
+      setUserFormAccepts(acceptedValues(err));
+    } finally {
+      setUserBusy(false);
+    }
+  }
+
   /* ── The head, which is the same whether or not there is a list to show ────── */
 
   const head = (
@@ -644,19 +966,21 @@ export default function Settings() {
           <div className="panel__head">
             <h2 className="panel__title">Not this session</h2>
             <span className="panel__count">
-              {user?.authenticated ? 'member' : 'session not read yet'}
+              {user?.authenticated ? roleLabel(user.role) : 'session not read yet'}
             </span>
           </div>
           <div className="panel__body">
             <p className="chart-note">
-              The organization register is a super-admin screen. A member may read every register in
-              the app; the four endpoints behind this page call <code>requireSuperAdmin</code> and
-              answer <strong>403</strong> whatever the rail happens to be showing — so this panel is
-              the polite half of the refusal, and not the refusal itself.
+              Both registers on this page are super-admin screens. A staff account may read every
+              other register in the app; the endpoints behind this page —{' '}
+              <code>/api/organizations</code> and <code>/api/users</code> — call{' '}
+              <code>requireSuperAdmin</code> and answer <strong>403</strong> whatever the rail
+              happens to be showing, so this panel is the polite half of the refusal and not the
+              refusal itself.
             </p>
             <p className="chart-note">
               {user?.authenticated
-                ? `${user.name} is a member, so this stays closed until the role on the account changes. The role is re-read from the database on every session request, so a change shows up on the next page load rather than needing a new sign-in.`
+                ? `${user.name} is signed in as ${roleLabel(user.role)}, so this stays closed until the role on the account changes. The role is re-read from the database on every session request, so a change shows up on the next page load rather than needing a new sign-in.`
                 : /*
                    * ★ UNREACHABLE, AND THE SENTENCE THAT USED TO BE HERE WAS WORSE THAN DEAD CODE.
                    *
@@ -877,6 +1201,328 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* ── The account register: who may sign in, and what the role buys ────── */}
+
+      <section className="panel acc">
+        <div className="panel__head">
+          <button
+            type="button"
+            className="acc__toggle"
+            aria-expanded={usersOpen}
+            aria-controls="user-body"
+            onClick={() => setUsersOpen((v) => !v)}
+          >
+            <span className="acc__caret" aria-hidden="true">
+              {usersOpen ? '▾' : '▸'}
+            </span>
+            Users &amp; roles
+          </button>
+          <div className="acc__actions">
+            {users ? (
+              <span className="panel__count">
+                {users.counts.total} {users.counts.total === 1 ? 'account' : 'accounts'}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              aria-expanded={userFormOpen}
+              aria-controls="user-new"
+              onClick={() => {
+                setUserFormOpen((v) => !v);
+                setUserCreated(null);
+                setUserFormProblem(null);
+                // The same rule the organization panel follows: a form for a record that
+                // does not exist and a panel for one that does are not allowed both open,
+                // because being on screen together invites typing into the wrong one.
+                setEditingUser(null);
+              }}
+            >
+              + New
+            </button>
+          </div>
+        </div>
+
+        <div className="panel__body" id="user-body" hidden={!usersOpen}>
+          {usersLoading && !users ? <p className="chart-note">Reading the register…</p> : null}
+
+          {userCreated ? (
+            <div className="notice notice--ok" role="status">
+              <p>
+                <strong>{userCreated.name} was recorded.</strong>
+              </p>
+              <p>
+                <code>{userCreated.email}</code> — {roleLabel(userCreated.role)}, belongs to{' '}
+                {sentenceList(userCreated.organizations.map((org) => org.name))}
+                {userCreated.hasPassword
+                  ? ', and can sign in with the password that was set.'
+                  : ', but no password was stored, so it cannot sign in yet.'}
+              </p>
+            </div>
+          ) : null}
+
+          {userProblem ? (
+            <div className="notice notice--err" role="alert">
+              <p>
+                <strong>The account register could not be read.</strong>
+              </p>
+              <p>{userProblem}</p>
+              <p>
+                The organization register above is a separate read and is not affected by this. If
+                the session has expired this is a <strong>401</strong> rather than a 403 — sessions
+                last twelve hours and the server keeps them in memory, so a restart or an expiry is
+                enough. <Link to="/sign-in">Sign in again</Link>.
+              </p>
+            </div>
+          ) : null}
+
+          {/*
+            ★ THE TWO QUEUES, AND WHY THEY ARE SENTENCES RATHER THAN NUMBERS IN A CHIP.
+              Each is a state a signed-in account cannot be in, and each has a different
+              fix — so the note names the fix instead of leaving the reader to work out
+              which one this is. `unassigned` is repaired in this page's panel;
+              `withoutPassword` too, by the password box in it.
+          */}
+          {users && users.counts.unassigned > 0 ? (
+            <p className="chart-note acc__warn">
+              <strong>
+                {users.counts.unassigned} of {users.counts.total}{' '}
+                {users.counts.unassigned === 1 ? 'account belongs' : 'accounts belong'} to no
+                organization
+              </strong>{' '}
+              and no account in that state can sign in — the sign-in path refuses a missing
+              organization rather than choosing a tenant for it. Open the account and tick the
+              organizations it belongs to.
+            </p>
+          ) : null}
+
+          {users && users.counts.withoutPassword > 0 ? (
+            <p className="chart-note acc__warn">
+              <strong>
+                {users.counts.withoutPassword} of {users.counts.total}{' '}
+                {users.counts.withoutPassword === 1 ? 'account has' : 'accounts have'} no password
+              </strong>
+              , which is the other reason a row cannot sign in. An account that has never been given
+              one is not broken — it is one somebody made and has not finished — and{' '}
+              <em>Set a password</em> in the account&rsquo;s own panel is where it is finished.
+            </p>
+          ) : null}
+
+          {users ? (
+            <p className="chart-note">
+              {users.bootstrapEmail ? (
+                <>
+                  <code>{users.bootstrapEmail}</code> is not in this list and cannot be: it is the
+                  bootstrap account, synthesised from <code>SUPER_ADMIN_EMAIL</code> and{' '}
+                  <code>SUPER_ADMIN_PASSWORD</code> in <code>.env</code> and checked{' '}
+                  <em>before</em> the table is read. So it signs in with a credential no row holds,
+                  it is excluded from the count above, and <strong>+ New</strong> refuses the address
+                  rather than writing a row that would never be reached.
+                </>
+              ) : (
+                <>
+                  No bootstrap account is configured — <code>SUPER_ADMIN_EMAIL</code> is unset — so
+                  every account that can sign in is a row in this list, and there is no credential
+                  in <code>.env</code> behind it.
+                </>
+              )}
+            </p>
+          ) : null}
+
+          {users && users.items.length === 0 ? (
+            <p className="chart-note">
+              No accounts are recorded here. Whether that leaves anybody able to sign in depends
+              entirely on the bootstrap address above and on nothing in this table.
+            </p>
+          ) : null}
+
+          {users && users.items.length > 0 ? (
+            <ul className="userlist">
+              {users.items.map((row) => (
+                <li key={row.id} className="userrow">
+                  <div className="userrow__who">
+                    <span className="userrow__name">{row.name}</span>
+                    <Chip
+                      variant={row.role === 'super_admin' ? 'warn' : 'neu'}
+                      title={capabilityFor(users, row.role)?.summary}
+                    >
+                      {roleLabel(row.role)}
+                    </Chip>
+                    {/* ★ VISIBLE ON THE ROW, NOT ONLY IN THE PANEL. An account that cannot
+                        sign in is the one an administrator is looking for, and a list
+                        that showed it as an ordinary row would make them open every
+                        drawer to find it. */}
+                    {!row.hasPassword ? <Chip variant="warn">no password</Chip> : null}
+                  </div>
+                  <div className="userrow__mail">
+                    <code>{row.email}</code>
+                  </div>
+                  <div className="userrow__orgs">
+                    {row.organizations.length === 0 ? (
+                      <strong className="userrow__none">No organization — cannot sign in</strong>
+                    ) : (
+                      row.organizations.map((org) => (
+                        <span className="userrow__org" key={org.id}>
+                          {org.name}
+                          {org.isPrimary ? <span className="userrow__pin">signs in</span> : null}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                  <div className="userrow__seen">
+                    {row.lastSeenAt === null ? (
+                      <span className="userrow__never">never signed in</span>
+                    ) : (
+                      <>last signed in {dayPart(row.lastSeenAt)}</>
+                    )}
+                  </div>
+                  {/* A real `<button>`, for the reason the organization row gives. */}
+                  <div className="userrow__act">
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm userrow__edit"
+                      aria-haspopup="dialog"
+                      aria-label={`Edit ${row.name}`}
+                      onClick={() => {
+                        setUserCreated(null);
+                        setEditingUser(row);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/*
+            ★ A NATIVE `<details>`, NOT THE `.acc` ACCORDION THE PANELS USE. `.acc` is a
+              panel header: it holds a count, a button and a whole body, and it exists
+              because those panels are the page. This is a footnote a person opens
+              deliberately, and `<details>` gives that — keyboard-operable, announced as
+              expandable, no state of its own to keep in step with the register.
+          */}
+          {users && users.capabilities.length > 0 ? (
+            <details className="roledocs">
+              <summary>What each role reaches</summary>
+              <p className="chart-note">
+                Printed from the server&rsquo;s own capability table rather than decided here. A role
+                that gained a capability changes the sentence in one place; a second copy in this
+                browser would be free to keep describing a permission model the API does not
+                implement.
+              </p>
+              {users.capabilities.map((entry) => (
+                <RoleDoctrine key={entry.role} entry={entry} />
+              ))}
+            </details>
+          ) : null}
+
+          {userFormOpen ? (
+            <form className="userform" id="user-new" onSubmit={onCreateUser} noValidate>
+              <h3 className="userform__title">New account</h3>
+              <p className="chart-note">
+                The address is the key sign-in looks the row up by, and it is lower-cased on write —
+                so it is the one field that cannot be changed afterwards. A name and a role can be
+                patched later; an address cannot, which is why the panel shows it read-only.
+              </p>
+
+              {userFormProblem ? (
+                <div className="notice notice--err" role="alert">
+                  <p>
+                    <strong>That was refused.</strong>
+                  </p>
+                  <p>{userFormProblem}</p>
+                  {userFormAccepts.length ? (
+                    <p>
+                      This register accepts {userFormAccepts.map((v) => `“${v}”`).join(', ')} here.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="field">
+                <label className="field__label" htmlFor="user-new-name">
+                  Name <span className="field__req">required</span>
+                </label>
+                <input
+                  id="user-new-name"
+                  className="input"
+                  type="text"
+                  autoComplete="off"
+                  value={userDraft.name}
+                  placeholder="e.g. A. Person"
+                  onChange={(event) => editUserDraft({ name: event.target.value })}
+                />
+                <p className="field__hint">
+                  What the header and the avatar show. Nothing in the ledger is keyed by it.
+                </p>
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="user-new-email">
+                  Email <span className="field__req">required</span>
+                </label>
+                <input
+                  id="user-new-email"
+                  className="input"
+                  type="email"
+                  autoComplete="off"
+                  value={userDraft.email}
+                  placeholder="e.g. a.person@wcpss.net"
+                  onChange={(event) => editUserDraft({ email: event.target.value })}
+                />
+                <p className="field__hint">
+                  Stored lower-cased, and refused if another account already holds it.
+                  {users?.bootstrapEmail ? (
+                    <>
+                      {' '}
+                      The bootstrap address <code>{users.bootstrapEmail}</code> is refused here as
+                      well — a row for it would never be reached, because <code>.env</code> answers
+                      first.
+                    </>
+                  ) : null}
+                </p>
+              </div>
+
+              <RoleField
+                idPrefix="user-new"
+                value={userDraft.role}
+                register={users}
+                onChange={(role) => editUserDraft({ role })}
+              />
+
+              <MembershipPicker
+                idPrefix="user-new"
+                orgs={list?.items ?? []}
+                memberships={userDraft.memberships}
+                primary={userDraft.primary}
+                onChange={editUserDraft}
+              />
+
+              <PasswordField
+                idPrefix="user-new"
+                value={userDraft.password}
+                onChange={(password) => editUserDraft({ password })}
+                label="First password"
+                hint="Eight characters minimum. It is hashed on arrival and never returned — no route on this server can read one back — so it is worth copying down now."
+              />
+
+              <div className="idcard__actions">
+                <button type="submit" className="btn btn--primary" disabled={!userReady || userBusy}>
+                  {userBusy ? 'Recording…' : 'Create account'}
+                </button>
+                <p className="field__hint">
+                  {userReady
+                    ? 'The name, the address, the role, the organizations and the first password are the whole record. Nothing is written to Oracle.'
+                    : 'A name, an address, at least one organization and a password of eight characters are required. An account with a choice of organizations also has to say which one it signs in to.'}
+                </p>
+              </div>
+            </form>
+          ) : null}
+        </div>
+      </section>
+
       <SqlPreferencePanel />
 
       <OrgPanel
@@ -884,7 +1530,8 @@ export default function Settings() {
         options={options}
         lines={lines}
         onClose={() => setEditing(null)}
-        onSaved={(next) => {          // ★ THE ROW IS REPLACED BY SLUG, NOT RE-FETCHED. Two reasons, and either
+        onSaved={(next) => {
+          // ★ THE ROW IS REPLACED BY SLUG, NOT RE-FETCHED. Two reasons, and either
           //   alone would be enough: the server already answered with the **stored**
           //   row (`readBack`), so a second GET would re-read a row this page is
           //   holding; and `slug` never moves — the route's own note says a rename
@@ -900,6 +1547,46 @@ export default function Settings() {
               ? { ...current, items: current.items.map((org) => (org.slug === next.slug ? next : org)) }
               : current,
           );
+        }}
+      />
+
+      <UserPanel
+        row={editingUser}
+        orgs={list?.items ?? []}
+        register={users}
+        onClose={() => setEditingUser(null)}
+        onSaved={(next) => {
+          // ★ THE SAME THREE MOVES THE ORGANIZATION PANEL MAKES, for the same reasons.
+          //   The key here is the numeric id: `PATCH /api/users/{id}` answers with the
+          //   stored row, so a second GET would re-read what this page is holding — and
+          //   the capability table and the counts came with the list, not the row, so
+          //   re-reading them per save would be a second request for a table that has
+          //   not changed.
+
+          //   And `setEditingUser(next)` is again not optional: without it the panel
+          //   keeps the row it opened on, `diffOfUser` keeps finding a difference
+          //   against a row that is no longer stored, and Save stays lit after a save.
+          setEditingUser(next);
+
+          //   ★ THE ROW IS REPLACED HERE AND THE REGISTER IS RE-READ, WHICH LOOKS LIKE
+          //     DOING IT TWICE AND IS NOT. The replacement is so the list agrees with the
+          //     panel in the frame the save returns; the re-read is because `counts` is
+          //     four numbers the **server** derived — `unassigned`, `withoutPassword` and
+          //     the role tallies — and this page's own header says why they must not be
+          //     recomputed here. A row that just gained a password while the warning
+          //     directly above it still counted an account without one is exactly the
+          //     disagreement that warning exists to prevent. One extra GET buys the
+          //     count coming from the same place every other count comes from.
+          setEditingUser(next);
+          setUsers((current) =>
+            current
+              ? {
+                  ...current,
+                  items: current.items.map((user) => (user.id === next.id ? next : user)),
+                }
+              : current,
+          );
+          setUsersReloadKey((k) => k + 1);
         }}
       />
     </div>
@@ -930,6 +1617,16 @@ const FOCUSABLE =
 
 /** Where the dragged width is remembered. Per panel, like `checks-panel-w`. */
 const ORG_PANEL_WIDTH_KEY = 'settings-org-panel-w';
+
+/**
+ * ★ A SECOND KEY, AND THE REASON IS THAT THE TWO PANELS ARE NOT THE SAME WIDTH.
+ *   The organization panel holds a name, a fund, a program list and a start year —
+ *   four fields and a preview. The account panel holds a name, a role, a checkbox
+ *   list, a radio group and a password box. Sharing one key would mean widening the
+ *   account panel to read an email moves the organization panel underneath it, which
+ *   is a settings page rearranging itself while nobody asked it to.
+ */
+const USER_PANEL_WIDTH_KEY = 'settings-user-panel-w';
 
 /**
  * One organization, edited in a panel that slides in from the right.
@@ -1289,6 +1986,827 @@ function OrgPanel({
             : patch === null
               ? 'Nothing has changed yet, so there is nothing to send. An update that names no fields is refused rather than treated as a no-op.'
               : `Sends only what differs — ${describePatch(patch)}. Nothing is written to Oracle.`}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The account register's controls, shared by the create form and the panel.
+// ---------------------------------------------------------------------------
+
+/**
+ * One role's doctrine, as the server stated it.
+ *
+ * ★ `withholds` IS PRINTED, NEVER DERIVED BY SUBTRACTION. The obvious shortcut is to
+ *   list what a role reaches and let a reader conclude the rest, or to compute "what
+ *   this role cannot do" from the union of what others can. Both are wrong for the
+ *   same reason: the server's table is a statement in prose about a permission model,
+ *   and one has to read it to know it. `administrator` is the whole proof — it appears
+ *   nowhere in the server's `requireSuperAdmin` checks, so its honest description is
+ *   not "a reduced super admin" but "a staff account with a title", and that sentence
+ *   exists only because somebody wrote it down.
+ */
+function RoleDoctrine({ entry }: { entry: RoleCapability }) {
+  return (
+    <div className="roledoc">
+      <div className="roledoc__head">
+        <span className="roledoc__label">{entry.label}</span>
+        <code className="roledoc__code">{entry.role}</code>
+      </div>
+      <p className="chart-note">{entry.summary}</p>
+      <div className="roledoc__grid">
+        <div className="roledoc__col">
+          <h4 className="roledoc__heading">May reach</h4>
+          <ul className="roledoc__list">
+            {entry.grants.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="roledoc__col roledoc__col--no">
+          <h4 className="roledoc__heading">May not reach</h4>
+          <ul className="roledoc__list">
+            {entry.withholds.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The role control, in the create form and the panel both.
+ *
+ * ★ THE OPTIONS COME FROM THE SERVER AND THE DEFAULT DOES NOT. `register.roles` arrives
+ *   most-privileged-first on purpose, so this renders it in that order and takes its
+ *   labels from the same capability table the doctrine is printed from — an option and
+ *   a paragraph that disagreed about what `administrator` is called would be two names
+ *   for one role. The **selected** value never comes from that list; it comes from the
+ *   draft, and `BLANK_USER` makes it `staff`. Binding the default to `roles[0]` is the
+ *   accident `routes/users.ts` says the order exists to make visible.
+ */
+function RoleField({
+  idPrefix,
+  value,
+  register,
+  onChange,
+}: {
+  idPrefix: string;
+  value: Role;
+  register: UserList | null;
+  onChange: (role: Role) => void;
+}) {
+  const id = `${idPrefix}-role`;
+  const roles = register?.roles ?? [...ROLE_VALUES];
+  const chosen = capabilityFor(register, value);
+
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor={id}>
+        Role
+      </label>
+      <select
+        id={id}
+        className="input"
+        value={value}
+        onChange={(event) => {
+          const next = asRole(event.target.value);
+          if (next) onChange(next);
+        }}
+      >
+        {roles.map((role) => (
+          <option key={role} value={role}>
+            {capabilityFor(register, role)?.label ?? roleLabel(role)}
+          </option>
+        ))}
+      </select>
+      {chosen ? <p className="chart-note rolefield__summary">{chosen.summary}</p> : null}
+      <p className="field__hint">
+        Listed most privileged first, and <strong>Staff</strong> is what a new account gets unless
+        this is changed — the wrong default in this one field grants more than somebody meant to
+        grant, and that is the direction the mistake hurts.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Which organizations an account belongs to, and which of them it signs in to.
+ *
+ * ── ★ THE TWO QUESTIONS ARE DRAWN AS TWO CONTROLS, AND THAT IS THE POINT
+ *
+ * Membership and the sign-in organization are one field apart in the request body and
+ * completely different in meaning. Drawn as one list they are indistinguishable: a
+ * checkbox next to a name says "this account is in this organization", and the second
+ * question — of the organizations it is in, which one does it *arrive* in — has no
+ * place to live. So the checkboxes are `.picklist` (the same control the program list
+ * uses), and the radios sit in a recessed group underneath, drawn only when the
+ * checkboxes have produced a genuine choice. When exactly one organization is ticked
+ * there is no question to ask and the group is replaced by the sentence that says so,
+ * which is `resolvePrimary`'s rule on the server stated in the same place a person
+ * could otherwise wonder whether they had missed a control.
+ *
+ * ── ★ UNTICKING THE SIGN-IN ORGANIZATION CLEARS THE ANSWER RATHER THAN KEEPING IT
+ *
+ * A `primary` that names an organization the account no longer belongs to is the exact
+ * state `assertSignInOrganization` refuses with a 400. Clearing it here means the form
+ * cannot post that body in the first place, and the refusal stays where it belongs —
+ * on a client that did something else.
+ */
+function MembershipPicker({
+  idPrefix,
+  orgs,
+  memberships,
+  primary,
+  onChange,
+}: {
+  idPrefix: string;
+  orgs: readonly Organization[];
+  memberships: number[];
+  primary: number | null;
+  onChange: (patch: Partial<UserDraft>) => void;
+}) {
+  const chosen = orgs.filter((org) => memberships.includes(org.id));
+  const nameOf = (id: number) => orgs.find((org) => org.id === id)?.name ?? `#${id}`;
+
+  function toggle(id: number, on: boolean) {
+    const next = on
+      ? [...memberships, id].sort((a, b) => a - b)
+      : memberships.filter((held) => held !== id);
+    const patch: Partial<UserDraft> = { memberships: next };
+    // One membership answers the second question by itself; a stale answer that is no
+    // longer among the ticked ones has to go, or the save carries a contradiction.
+    if (next.length === 1) patch.primary = next[0]!;
+    else if (primary !== null && !next.includes(primary)) patch.primary = null;
+    onChange(patch);
+  }
+
+  if (orgs.length === 0) {
+    return (
+      <div className="field">
+        <p className="field__label">Organizations</p>
+        <p className="chart-note acc__warn">
+          <strong>There are no organizations to belong to.</strong> Every account has to belong to at
+          least one, so an account cannot be created until the register above has a tenant in it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="field">
+      <p className="field__label" id={`${idPrefix}-orgs-label`}>
+        Organizations <span className="field__req">at least one</span>
+      </p>
+      <div className="picklist" role="group" aria-labelledby={`${idPrefix}-orgs-label`}>
+        {orgs.map((org) => (
+          <label className="opt" key={org.id}>
+            <input
+              type="checkbox"
+              checked={memberships.includes(org.id)}
+              onChange={(event) => toggle(org.id, event.target.checked)}
+            />
+            <span className="opt__name">{org.name}</span>
+            <span className="opt__meta">
+              <code>{org.slug}</code>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      {chosen.length > 1 ? (
+        <fieldset className="userform__primary">
+          <legend className="field__label">Signs in to</legend>
+          <p className="field__hint">
+            A session belongs to one organization at a time, so an account with several has to say
+            which one it arrives in. The rail, the counts and every register are read through it.
+          </p>
+          {chosen.map((org) => (
+            <label className="opt" key={org.id}>
+              <input
+                type="radio"
+                name={`${idPrefix}-primary`}
+                checked={primary === org.id}
+                onChange={() => onChange({ primary: org.id })}
+              />
+              <span className="opt__name">{org.name}</span>
+              <span className="opt__meta">
+                <code>{org.slug}</code>
+              </span>
+            </label>
+          ))}
+          {primary === null ? (
+            <p className="field__hint userform__pause">
+              Not chosen yet — one of the ticked organizations has to be picked.
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
+
+      {chosen.length === 1 ? (
+        <p className="field__hint">
+          Signs in to <strong>{chosen[0]!.name}</strong> — the only organization ticked. There is no
+          second question to ask until another one is.
+        </p>
+      ) : null}
+
+      {chosen.length === 0 ? (
+        <p className="field__hint userform__pause">
+          None ticked. An account with no organization cannot sign in, so the save stays disabled
+          until at least one is.
+        </p>
+      ) : null}
+
+      {/* ★ AND WHEN THE ANSWER NAMES SOMETHING NO LONGER TICKED — which `toggle` above
+          prevents, so this can only be reached by a draft built some other way. It is
+          here because the cost of the guard is one comparison and the cost of its
+          absence is a 400 about a field the form appears to have filled in. */}
+      {primary !== null && !memberships.includes(primary) ? (
+        <p className="field__hint userform__pause">
+          The sign-in organization is set to <strong>{nameOf(primary)}</strong>, which is no longer
+          ticked.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A password box, with the two things this screen has to offer around it.
+ *
+ * ★ `autoComplete="new-password"` AND NOT `"off"`. This is a field where a password
+ *   manager offering to generate and store is *useful* — the admin is setting a
+ *   credential for somebody else and has to transmit it somehow — and `new-password` is
+ *   how a browser is told that this particular box is a value being created rather than
+ *   a value being recalled. `off` makes some browsers ignore the hint entirely and some
+ *   offer the *admin's own* saved passwords, which is worse than either.
+ *
+ * ★ THE REVEAL BUTTON IS A TOGGLE WITH `aria-pressed`, NOT TWO ICONS. The value is
+ *   being typed for somebody else to read off the screen, so seeing it is the ordinary
+ *   case and hiding it is the exception; a button that changes what it says and
+ *   announces its own state is the honest control for that.
+ */
+function PasswordField({
+  idPrefix,
+  value,
+  onChange,
+  label,
+  hint,
+}: {
+  idPrefix: string;
+  value: string;
+  onChange: (password: string) => void;
+  label: string;
+  hint: string;
+}) {
+  const id = `${idPrefix}-password`;
+  const [shown, setShown] = useState(false);
+
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor={id}>
+        {label}
+      </label>
+      <div className="userform__pw">
+        <input
+          id={id}
+          className="input"
+          type={shown ? 'text' : 'password'}
+          autoComplete="new-password"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          aria-pressed={shown}
+          aria-controls={id}
+          onClick={() => setShown((v) => !v)}
+        >
+          {shown ? 'Hide' : 'Show'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => {
+            onChange(suggestPassword());
+            setShown(true);
+          }}
+        >
+          Generate
+        </button>
+      </div>
+      <p className="field__hint">
+        {hint}
+        {value.length > 0 && value.length < PASSWORD_MIN ? (
+          <strong className="userform__pause"> {PASSWORD_MIN - value.length} more characters.</strong>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * One account, edited in a panel that slides in from the right.
+ *
+ * ── ★ IT IS `OrgPanel` A SECOND TIME, AND THE REPETITION IS THE POINT
+ *
+ * Escape closes, Tab is trapped, focus goes back to the button that opened it, the body
+ * is locked while it is open, the width is dragged and remembered. None of that is
+ * optional and none of it is negotiable per panel — a drawer that traps focus and a
+ * drawer that does not are two things a keyboard user has to learn separately. The
+ * markup is repeated rather than extracted because the fields inside it share nothing:
+ * one is four scope inputs, the other is a role, a set of memberships and a password.
+ * Extracting the shell would mean a component taking `children` and passing the
+ * lifecycle down, which is more machinery than the two uses justify.
+ *
+ * ── ★ THE PASSWORD IS A SECOND FORM, AND IT IS NOT PART OF THE DIFF
+ *
+ * Everything else in this panel is a `PATCH` to `/api/users/{id}` that sends only what
+ * changed. The password is neither: it is a `POST` to a route of its own, it is not
+ * read back, and sending it inside a patch would mean every save of a name re-sent a
+ * credential. So it sits in its own `<form>`, with its own button, its own busy state
+ * and its own notice.
+ *
+ * ★ AND ITS SUCCESS NOTICE SAYS WHAT IT DOES NOT DO. A session is a signed token with
+ *   an expiry, not a pointer at a credential: the server does not re-read the password
+ *   on each request, so changing one stops the **next** sign-in and leaves every
+ *   session already issued working until it expires. An administrator who believes
+ *   they have just cut somebody off has been told something this app cannot deliver,
+ *   and the sentence next to the button is where that gets corrected.
+ *
+ * ── ★ THE EMAIL IS SHOWN AND CANNOT BE EDITED
+ *
+ * `UserUpdate` has no `email` field and `PATCH` has no case for one, because the
+ * address is the key sign-in looks the account up by. A form field that silently did
+ * nothing would be worse than an input that is visibly disabled — so it is a disabled
+ * input with the reason underneath, rather than a read-only line the reader might take
+ * for a rendering bug.
+ */
+function UserPanel({
+  row,
+  orgs,
+  register,
+  onClose,
+  onSaved,
+}: {
+  row: AppUser | null;
+  orgs: readonly Organization[];
+  register: UserList | null;
+  onClose: () => void;
+  onSaved: (row: AppUser) => void;
+}) {
+  const open = row !== null;
+
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  const [width, setWidth] = useState<number | null>(() => readStoredWidth(USER_PANEL_WIDTH_KEY));
+  const [resizing, setResizing] = useState(false);
+  const [rendered, setRendered] = useState(0);
+
+  const [draft, setDraft] = useState<UserDraft>(BLANK_USER);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [patchProblem, setPatchProblem] = useState<string | null>(null);
+  const [patchAccepts, setPatchAccepts] = useState<string[]>([]);
+  /** ★ `NOT_FOUND` IS NOT A VALIDATION ERROR, SO IT IS NOT HELD IN `patchProblem`. */
+  const [missing, setMissing] = useState(false);
+
+  // The password form's own four states. Separate because it is a separate request —
+  // see the header. A save of the name must not clear a password refusal and a password
+  // refusal must not disable the Save button above it.
+  const [password, setPassword] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwSaved, setPwSaved] = useState(false);
+  const [pwProblem, setPwProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    document.body.classList.add('is-locked');
+    return () => {
+      document.body.classList.remove('is-locked');
+      openerRef.current?.focus?.();
+    };
+  }, [open]);
+
+  /**
+   * Fill the form from the row — keyed on the row, so a save that hands back the stored
+   * account re-seeds the draft and empties the diff, exactly as `OrgPanel` does.
+   *
+   * ★ THE PASSWORD BOX IS CLEARED HERE TOO, and it is the one line in this effect that
+   *   is not a copy of the row. Re-opening a different account with the previous
+   *   account's generated password still in the box is a credential typed into the
+   *   wrong record, one keystroke from being saved.
+   */
+  useEffect(() => {
+    if (!row) return;
+    setDraft({
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      memberships: row.organizations.map((org) => org.id),
+      primary: row.primaryOrganizationId,
+      password: '',
+    });
+    setSaved(null);
+    setPatchProblem(null);
+    setPatchAccepts([]);
+    setMissing(false);
+    setPassword('');
+    setPwSaved(false);
+    setPwProblem(null);
+  }, [row]);
+
+  useEffect(() => {
+    if (open && row) closeRef.current?.focus();
+  }, [open, row]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+      if (items.length === 0) return;
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => setRendered(panelRef.current?.getBoundingClientRect().width ?? 0);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
+  useEffect(() => {
+    document.body.classList.toggle('is-resizing', resizing);
+    return () => document.body.classList.remove('is-resizing');
+  }, [resizing]);
+
+  const patch = row ? diffOfUser(row, draft) : null;
+  const complete = userDraftComplete(draft, false);
+
+  function edit(patchFields: Partial<UserDraft>) {
+    setPatchProblem(null);
+    setMissing(false);
+    setDraft((current) => ({ ...current, ...patchFields }));
+  }
+
+  async function onSave(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !row || !patch || !complete) return;
+    setBusy(true);
+    setPatchProblem(null);
+    setPatchAccepts([]);
+    try {
+      const next = await updateUser(row.id, patch);
+      setSaved(describeUserPatch(patch));
+      onSaved(next);
+    } catch (err: unknown) {
+      // ★ A 404 ON A PATCH MEANS SOMEBODY DELETED THE ROW BEHIND THIS PANEL — or that
+      //   the panel is holding an id from a register that has since been rewritten.
+      //   Neither is a thing the form can fix, so it does not go into the validation
+      //   notice beside fields that are all perfectly valid. It gets its own, and its
+      //   own way out: re-read the register.
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') setMissing(true);
+      else {
+        setPatchProblem(err instanceof Error ? err.message : 'The account was not saved.');
+        setPatchAccepts(acceptedValues(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onSetPassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (pwBusy || !row || password.length < PASSWORD_MIN) return;
+    setPwBusy(true);
+    setPwProblem(null);
+    setPwSaved(false);
+    try {
+      const next = await setUserPassword(row.id, password);
+      setPwSaved(true);
+      setPassword('');
+      onSaved(next);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') setMissing(true);
+      else setPwProblem(err instanceof Error ? err.message : 'The password was not stored.');
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  return (
+    <aside
+      ref={panelRef}
+      id="user-edit-panel"
+      className={`drawer userpanel${open ? ' is-open' : ''}${resizing ? ' is-resizing' : ''}`}
+      style={width === null ? undefined : ({ '--drawer-w': `${width}px` } as CSSProperties)}
+      role="dialog"
+      aria-modal="true"
+      aria-label={row ? `${row.name} — account settings` : 'Account settings'}
+      aria-hidden={!open}
+      tabIndex={-1}
+    >
+      <ResizeGrip
+        value={width ?? rendered}
+        onChange={(next) => {
+          const clamped = clampWidth(next);
+          setWidth(clamped);
+          storeWidth(USER_PANEL_WIDTH_KEY, clamped);
+        }}
+        onReset={() => {
+          setWidth(null);
+          storeWidth(USER_PANEL_WIDTH_KEY, null);
+        }}
+        onDraggingChange={setResizing}
+        controls="user-edit-panel"
+        label="Resize the account panel"
+      />
+
+      <div className="drawer__head">
+        <div className="drawer__eyebrow">
+          Account · <code>{row?.email ?? ''}</code>
+        </div>
+        <h2 className="drawer__name">{row?.name ?? ''}</h2>
+        <div className="drawer__meta">
+          {/*
+           * ★ THIS LINE DESCRIBES THE STORED ROW AND NOT THE DRAFT, like the
+           *   organization panel's. It is a statement about what the account *is* —
+           *   which organization it signs in to right now — and having it move while
+           *   the radios are being clicked would be a second, less honest answer to a
+           *   question the form is already showing the answer to.
+           */}
+          {row ? (
+            row.primaryOrganizationId === null ? (
+              <>
+                Belongs to{' '}
+                <b>{sentenceList(row.organizations.map((org) => org.name)) || 'nothing'}</b> and{' '}
+                <strong className="userrow__never has no sign-in organization">cannot sign in</strong>.
+              </>
+            ) : (
+              <>
+                Signs in to{' '}
+                <b>
+                  {row.organizations.find((org) => org.id === row.primaryOrganizationId)?.name ??
+                    `#${row.primaryOrganizationId}`}
+                </b>{' '}
+                — {sentenceList(row.organizations.map((org) => org.name))}.
+              </>
+            )
+          ) : null}
+        </div>
+        <div className="drawer__chips">
+          <Chip variant={row?.role === 'super_admin' ? 'warn' : 'neu'}>
+            {row ? roleLabel(row.role) : ''}
+          </Chip>
+          <Chip variant="neu">joined {row ? dayPart(row.createdAt) : ''}</Chip>
+        </div>
+        <button
+          ref={closeRef}
+          type="button"
+          className="drawer__close"
+          onClick={onClose}
+          aria-label="Close the account panel"
+        >
+          <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path
+              d="M1 1l10 10M11 1L1 11"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div className="drawer__body">
+        {/*
+          ★ THE ROW IS GONE, SO THE FORM IS GONE. A panel that kept its fields on screen
+            after a 404 would be inviting an edit that cannot land, and the Save button
+            is disabled by the same condition — this is the visible half of it.
+        */}
+        {missing ? (
+          <div className="notice notice--err" role="alert">
+            <p>
+              <strong>That account is no longer in the register.</strong>
+            </p>
+            <p>
+              The server answered <code>404</code> for id <code>{row?.id ?? ''}</code>. Nothing here
+              is wrong with the form — the row it was opened on is gone, or the register has been
+              rewritten since this page read it. Read it again to see what is actually stored.
+            </p>
+            <p>
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => {
+                  setMissing(false);
+                  onClose();
+                }}
+              >
+                Close and re-read the register
+              </button>
+            </p>
+          </div>
+        ) : null}
+
+        <form id="user-edit" onSubmit={onSave} noValidate>
+          {saved ? (
+            <div className="notice notice--ok" role="status">
+              <p>
+                <strong>Saved.</strong>{' '}
+                {saved.charAt(0).toUpperCase() + saved.slice(1)} changed in the register.
+              </p>
+            </div>
+          ) : null}
+
+          {patchProblem ? (
+            <div className="notice notice--err" role="alert">
+              <p>
+                <strong>That was refused.</strong>
+              </p>
+              <p>{patchProblem}</p>
+              {patchAccepts.length ? (
+                <p>This register accepts {patchAccepts.map((v) => `“${v}”`).join(', ')} here.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="field">
+            <label className="field__label" htmlFor="user-edit-name">
+              Name
+            </label>
+            <input
+              id="user-edit-name"
+              className="input"
+              type="text"
+              autoComplete="off"
+              value={draft.name}
+              onChange={(event) => edit({ name: event.target.value })}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="user-edit-email">
+              Email
+            </label>
+            <input
+              id="user-edit-email"
+              className="input"
+              type="email"
+              value={draft.email}
+              disabled
+              readOnly
+            />
+            <p className="field__hint">
+              Read-only, and not by omission: <code>PATCH /api/users/{'{id}'}</code> has no case for
+              an address, because the address is the key sign-in looks the account up by. Changing
+              one means creating an account and giving the old one no password.
+            </p>
+          </div>
+
+          <RoleField
+            idPrefix="user-edit"
+            value={draft.role}
+            register={register}
+            onChange={(role) => edit({ role })}
+          />
+
+          <MembershipPicker
+            idPrefix="user-edit"
+            orgs={orgs}
+            memberships={draft.memberships}
+            primary={draft.primary}
+            onChange={edit}
+          />
+
+          {/*
+            ★ SAID WHERE THE FIELDS ARE, NOT IN A FOOTNOTE SOMEWHERE ELSE. Removing an
+              account is the first thing somebody opens a register like this to do, and
+              the answer is that this one does not — so the answer is here rather than
+              in a note beside a button that does not exist.
+          */}
+          <p className="chart-note userpanel__no-delete">
+            <strong>There is no Remove, and that is deliberate.</strong> An account can be created,
+            renamed, re-roled, moved between organizations and given a new password; nothing here
+            deletes one, disables one or takes a role away. The rows are referenced by the writes
+            those accounts made, and this app has no way to un-read a ledger somebody has already
+            read.
+          </p>
+        </form>
+
+        {/*
+          ★ A FORM OF ITS OWN, INSIDE THE DRAWER BODY BUT OUTSIDE THE PATCH FORM. It
+            cannot be inside `#user-edit` — nested forms are invalid markup and a submit
+            button inside one posts to the other — and it must not be, because these are
+            two requests with two answers.
+        */}
+        <form id="user-password" className="userpanel__pw" onSubmit={onSetPassword} noValidate>
+          <h3 className="userform__title">Password</h3>
+
+          {pwSaved ? (
+            <div className="notice notice--ok" role="status">
+              <p>
+                <strong>Stored.</strong> The next sign-in uses it — and only the next one. Sessions
+                already issued keep working until they expire, because the server checks a signature
+                rather than the credential.
+              </p>
+            </div>
+          ) : null}
+
+          {pwProblem ? (
+            <div className="notice notice--err" role="alert">
+              <p>
+                <strong>That was refused.</strong>
+              </p>
+              <p>{pwProblem}</p>
+            </div>
+          ) : null}
+
+          {row ? (
+            <p className="chart-note">
+              {row.hasPassword
+                ? 'This account has a password. Setting another replaces it immediately — there is no confirmation step and no history, so the previous value stops working the moment this is stored.'
+                : 'This account has never had a password, so it cannot sign in. Storing one here is what finishes it.'}
+            </p>
+          ) : null}
+
+          <PasswordField
+            idPrefix="user-edit"
+            value={password}
+            onChange={(next) => {
+              setPwProblem(null);
+              setPwSaved(false);
+              setPassword(next);
+            }}
+            label="New password"
+            hint="Eight characters minimum, hashed on arrival and never returned. Issued sessions are not ended by this."
+          />
+
+          <div className="idcard__actions">
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={password.length < PASSWORD_MIN || pwBusy}
+            >
+              {pwBusy ? 'Storing…' : row?.hasPassword ? 'Replace password' : 'Set password'}
+            </button>
+            <p className="field__hint">
+              {password.length < PASSWORD_MIN
+                ? 'Generate a value, or type one at least eight characters long.'
+                : 'Stops the next sign-in and no existing session. Anybody already signed in stays signed in until the token expires.'}
+            </p>
+          </div>
+        </form>
+      </div>
+
+      <div className="drawer__foot">
+        <button
+          type="submit"
+          className="btn btn--primary"
+          form="user-edit"
+          disabled={!complete || patch === null || busy || missing}
+        >
+          {busy ? 'Saving…' : saved && patch === null ? 'Saved' : 'Save changes'}
+        </button>
+        <button type="button" className="btn btn--system" onClick={onClose}>
+          Close
+        </button>
+        <p className="userpanel__note">
+          {!complete
+            ? 'A name and at least one organization are required. An account with a choice of them also has to say which one it signs in to. The role is always one of the three.'
+            : patch === null
+              ? 'Nothing has changed yet, so there is nothing to send. An update that names no fields is refused rather than treated as a no-op.'
+              : `Sends only what differs — ${describeUserPatch(patch)}. Nothing is written to Oracle, and no password is sent by this button.`}
         </p>
       </div>
     </aside>

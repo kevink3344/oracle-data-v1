@@ -14,6 +14,7 @@ import { registerProcurement } from './procurement.js';
 import { registerProjectRegistry } from './projectRegistry.js';
 import { registerProjects } from './projects.js';
 import { registerSpend } from './spend.js';
+import { registerUsers } from './users.js';
 import { registerVendors } from './vendors.js';
 import { registerViewBuilder } from './views.js';
 import { registerPins } from './pins.js';
@@ -83,6 +84,12 @@ export function apiRouter(): Router {
   // reader, not for the server.
   registerAuth(api);
   registerOrganizations(api);
+  // ★ `registerUsers` SITS BESIDE `registerOrganizations` BECAUSE THEY ARE THE
+  //   SAME KIND OF THING: the two registers whose subject is who and what else
+  //   exists. They share one rule — `super_admin` — and one audience, and a reader
+  //   looking for "what can this account reach" should find both answers on the
+  //   same screen and the same two lines here.
+  registerUsers(api);
 
   // ★ `registerAi` IS CALLED, NOT IMPORTED FOR ITS SIDE EFFECT — and the difference
   //   is the whole reason this note exists. Every `registerResource(...)` in this

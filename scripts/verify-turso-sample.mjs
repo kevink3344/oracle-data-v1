@@ -363,6 +363,12 @@ console.log('\n=== GATES ===');
 const APP_OWNED_TABLES = [
   'saved_view', 'saved_view_run', 'saved_view_subscription', 'project',
   'table_count_snapshot', 'organization', 'app_user',
+  // Added by Users & roles: which organizations an account belongs to — one, or
+  // many. Declared immediately after `app_user` because it is the same subject;
+  // `app_user.organization_id` is the primary (the one they sign in to) and this
+  // is the full set. ★ The sixth addition, and again not a drift: the gate below
+  // named it the moment the DDL declared it.
+  'app_user_organization',
   // Added by the vendor-site map: the origin the routes run from, the geocoded
   // sites, the cached road routes, and the per-field display overrides. Listed
   // in the order `01-app.sql` declares them.

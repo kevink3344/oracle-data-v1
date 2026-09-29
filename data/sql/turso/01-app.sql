@@ -702,15 +702,32 @@ INSERT OR IGNORE INTO organization (slug, name, fund, programs_json, start_fy, i
 --    that it is no longer the *only* credential the server knows how to check.
 --
 --  ---------------------------------------------------------------------------
---  WHY organization_id IS NULLABLE EVEN THOUGH EVERY USER BELONGS TO ONE
+--  ★ WHY organization_id IS A *PRIMARY* ORGANIZATION AND NOT THE ONLY ONE
 --  ---------------------------------------------------------------------------
---  The request is that *every* user is associated with one organization, and
---  the session enforces it: `SessionUser.organizationId` is not optional and
---  no request is served a tenantless scope. The column is nullable because
---  "belongs to an organization" and "has been given one here yet" are different
---  states, and collapsing them would make an unassigned user silently inherit
---  whatever the default happens to be. A NULL here means "not assigned", and
---  the sign-in path is what decides to refuse rather than guess.
+--  This note used to argue that the column was nullable only so that "not
+--  assigned yet" and "belongs" stayed different states, because every user
+--  belonged to exactly one organization. THAT IS NO LONGER TRUE. A user may
+--  belong to one organization or to many, and the memberships live in
+--  `app_user_organization` below. The column now answers a narrower and more
+--  exact question: **which organization does this account sign in to.**
+--
+--  The rule the screen enforces is threefold, and the database can state only
+--  the third part of it:
+--
+--    1. a user has at least one membership.
+--    2. the primary organization is one of them.
+--    3. the primary may not be removed from its own membership set.
+--
+--  (1) and (2) are cross-table rules, and SQLite has no cross-table CHECK, so
+--  they live in the write path — one place, `server/src/routes/users.ts` — and
+--  are asserted by the smoke suite. This is the same posture the column always
+--  had: the constraint is real, and it is enforced where it can be enforced.
+--
+--  It stays NULLABLE for the original reason, which has not changed: "belongs
+--  to an organization" and "has been given one here yet" are different states,
+--  and collapsing them would make an unassigned user silently inherit whatever
+--  the default happens to be. A NULL here means "not assigned", and the sign-in
+--  path is what decides to refuse rather than guess.
 --
 --  ON DELETE is left at the default (NO ACTION) on purpose: deleting an
 --  organization that people belong to must fail rather than detach them.
@@ -726,12 +743,23 @@ CREATE TABLE IF NOT EXISTS app_user (
   -- What the avatar and the audit trail show. Never typed by the user.
   display_name    TEXT    NOT NULL,
 
-  -- `super_admin` may create and edit organizations; `member` may not, and the
-  -- check is server-side. TEXT with a CHECK rather than a lookup table: there
-  -- are two roles and a third would be a decision, not a migration.
-  role            TEXT    NOT NULL DEFAULT 'member'
-                          CHECK (role IN ('super_admin','member')),
+  -- ★ THE THIRD ROLE ARRIVED, SO THIS IS NOW A MIGRATION AND NOT JUST A
+  --   DECISION. The comment here used to read "there are two roles and a third
+  --   would be a decision, not a migration" — and that was right up until the
+  --   decision was made. SQLite cannot relax a CHECK in place, so widening the
+  --   set means rebuilding this table, which is why
+  --   `applyUserRoleMigration` in `server/src/db/app-schema.ts` exists. The
+  --   rebuild maps the old `member` onto the new `staff`.
+  --
+  --   What each role buys is NOT declared here. `role` is a vocabulary; the
+  --   capabilities are one table on the server (`ROLE_CAPABILITIES`), and a
+  --   second copy of that rule in a COMMENT is exactly the duplication that
+  --   ends with a screen disagreeing with the server about what a role may do.
+  role            TEXT    NOT NULL DEFAULT 'staff'
+                          CHECK (role IN ('super_admin','administrator','staff')),
 
+  -- The organization this account SIGNS IN TO. One of its memberships, never
+  -- merely implied by them. See the header note.
   organization_id INTEGER REFERENCES organization(id),
 
   -- A salted scrypt derivative, never a plaintext password. NULL means no
@@ -745,6 +773,66 @@ CREATE TABLE IF NOT EXISTS app_user (
   -- used, which is a different fact from "used a long time ago".
   last_seen_at    TEXT
 );
+
+
+-- ============================================================================
+--  app_user_organization — which organizations an account belongs to.
+--
+--  ---------------------------------------------------------------------------
+--  WHY THIS EXISTS BESIDE organization_id RATHER THAN INSTEAD OF IT
+--  ---------------------------------------------------------------------------
+--  The two columns look like the same fact written twice. They are not:
+--
+--    app_user.organization_id    WHICH ONE THEY SIGN IN TO. Exactly one, and
+--                                the session turns it into a tenant scope.
+--    app_user_organization       WHICH ONES THEY BELONG TO. One, or many, and
+--                                nothing reads it yet beyond this screen.
+--
+--  The alternative — dropping `organization_id` and deriving the tenant from
+--  the membership set — was refused because it would not be a derivation. With
+--  two memberships there is no rule that says which one a sign-in should land
+--  in, so "pick the first" or "pick the default" would be a silent guess that
+--  decides every query the person runs. Naming the primary makes the guess an
+--  answer somebody gave.
+--
+--  ---------------------------------------------------------------------------
+--  THE COMPOSITE PRIMARY KEY IS THE RULE
+--  ---------------------------------------------------------------------------
+--  `PRIMARY KEY (user_id, organization_id)` and no surrogate id: a membership
+--  has no identity of its own, and the database then cannot hold the same
+--  membership twice. It also gives the `(user_id)` prefix an index for free,
+--  which is the look-up the sign-in path and the screen both do; the extra
+--  index below covers the other direction, `organization → its people`.
+--
+--  ON DELETE CASCADE on `user_id` and NO ACTION on `organization_id`, and the
+--  asymmetry is the point:
+--
+--    * a membership is a statement ABOUT A USER, so when the user is gone
+--      there is nothing left for it to be about.
+--    * a membership is also a statement about an organization, but deleting
+--      one that people belong to is a question about those people, and the
+--      answer must not be "detach them silently". `app_user.organization_id`
+--      already refuses for the same reason; this matches it.
+--
+--  Nothing deletes a user today — there is no such route — so the CASCADE is a
+--  statement about what is correct rather than a path anything can reach.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS app_user_organization (
+  user_id         INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+
+  organization_id INTEGER NOT NULL REFERENCES organization(id),
+
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+
+  PRIMARY KEY (user_id, organization_id)
+);
+
+-- The reverse look-up: "who belongs to this organization?". The primary key
+-- already covers `user_id`, so this is the only direction missing an index.
+CREATE INDEX IF NOT EXISTS IDX_APP_USER_ORGANIZATION_ORG
+  ON app_user_organization(organization_id);
+
 
 -- ============================================================================
 --  user_pin — a reader's private shortcuts to records in the ledger.

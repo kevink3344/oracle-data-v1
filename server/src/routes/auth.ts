@@ -47,9 +47,13 @@ import {
  * only way to a new token is to sign in again. See the note on `SessionPayload`.
  */
 
-const RoleSchema = z
-  .enum(['super_admin', 'member'])
-  .openapi({ description: '`super_admin` may create and edit organizations. `member` may read.' });
+const RoleSchema = z.enum(['super_admin', 'administrator', 'staff']).openapi({
+  description:
+    '`super_admin` may read and write the organization register and the user register. ' +
+    '**`administrator` and `staff` may do neither, and are not equivalent to each other in ' +
+    'the register that records them — but they are equivalent in what they reach.** ' +
+    'See the capability table on `GET /api/users`.',
+});
 
 /**
  * The organization, as a session carries it.

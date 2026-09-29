@@ -65,13 +65,30 @@ export async function requireActor(req: Request): Promise<Actor> {
  *   — a member who was only *reading the register* was told they may not change
  *   one, so the message sent them to ask for permission they were not after. The
  *   register is one capability and four routes read it or write it, so the
- *   sentence above names the register.
+ *   sentence names the register.
+ *
+ * ★★ AND THE REGISTER IS NOW AN ARGUMENT, BECAUSE THERE IS MORE THAN ONE. Adding
+ *    the user register exposed the last copy of the same mistake: this function's
+ *    text was hard-coded to the organization register, so a refused `GET
+ *    /api/users` would have told the caller they may not touch *organizations* —
+ *    the exact defect the paragraph above describes, arriving a second time by a
+ *    different route. The two registers are two capabilities with the same shape
+ *    of refusal, so the capability is a parameter and the sentence is composed
+ *    from it.
+ *
+ *    It is optional and defaults to the organization register, which is what keeps
+ *    the four existing routes reading exactly as they did and their assertions in
+ *    the smoke suite passing unchanged. A route that names nothing gets the
+ *    original sentence rather than a malformed one.
  */
-export async function requireSuperAdmin(req: Request): Promise<Actor> {
+export async function requireSuperAdmin(
+  req: Request,
+  register = 'the organization register',
+): Promise<Actor> {
   const actor = await requireActor(req);
   if (!isSuperAdmin(actor)) {
     throw AppError.forbidden(
-      `"${actor.email}" is signed in as ${actor.role}, and the organization register is ` +
+      `"${actor.email}" is signed in as ${actor.role}, and ${register} is ` +
         'restricted to super admins. Ask an administrator to make the change, or to give this ' +
         'account the super_admin role.',
       { role: actor.role },

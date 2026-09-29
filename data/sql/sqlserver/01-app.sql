@@ -316,10 +316,22 @@ GO
 --    convenience rather than an account: gitignored, six digits, no lockout. The
 --    change is that it is no longer the only credential the server can check.
 --
---  ★ `organization_id` IS NULLABLE EVEN THOUGH EVERY USER BELONGS TO ONE.
---    "Belongs to an organization" and "has been given one here yet" are different
---    states, and collapsing them would make an unassigned user silently inherit
---    the default. A NULL means "not assigned" and the sign-in path refuses.
+--  ★ `organization_id` IS A *PRIMARY* ORGANIZATION, NOT THE ONLY ONE. This note
+--    used to argue that the column was nullable only so that "not assigned yet"
+--    and "belongs" stayed different states, because every user belonged to
+--    exactly one organization. That is no longer true: a user may belong to one
+--    organization or to many, and the memberships live in `app_user_organization`
+--    below. The column now answers a narrower question — **which organization
+--    does this account sign in to** — and the sign-in path refuses a NULL rather
+--    than guessing at the default.
+--
+--  ★ THE DEFAULT MOVES WITH THE CHECK, AND THAT IS NOT COSMETIC. `role` carried
+--    `DEFAULT 'member'` beside a constraint that admitted `'member'`. Widening
+--    the constraint without moving the default would leave every `INSERT` that
+--    omits the column writing a value the table now FORBIDS — the constraint and
+--    the default would contradict each other, and only on the path nobody
+--    tests. The default is an unnamed constraint, so the migration below has to
+--    find it through `sys.default_constraints` rather than drop it by name.
 -- ----------------------------------------------------------------------------
 IF OBJECT_ID('dbo.app_user', 'U') IS NULL
 CREATE TABLE dbo.app_user (
@@ -331,8 +343,22 @@ CREATE TABLE dbo.app_user (
 
   display_name    NVARCHAR(200) NOT NULL,
 
-  role            NVARCHAR(20) NOT NULL DEFAULT 'member'
-                    CONSTRAINT CK_app_user_role CHECK (role IN ('super_admin','member')),
+  -- ★ THE THIRD ROLE ARRIVED. This table is created inside
+  --   `IF OBJECT_ID(...) IS NULL`, so a change to this constraint reaches a FRESH
+  --   store and NEVER revisits one that already exists — and unlike the SQLite
+  --   arm there is no `applyPinCategoryMigration` equivalent that could catch it,
+  --   because that function reads `sqlite_master`. The store that exists is
+  --   brought forward by `applyUserRoleMigrationSqlServer` in
+  --   `server/src/db/app-schema.ts`, which drops and recreates
+  --   `CK_app_user_role` and the default beside it. T-SQL *can* alter a CHECK in
+  --   place, so unlike SQLite this needs no table rebuild.
+  --
+  --   What each role BUYS is not declared here. `role` is a vocabulary; the
+  --   capabilities are one table on the server (`ROLE_CAPABILITIES`), and a
+  --   second copy of that rule in a comment is the duplication that ends with a
+  --   screen disagreeing with the server about what a role may do.
+  role            NVARCHAR(20) NOT NULL DEFAULT 'staff'
+                    CONSTRAINT CK_app_user_role CHECK (role IN ('super_admin','administrator','staff')),
 
   organization_id INT NULL,
 
@@ -354,6 +380,61 @@ CREATE TABLE dbo.app_user (
 
   CONSTRAINT FK_app_user_org FOREIGN KEY (organization_id) REFERENCES dbo.organization (id)
 );
+GO
+
+
+-- ----------------------------------------------------------------------------
+--  app_user_organization — which organizations an account belongs to.
+--
+--  ★ WHY THIS EXISTS BESIDE `organization_id` RATHER THAN INSTEAD OF IT.
+--
+--      dbo.app_user.organization_id    WHICH ONE THEY SIGN IN TO. Exactly one,
+--                                      turned into a tenant scope by the session.
+--      dbo.app_user_organization        WHICH ONES THEY BELONG TO. One, or many,
+--                                      and nothing reads it yet beyond the screen.
+--
+--    Deriving the tenant from the membership set instead was refused because it
+--    would not be a derivation: with two memberships no rule says which one a
+--    sign-in should land in, so "pick the first" would be a silent guess deciding
+--    every query the person runs. Naming the primary makes the guess an answer
+--    somebody gave.
+--
+--  ★ THE COMPOSITE PRIMARY KEY IS THE RULE. No surrogate id: a membership has no
+--    identity of its own, so the database cannot hold the same membership twice.
+--    `(user_id, organization_id)` also indexes the `user_id` prefix, which is the
+--    look-up the sign-in path and the screen both do; the index below covers the
+--    other direction.
+--
+--  ★ ON DELETE CASCADE ON ONE SIDE AND NOT THE OTHER, DELIBERATELY. A membership
+--    is a statement ABOUT A USER, so when the user is gone there is nothing left
+--    for it to be about. It is also a statement about an organization, but
+--    deleting one that people belong to is a question about those people, and the
+--    answer must not be "detach them silently" — `app_user.organization_id`
+--    already refuses for that reason and this matches it. Nothing deletes a user
+--    today, so the CASCADE states what is correct rather than a reachable path.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.app_user_organization', 'U') IS NULL
+CREATE TABLE dbo.app_user_organization (
+  user_id         INT NOT NULL,
+  organization_id INT NOT NULL,
+
+  created_at      NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126)),
+
+  CONSTRAINT PK_app_user_organization PRIMARY KEY (user_id, organization_id),
+
+  CONSTRAINT FK_app_user_organization_user FOREIGN KEY (user_id)
+    REFERENCES dbo.app_user (id) ON DELETE CASCADE,
+
+  CONSTRAINT FK_app_user_organization_org FOREIGN KEY (organization_id)
+    REFERENCES dbo.organization (id)
+);
+GO
+
+-- The reverse look-up — "who belongs to this organization?". The primary key's
+-- `user_id` prefix already covers the forward direction, so this is the only one
+-- missing an index.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_APP_USER_ORGANIZATION_ORG' AND object_id = OBJECT_ID('dbo.app_user_organization'))
+  CREATE INDEX IDX_APP_USER_ORGANIZATION_ORG ON dbo.app_user_organization (organization_id);
 GO
 
 

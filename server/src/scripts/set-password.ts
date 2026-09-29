@@ -12,12 +12,24 @@
  * hash read as "no password required" would be the back door the column was added
  * to close — but it means a row without a hash is an account nobody can sign in to.
  *
- * There is currently **no other way to give an account a password.** The two routes
- * that exist are `/api/auth/sign-in` and `/api/auth/session`; there is no
- * `/api/users`, and `/admin/users` is declared `built: false` in
- * `app/src/nav/menu.ts`. So the only paths that write `app_user` at all are the
- * smoke suite and this file. Without it the feature is untestable: a member account
- * can be created and can never be used.
+ * ── ★ THIS SCRIPT USED TO BE THE ONLY WAY, AND IT IS NOT ANY MORE
+ *
+ * `POST /api/users/{id}/password` now sets a password, and `POST /api/users`
+ * creates an account with one, so an operator signed in as a super admin has a
+ * screen for both. What is left here is the case that screen cannot cover: the
+ * state where **nobody can sign in yet**. An empty store, an address typed
+ * wrong often enough that the way in looks closed, a password nobody recorded for
+ * the only administrator. A tool that needed a session to unlock the door it
+ * unlocks would be no tool at all.
+ *
+ * The two are not duplicates and the difference is worth knowing:
+ *
+ *     screen  who is already inside, acting on somebody else
+ *     script  whoever holds the shell and the connection string, acting on anybody
+ *
+ * Only this file can create an account, set a role, or name an organization with
+ * no session in existence. It is the last resort and it is deliberately the one
+ * with the longest reach.
  *
  * The bootstrap pair in `.env` is unaffected and still works on an empty store. It
  * is a deployment convenience for the one identity that exists before any tenant
@@ -41,6 +53,21 @@
  * which is the message an operator needs: the address is wrong, or the account does
  * not exist yet and `--create` is the flag that says you meant that.
  *
+ * ── ★ `--create` WRITES TWO TABLES, AND THE SECOND ONE IS NOT OPTIONAL
+ *
+ * An account's sign-in organization is `app_user.organization_id`, and the set of
+ * organizations it belongs to is `app_user_organization`. The sign-in organization
+ * is always one of them — that is the invariant the application enforces in
+ * `routes/users.ts` — so `--create` writes the membership row as well as the user
+ * row. Writing only the first would produce an account that signs in, reads its
+ * tenant, and is absent from the register of who belongs where.
+ *
+ * The ordinary run repairs that too, if it finds it: an account whose sign-in
+ * organization has no membership row gets one, and the script says so rather than
+ * doing it quietly. That is the one state this file can leave behind on an older
+ * store, and leaving it behind a second time would be the tool knowing and not
+ * saying.
+ *
  * ── ★ WHAT THIS DOES NOT DO
  *
  * No route, no UI, no email, no password-strength policy, no reset flow. It is the
@@ -53,8 +80,15 @@ import { config } from '../config/env.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { execute, one } from '../db/sql.js';
 
-/** Roles the database's `CK_app_user_role` check constraint will accept. */
-const ROLES = ['super_admin', 'member'] as const;
+/**
+ * Roles the database's `CK_app_user_role` check constraint will accept.
+ *
+ * The three names are listed here as well as in `auth/session.ts` and in
+ * `routes/users.ts` because this script talks to the database without going through
+ * either. A fourth role is a change in all three plus the constraint — the same
+ * thing `isRole` says, and the same reason it is worth saying twice.
+ */
+const ROLES = ['super_admin', 'administrator', 'staff'] as const;
 type Role = (typeof ROLES)[number];
 
 interface Options {
@@ -198,8 +232,8 @@ async function organizationIdFor(slug: string): Promise<number> {
   );
   if (row === null) {
     throw new Error(
-      `No organization has the slug "${slug}". /admin/organizations lists them, or omit --org to use ` +
-        'the default organization.',
+      `No organization has the slug "${slug}". The Organizations panel on the Settings ` +
+        'screen lists them, or omit --org to use the default organization.',
     );
   }
   return row.id;
@@ -217,6 +251,57 @@ async function defaultOrganizationId(): Promise<number> {
     );
   }
   return row.id;
+}
+
+/**
+ * Make sure the sign-in organization is recorded as a membership, and say so if it
+ * was not.
+ *
+ * ★ THE INVARIANT, STATED ONCE. An account's organizations are the rows in
+ *   `app_user_organization`; which one it SIGNS IN TO is `app_user.organization_id`;
+ *   and the second is always one of the first. No constraint says so — the two are
+ *   in different tables and the foreign keys each only prove their own column
+ *   points at a real organization — so every writer has to hold it. This file is a
+ *   writer, so it holds it here rather than in three places.
+ *
+ * ★ IT IS IDEMPOTENT AND IT REPORTS ONLY WHEN IT CHANGED SOMETHING. The ordinary
+ *   run of this script changes a password and nothing else, and an operator reading
+ *   its output should be able to tell those two apart at a glance. So a membership
+ *   that is already there prints nothing; one that had to be written prints a line
+ *   saying it was missing, which is a fact about the store worth knowing.
+ *
+ * ★ A NULL SIGN-IN ORGANIZATION IS REPORTED, NOT SKIPPED. There is no membership to
+ *   write and the account cannot sign in at all — `actorFor()` refuses it with a 403
+ *   — so this is the case where an operator has just set a password on an account
+ *   and would otherwise reasonably believe they had finished.
+ */
+async function recordMembership(
+  userId: number,
+  organizationId: number | null,
+  email: string,
+): Promise<void> {
+  if (organizationId === null) {
+    console.log(
+      `\n⚠  "${email}" has no sign-in organization, so it still cannot sign in. The password is set ` +
+        'and the account is still locked out. Give it one on the Users & roles screen.',
+    );
+    return;
+  }
+
+  const held = await one<{ user_id: number }>(
+    'SELECT user_id FROM app_user_organization WHERE user_id = ? AND organization_id = ?',
+    [userId, organizationId],
+  );
+  if (held !== null) return;
+
+  await execute(
+    'INSERT INTO app_user_organization (user_id, organization_id) VALUES (?, ?)',
+    [userId, organizationId],
+  );
+  console.log(
+    `\nrecorded: account ${userId} → organization ${organizationId}. The sign-in organization was not ` +
+      'in the membership table; it is now.',
+  );
 }
 
 async function main(): Promise<void> {
@@ -253,8 +338,8 @@ async function main(): Promise<void> {
   const password = await readPassword(opts);
   const hash = await hashPassword(password);
 
-  const existing = await one<{ id: number; display_name: string; role: string }>(
-    'SELECT id, display_name, role FROM app_user WHERE email = ?',
+  const existing = await one<{ id: number; display_name: string; role: string; organization_id: number | null }>(
+    'SELECT id, display_name, role, organization_id FROM app_user WHERE email = ?',
     [email],
   );
 
@@ -266,7 +351,11 @@ async function main(): Promise<void> {
       );
     }
     const organizationId = opts.org === null ? await defaultOrganizationId() : await organizationIdFor(opts.org);
-    const role: Role = (opts.role as Role | null) ?? 'member';
+    // `staff` and not the most capable name: the column's own default is `staff`
+    // for the reason `01-app.sql` gives — it is the role that grants least, so a
+    // forgotten flag produces the account that can do the least rather than the one
+    // that can do everything. An operator who wants more says so.
+    const role: Role = (opts.role as Role | null) ?? 'staff';
     const name = opts.name ?? email;
 
     const result = await execute(
@@ -282,8 +371,29 @@ async function main(): Promise<void> {
     //   message with a hole in the middle of it, on the flag an operator reaches
     //   for when they are already unsure whether the write happened.
     const created = await one<{ id: number }>('SELECT id FROM app_user WHERE email = ?', [email]);
+
+    // ★ THE INSERT IS NOT TRUSTED TO HAVE PRODUCED AN ID. The address is unique, so
+    //   this read either names the row just written or names nothing — and naming
+    //   nothing means the insert did not happen, whatever it reported. The old code
+    //   printed a "?" here and carried on.
+    const createdId = created?.id ?? result.lastInsertRowid ?? null;
+    if (createdId === null) {
+      throw new Error(
+        `The insert reported success but "${email}" cannot be read back, so no membership could be ` +
+          'recorded. Nothing is known to have been written.',
+      );
+    }
+
+    // ★ THE MEMBERSHIP ROW, AND IT IS NOT DECORATION. `organization_id` above is
+    //   which organization this account SIGNS IN TO; this table is which ones it
+    //   BELONGS TO, and the sign-in organization is always one of them. Leaving it
+    //   out would leave a row the Users & roles screen reads as an account with a
+    //   sign-in organization and no memberships — a state `PATCH /api/users/{id}`
+    //   would refuse to produce, produced here instead.
+    await recordMembership(createdId, organizationId, email);
+
     console.log(
-      `\ncreated : id ${created?.id ?? result.lastInsertRowid ?? '?'} · "${name}" · ${role} · org ${organizationId}`,
+      `\ncreated : id ${createdId} · "${name}" · ${role} · org ${organizationId}`,
     );
     console.log('The password is set. That account can sign in now.');
     return;
@@ -308,6 +418,9 @@ async function main(): Promise<void> {
       'The old password, if there was one, no longer works. Sessions already issued are unaffected — ' +
       'they expire on their own twelve hours after they were minted.',
   );
+
+  // A repaired line, or none at all. See `recordMembership`.
+  await recordMembership(existing.id, existing.organization_id, email);
 }
 
 main().catch((err: unknown) => {

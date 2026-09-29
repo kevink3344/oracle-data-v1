@@ -496,9 +496,34 @@ function resolveDb(): DbConfig {
     );
   }
 
-  // An unset DB_MODE still means the local sample file: that is the zero-config
-  // default for a fresh checkout, and it is unambiguous because it is absent
-  // rather than misspelled.
+  /**
+   * ★ ON A DEPLOYED HOST, AN ABSENT `DB_MODE` IS A CONFIGURATION GAP RATHER THAN
+   *   A MISSING FILE, AND SAYING SO IS THE WHOLE POINT OF THIS BLOCK.
+   *
+   * The fallback below is correct for a fresh checkout and unreachable on App
+   * Service: the deployment publishes `server/` alone, so `data/sql/turso/sample.db`
+   * is not in the container and never will be. An operator who reaches that branch
+   * with an empty `DB_MODE` is then told to run `build-turso-sample.mjs` — a script
+   * that is not deployed, against a path that is not deployed, to produce a file
+   * that this host could not use. A one-setting omission reads as a missing asset,
+   * and the fix that would actually work (set `DB_MODE`) is never named.
+   *
+   * `WEBSITE_HOSTNAME` is set by App Service on every plan and nowhere else, so it
+   * is what separates "nobody has configured this checkout yet" from "a deployed
+   * app was shipped without a target". Same signal, and the same reasoning, as
+   * `defaultHost` above.
+   */
+  if (requested === undefined && str('WEBSITE_HOSTNAME') !== undefined) {
+    throw new Error(
+      'DB_MODE is not set, and this is a deployed host with no local sample database to fall ' +
+        'back to. Set it as an application setting — DB_MODE=sqlserver for Azure SQL — ' +
+        `or one of ${DB_MODES.join(', ')}.`,
+    );
+  }
+
+  // Off App Service, an unset DB_MODE still means the local sample file: that is
+  // the zero-config default for a fresh checkout, and it is unambiguous because it
+  // is absent rather than misspelled.
   const mode: DbMode = (requested as DbMode | undefined) ?? 'local';
 
   if (mode === 'oracle') return oracleConfig();

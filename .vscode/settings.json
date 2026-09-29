@@ -31,6 +31,12 @@
         "git commit": true,
         "git push": true,
         "git fetch": true,
-        "git rev-list": true
+        "git rev-list": true,
+        "Get-CimInstance": true,
+        "Start-Process": true,
+        "ConvertTo-Json": true,
+        "Get-Command": true,
+        "gh": true,
+        "az": true
     }
 }

@@ -43,12 +43,12 @@
  *     prose rather than in code, which is exactly how it outlived the behaviour it
  *     described.
  *
- *   So the guest state is `SIGNED_OUT` below: an ordinary `member` with a name, no
- *   email, and **no organization**. It is not an account and it is not a tenant — it
- *   cannot unlock anything, because every guarded route wants a token this object does
- *   not have, and since the gate it cannot even reach a request. What it is, precisely,
- *   is the state the gate refuses to draw the app in, and `authenticated: false` is how
- *   a reader tells it apart from a real session.
+ *   So the guest state is `SIGNED_OUT` below: an ordinary `staff` account with a
+ *   name, no email, and **no organization**. It is not an account and it is not a
+ *   tenant — it cannot unlock anything, because every guarded route wants a token
+ *   this object does not have, and since the gate it cannot even reach a request.
+ *   What it is, precisely, is the state the gate refuses to draw the app in, and
+ *   `authenticated: false` is how a reader tells it apart from a real session.
  *
  * ★ TWO DEVIATIONS FROM THE SHAPE IN THE PLAN, BOTH FOR THE PLACEHOLDER.
  *   §1 gives `organizationId: number` and `organization: Scope`. A guest has
@@ -84,7 +84,24 @@ export const SESSION_HEADER = 'x-app-session';
 /** Where the browser keeps its copy of the token. */
 const TOKEN_KEY = 'projects-session-token';
 
-export type Role = 'super_admin' | 'member';
+/**
+ * The three roles, and the same three the server's `Role` names.
+ *
+ * ★ TWO OF THEM ARE EQUIVALENT IN WHAT THEY REACH, AND THE INTERFACE DOES NOT SAY
+ *   SO. `super_admin` is the only role `requireSuperAdmin` consults, so
+ *   `administrator` and `staff` are both refused everything the organization and
+ *   user registers serve — the refusal names the register and the role it saw, and
+ *   a `staff` account and an `administrator` account are refused in the same words.
+ *   `administrator` is recorded and grants nothing further.
+ *
+ *   That answer lives in one place on the server — `ROLE_CAPABILITIES` in
+ *   `routes/users.ts` — and travels to this side inside the user list payload, so
+ *   the screen prints the sentences rather than restating them. The reason a screen
+ *   must not restate them is the same reason this comment is here rather than in a
+ *   component: a second copy is a second permission model, and the way two
+ *   permission models drift is that one of them is wrong on the day it matters.
+ */
+export type Role = 'super_admin' | 'administrator' | 'staff';
 
 /**
  * The tenant a session is in — the scope, plus the fiscal year it starts reading at.
@@ -189,14 +206,16 @@ function initialsOf(name: string): string {
  *   same string rather than a new one — the point of this change is to make the
  *   signed-out state *visible*, not to rename it.
  *
- *   It is a `member`, which is why the Settings gear is hidden for it, and it has
- *   no organization, which is why it cannot be sent to a guarded route.
+ *   It holds `staff`, which is the role that grants least, and it has no
+ *   organization, which is why it cannot be sent to a guarded route. It used to
+ *   hold `member`; that name is gone from the vocabulary, and a placeholder is not
+ *   a place to keep a name the database would refuse.
  */
 const SIGNED_OUT: SessionUser = {
   name: 'Dana Whitfield',
   initials: initialsOf('Dana Whitfield'),
   email: '',
-  role: 'member',
+  role: 'staff',
   organizationId: null,
   organizationName: '',
   organization: null,
@@ -293,14 +312,14 @@ export function currentOwner(user?: SessionUser | null): string | null {
 }
 
 /**
- * Whether the session may configure organizations.
+ * Whether the session may configure organizations and accounts.
  *
  * ★ THE GEAR READS THIS, AND THE SERVER DECIDES IT. `role` is re-read from the
  *   database on every `GET /api/auth/session`, so a promotion shows up on the next
- *   load without a new sign-in. The check is a *convenience* — the four
- *   organization endpoints call `requireSuperAdmin` and answer 403 regardless of
- *   what this returns. A hidden button is not an access control and this file does
- *   not claim to be one.
+ *   load without a new sign-in. The check is a *convenience* — every endpoint under
+ *   `/api/organizations` and `/api/users` calls `requireSuperAdmin` and answers 403
+ *   regardless of what this returns. A hidden button is not an access control and
+ *   this file does not claim to be one.
  *
  * Takes the user it should judge, optionally, so a component that already holds one
  * from {@link useSession} asks about *that* object rather than about whatever the
@@ -309,6 +328,33 @@ export function currentOwner(user?: SessionUser | null): string | null {
  */
 export function isSuperAdmin(user?: SessionUser | null): boolean {
   return (user ?? session())?.role === 'super_admin';
+}
+
+/**
+ * What to call a role on screen: `super_admin` → `Super admin`.
+ *
+ * ★ THIS IS A NAME, NOT A PERMISSION, AND THE DIFFERENCE IS WHY IT IS ALLOWED
+ *   HERE. The two role names that this side never draws a permission from — what
+ *   each role *reaches* — is authored once on the server (`ROLE_CAPABILITIES` in
+ *   `routes/users.ts`) and sent to the screen that prints it. A second copy of a
+ *   permission drifts, and the drift is a screen promising access the server
+ *   refuses. A second copy of a *word* drifts into a typo, and it is needed here
+ *   because the sign-in card shows an account's role to a session that may not be
+ *   allowed to read the register at all — a staff account is refused
+ *   `GET /api/users` with a 403, so the label cannot come from there.
+ *
+ * ★ IT TAKES A `string` AND IS TOTAL, WHICH IS DELIBERATE. The value reaching it
+ *   is either from the widened `Role` above or from a server response typed as
+ *   `Role`, so an unknown name is a compiler error everywhere it can be seen — and
+ *   the fallback exists for the one path where it cannot: a token minted by an
+ *   older build, carried in `localStorage`, and replayed against this one. Showing
+ *   the raw name there is honest. Showing a guess would not be.
+ */
+export function roleLabel(role: string): string {
+  if (role === 'super_admin') return 'Super admin';
+  if (role === 'administrator') return 'Administrator';
+  if (role === 'staff') return 'Staff';
+  return role;
 }
 
 /** Whether a token is held. False for the placeholder and while loading. */

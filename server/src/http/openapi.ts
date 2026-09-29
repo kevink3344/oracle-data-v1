@@ -115,6 +115,13 @@ export const TAGS = [
       'The tenants this application serves — which fund, which programs, and from which fiscal year. ' +
       'Read after signing in, written only by a super admin.',
   },
+  {
+    name: 'Users',
+    description:
+      'The accounts on this application, the organizations each belongs to, and the role each holds. ' +
+      'Read after signing in, written only by a super admin. **No response here ever contains a ' +
+      'password or a password hash.**',
+  },
   { name: 'Admin', description: 'App-owned tables: projects, overrides, portfolios, extract runs, users, and saved views.' },
   {
     name: 'AI',
@@ -224,9 +231,12 @@ function documentIdentity(): string[] {
       'require one, and they are the two whose subject *is* identity:',
     '- `POST /api/auth/sign-in` is open (it is how you get a session), and ' +
       '`GET /api/auth/session` answers **401** `UNAUTHORIZED` without a valid one.',
-    '- Every route under `/api/organizations` requires a session **and** the `super_admin` ' +
-      'role: **401** `UNAUTHORIZED` if nobody is signed in, **403** `FORBIDDEN` if somebody ' +
-      'is and is only a member. The 403 names the role it saw in `details.role`.',
+    '- Every route under `/api/organizations` and every route under `/api/users` requires a ' +
+      'session **and** the `super_admin` role: **401** `UNAUTHORIZED` if nobody is signed in, ' +
+      '**403** `FORBIDDEN` otherwise. The 403 names the register it was guarding and the role ' +
+      'it saw in `details.role`, because those two answers differ: a `staff` account and an ' +
+      '`administrator` account are refused in the same words, and the message says so rather ' +
+      'than implying a middle tier that would have been let in.',
     '',
     'A session is carried in the `x-app-session` request header, **not** a cookie, so a ' +
       '*signed-out visitor still browses everything else in this document unchanged* — signing ' +

@@ -50,7 +50,8 @@
  *
  * The mitigation that actually matters while the above is true is elsewhere: no
  * endpoint here leans on the session for data safety. Role is checked only where
- * a role is the question being answered (who may create an organization).
+ * a role is the question being answered — who may read the organization register,
+ * and who may read and write the user register.
  *
  * ---------------------------------------------------------------------------
  * WHY A TOKEN AND NOT A COOKIE OR A JWT
@@ -81,7 +82,41 @@ export const SESSION_HEADER = 'x-app-session';
  */
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
-export type Role = 'super_admin' | 'member';
+/**
+ * ★ WHY THERE ARE THREE ROLES AND ONLY ONE OF THEM IS A PRIVILEGE
+ *
+ * `super_admin` is the only role this server consults: it is the one
+ * `requireSuperAdmin` tests for. `administrator` is recorded, displayed, and
+ * **grants nothing whatever** — not because it is unimplemented by oversight, but
+ * because the register that hands roles out is the register that has to be able to
+ * name them, and the authority to grant a capability is itself a capability.
+ *
+ * The alternative was considered and refused: inventing behaviour for
+ * `administrator` so it *looked* like a middle tier would be this server deciding a
+ * permission model nobody asked it to decide. The role is in the vocabulary so an
+ * operator can record intent. The screen states, per role and in as many words,
+ * exactly what it reaches — including the sentence that an `administrator` reaches
+ * nothing a `staff` account does not. See `ROLE_CAPABILITIES` in `routes/users.ts`,
+ * which is the one place that answer lives, and which travels to the client rather
+ * than being restated in the interface.
+ *
+ * `staff` is the default, here and in the DDL, because it is the role that grants
+ * least.
+ */
+export type Role = 'super_admin' | 'administrator' | 'staff';
+
+/**
+ * Is this string one of the roles?
+ *
+ * ★ THE DOOR FOR ANYTHING READ OUT OF THE DATABASE. `role` is `TEXT` in the store
+ *   and `string` in `UserRow`, so every actor is built from a value the type system
+ *   has not checked. This is where that stops being true, and it is the one place
+ *   the three names are listed on this side — a fourth role is a change to this
+ *   function, the CHECK constraint, and nothing else.
+ */
+export function isRole(value: string): value is Role {
+  return value === 'super_admin' || value === 'administrator' || value === 'staff';
+}
 
 /**
  * An organization's *scope* — the three settings that decide which rows exist
@@ -347,7 +382,7 @@ function checkBootstrap(email: string, password: string): boolean | undefined {
  * unassigned user could read an organization nobody put them in.
  */
 async function actorFor(row: UserRow): Promise<Actor> {
-  if (row.role !== 'super_admin' && row.role !== 'member') {
+  if (!isRole(row.role)) {
     throw new AppError(
       500,
       'INTERNAL',

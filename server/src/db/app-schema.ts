@@ -172,6 +172,11 @@ export const APP_TABLES = [
   'table_count_snapshot',
   'organization',
   'app_user',
+  // Which organizations an account belongs to — one, or many. Beside `app_user`
+  // rather than folded into it because `app_user.organization_id` answers a
+  // different question: which organization the account SIGNS IN TO. See the DDL
+  // header for why the tenants are named rather than derived from this set.
+  'app_user_organization',
   'user_pin',
   'geo_origin',
   'vendor_site_geo',
@@ -285,6 +290,16 @@ async function apply(): Promise<AppSchemaStatus> {
   }
 
   const statements = splitSql(source);
+
+  // ★★ THE ROLE MIGRATION RUNS *BEFORE* THE FILE, UNLIKE EVERY OTHER MIGRATION
+  //    HERE, AND THE ORDER IS THE MITIGATION. `ALTER TABLE ... RENAME TO` rewrites
+  //    the `REFERENCES` clauses of child tables, so rebuilding `app_user` after the
+  //    file had created `app_user_organization` would repoint the child at the
+  //    table being dropped and abort half-done. Running first makes that
+  //    unreachable. The full argument is on `applyUserRoleMigration`; the short
+  //    version is that this line must not be moved below the loop.
+  const roles = isSqlServer ? false : await applyUserRoleMigration(store);
+
   for (const statement of statements) {
     await store.execute({ sql: statement, args: [] });
   }
@@ -305,15 +320,23 @@ async function apply(): Promise<AppSchemaStatus> {
   //   would never reach the database that exists. Hence
   //   `applyColumnAdditionsSqlServer` below, which is called from here and takes
   //   the place the branch used to hand to an empty array.
+  //
+  //   ★ AND THE SAME DAY CAME FOR A CONSTRAINT. `app_user` is the live store
+  //     (`DB_MODE=sqlserver`), the role vocabulary widened, and the DDL change can
+  //     never reach a table that exists — see `applyUserRoleMigrationSqlServer`,
+  //     which is this arm's counterpart to the SQLite rebuild above.
   const added = isSqlServer
     ? await applyColumnAdditionsSqlServer(store)
     : await applyColumnAdditions(store);
   const migrated = isSqlServer ? false : await applyPinCategoryMigration(store);
+  const roleConstraint = isSqlServer ? await applyUserRoleMigrationSqlServer(store) : false;
 
   console.log(
     `[db] app schema ready (${statements.length} statements from ` +
       `${path.basename(schemaFile)} → ${config.appDb.label}` +
       `${added.length > 0 ? `, ${added.length} column${added.length === 1 ? '' : 's'} added: ${added.join(', ')}` : ''}` +
+      `${roles ? ', app_user role vocabulary widened' : ''}` +
+      `${roleConstraint ? ', role constraint upgraded' : ''}` +
       `${migrated ? ', user_pin category constraint upgraded' : ''})`,
   );
   return { state: 'applied', statements: statements.length, error: null };
@@ -358,6 +381,300 @@ async function applyPinCategoryMigration(store: SqlDriver): Promise<boolean> {
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.warn(`[db] could not upgrade user_pin category constraint: ${message}`);
+    return false;
+  }
+}
+
+/**
+ * `app_user` as the file states it, in SQLite's vocabulary, under a caller-chosen
+ * name.
+ *
+ * ★ THIS IS A SECOND COPY OF A `CREATE TABLE` THAT ALREADY EXISTS IN `01-app.sql`,
+ *   and it is the same trade `APP_TABLES` and `COLUMN_ADDITIONS_SQLSERVER` already
+ *   make: a rebuild cannot reuse the file's statement without re-parsing the file,
+ *   and the file is not parsed here. The two are meant to be identical, so the
+ *   `COLUMN_ADDITIONS_SQLSERVER` rule applies verbatim — **the two must not
+ *   drift**, and the way they are held together is that this copy carries no
+ *   comment the file's does not, so a diff of the two bodies is short.
+ *
+ * ★ IT TAKES THE NAME AS AN ARGUMENT because the rebuild creates the replacement
+ *   under a scratch name before the original is dropped — see the header on
+ *   `applyUserRoleMigration` for why the original cannot simply be renamed aside.
+ *   Callers pass literals defined in this file; the name is never user input.
+ */
+function createAppUserSql(name: string): string {
+  return (
+    `CREATE TABLE ${name} (` +
+    'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+    'email TEXT NOT NULL UNIQUE, ' +
+    'display_name TEXT NOT NULL, ' +
+    "role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('super_admin','administrator','staff')), " +
+    'organization_id INTEGER REFERENCES organization(id), ' +
+    'password_hash TEXT, ' +
+    "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
+    'last_seen_at TEXT)'
+  );
+}
+
+/** The scratch name the rebuild builds under, before the swap. */
+const APP_USER_SCRATCH = 'app_user_rebuilt';
+
+/** Every column `app_user` has today, in the order the file declares them. */
+const APP_USER_COLUMNS = [
+  'id',
+  'email',
+  'display_name',
+  'role',
+  'organization_id',
+  'password_hash',
+  'created_at',
+  'last_seen_at',
+] as const;
+
+/**
+ * Widen `app_user.role` from two values to three, and map the old lower role onto
+ * the new one.
+ *
+ * ---------------------------------------------------------------------------
+ * ★ WHY THIS EXISTS AT ALL
+ * ---------------------------------------------------------------------------
+ * `01-app.sql`'s own comment used to read *"there are two roles and a third would
+ * be a decision, not a migration."* The decision has been made, and it turns out
+ * to be a migration: SQLite cannot relax a `CHECK` in place, and `CREATE TABLE IF
+ * NOT EXISTS` never revisits a table that exists — so the new set of values is
+ * reachable only by rebuilding the table. That is the same shape as
+ * `applyPinCategoryMigration` above, and this function is deliberately a sibling
+ * of it rather than a generalisation: two rebuilds with one shared helper would
+ * need a table-agnostic column list, and the one thing a table rebuild must never
+ * have is a column list it derived rather than was told.
+ *
+ * ---------------------------------------------------------------------------
+ * ★★ THE TABLE IS REBUILT SIDEWAYS, NEVER RENAMED OUT OF THE WAY, AND THAT IS A
+ *    CORRECTION MADE BY MEASUREMENT RATHER THAN BY READING
+ * ---------------------------------------------------------------------------
+ * The obvious rebuild — rename `app_user` to `app_user_legacy`, create a new
+ * `app_user`, copy, drop the legacy table — IS WRONG HERE and was measured to be
+ * wrong. SQLite's modern `ALTER TABLE ... RENAME TO` rewrites the `REFERENCES`
+ * clauses of every other table that points at the renamed one. So with
+ * `app_user_organization` present, the rename repoints the child at
+ * `app_user_legacy`; the `DROP` of that table then fires the child's declared
+ * `ON DELETE CASCADE` and **silently deletes every membership row** before the
+ * drop succeeds. Measured on SQLite 3.45.1: the child was repointed, the
+ * memberships went from 1 to 0, and no error was raised anywhere. A migration
+ * that loses data and reports success is the worst failure mode available, so the
+ * mechanism changed rather than the comment.
+ *
+ * `PRAGMA legacy_alter_table = ON` is the documented way to suppress that
+ * rewrite, and IT DID NOT — the pragma read back as `1` and the child was still
+ * repointed. It is not used here, because a pragma that reports success and does
+ * nothing is worse than no pragma at all.
+ *
+ * What is done instead: the replacement is built under a scratch name, the copy
+ * goes into it, the ORIGINAL is dropped, and the SCRATCH is renamed into place.
+ * The only rename is of a name nothing references, so nothing is repointed, and
+ * the drop is surrounded by `PRAGMA foreign_keys = OFF` so no cascade can fire.
+ * Measured on the same store: the child still references `app_user`, the
+ * membership rows survived, and `PRAGMA foreign_key_check` came back clean.
+ *
+ * ---------------------------------------------------------------------------
+ * ★ WHY IT STILL RUNS BEFORE THE FILE
+ * ---------------------------------------------------------------------------
+ * Not because it has to — the sideways rebuild is safe either way — but because
+ * running first makes the window in which `app_user` does not exist as small and
+ * as unobserved as it can be: it opens and closes before the DDL below has
+ * created anything that could reference it, at boot, with no other query in
+ * flight. On every later run the stored definition names all three roles, so the
+ * early return fires and the window never opens at all.
+ *
+ * ---------------------------------------------------------------------------
+ * ★ AND THE COLUMN COPY IS DERIVED FROM THE STORE, NOT FROM A CONSTANT
+ * ---------------------------------------------------------------------------
+ * Running before the file also means running before `applyColumnAdditions`, so a
+ * store old enough to predate `password_hash` does not have it yet. The copy
+ * therefore reads `pragma_table_info` and carries only the columns the store
+ * actually has, while the table it creates is the CURRENT shape. That is the
+ * `applyColumnAdditions` posture applied inside the rebuild: state the destination
+ * shape, copy what exists, and let the later pass fill any gap.
+ *
+ * ---------------------------------------------------------------------------
+ * ★ AND IT COUNTS ITS OWN WORK
+ * ---------------------------------------------------------------------------
+ * The defect described above deleted rows and reported success, so the guard
+ * against it is not a comment but arithmetic: the row count is taken before the
+ * rebuild and again after, and a shortfall is reported by name. That is the
+ * assertion that would have caught the original bug in one line.
+ *
+ * Non-fatal, matching both siblings. A failed rebuild warns and returns `false`;
+ * it never throws, because everything else in the schema has to still apply.
+ */
+async function applyUserRoleMigration(store: SqlDriver): Promise<boolean> {
+  try {
+    const stored = await store.execute({
+      sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'app_user'",
+      args: [],
+    });
+    const definition = String((stored.rows[0] as { sql?: unknown } | undefined)?.sql ?? '');
+
+    // No row means a fresh store. The file creates the table with the current
+    // constraint, so there is nothing to convert — and converting nothing is not
+    // the same as having converted something, which is why this is `false`.
+    if (definition === '') return false;
+
+    // Already widened. Checked against the stored text rather than a version
+    // number, so a store migrated by hand is recognised as done.
+    const lowered = definition.toLowerCase();
+    if (lowered.includes("'administrator'") && lowered.includes("'staff'")) return false;
+
+    // Which columns this store actually has. Inlined, never bound — a bound
+    // parameter inside `pragma_table_info` panics the libSQL Rust core. The name
+    // is a literal in this file, not user input.
+    const info = await store.execute({
+      sql: `SELECT name FROM pragma_table_info('app_user')`,
+      args: [],
+    });
+    const have = new Set(
+      info.rows.map((r) => String((r as { name?: unknown }).name ?? '').toLowerCase()),
+    );
+    if (have.size === 0) return false;
+
+    // How many accounts there are, before. See the header — the defect this
+    // replaces deleted rows and returned success, so the count is the assertion.
+    const before = await store.execute({ sql: 'SELECT COUNT(*) AS n FROM app_user', args: [] });
+    const expected = Number((before.rows[0] as { n?: unknown } | undefined)?.n ?? 0);
+
+    const carried = APP_USER_COLUMNS.filter((c) => have.has(c));
+    // ★ `member` BECOMES `staff`. The old vocabulary's lower role is the new
+    //   vocabulary's lower role, so the mapping is a rename and not a promotion —
+    //   nobody gains a capability by the store being upgraded. `administrator` is
+    //   deliberately NOT assigned to anyone: a migration that hands out a role is
+    //   a migration that grants access, and that is a decision for an operator.
+    const select = carried
+      .map((c) => (c === 'role' ? "CASE WHEN role = 'member' THEN 'staff' ELSE role END" : c))
+      .join(', ');
+
+    // ★★ FOREIGN KEYS OFF FOR THE DROP. With them on, `DROP TABLE` performs an
+    //    implicit delete of the parent's rows, which fires every child's
+    //    `ON DELETE CASCADE` — the exact mechanism that emptied the membership
+    //    table. Nothing else is running, and the count below proves the restore.
+    await store.execute({ sql: 'PRAGMA foreign_keys = OFF', args: [] });
+    try {
+      await store.execute({ sql: createAppUserSql(APP_USER_SCRATCH), args: [] });
+      await store.execute({
+        sql:
+          `INSERT INTO ${APP_USER_SCRATCH} (${carried.join(', ')}) ` +
+          `SELECT ${select} FROM app_user`,
+        args: [],
+      });
+      await store.execute({ sql: 'DROP TABLE app_user', args: [] });
+      await store.execute({ sql: `ALTER TABLE ${APP_USER_SCRATCH} RENAME TO app_user`, args: [] });
+    } finally {
+      // `finally`, not a plain call: a throw between here and there must not leave
+      // the process enforcing no foreign keys for the rest of its life.
+      await store.execute({ sql: 'PRAGMA foreign_keys = ON', args: [] });
+    }
+
+    const after = await store.execute({ sql: 'SELECT COUNT(*) AS n FROM app_user', args: [] });
+    const got = Number((after.rows[0] as { n?: unknown } | undefined)?.n ?? 0);
+    if (got !== expected) {
+      console.warn(
+        `[db] app_user role upgrade kept ${got} of ${expected} account${expected === 1 ? '' : 's'}` +
+          (got < expected ? ' — accounts were lost' : ''),
+      );
+    }
+
+    return true;
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(`[db] could not upgrade app_user role constraint: ${message}`);
+    return false;
+  }
+}
+
+/**
+ * The same widening for SQL Server, and it needs its own function because the
+ * mechanism is not the same one.
+ *
+ * ★ T-SQL CAN ALTER A `CHECK`, SO THERE IS NO REBUILD HERE. `sp_rename` and
+ *   `AUTOINCREMENT` do not exist on this arm, and — the reason this is not simply
+ *   a dialect branch inside the function above — neither does `sqlite_master`, so
+ *   the function above cannot even ask the question. It is skipped for SQL Server
+ *   by name in `apply()`, exactly as `applyPinCategoryMigration` is.
+ *
+ * ★ `DEFAULT 'member'` HAD TO MOVE WITH THE CHECK, and this is the half that is
+ *   easy to miss. The column was declared `DEFAULT 'member'` beside a constraint
+ *   permitting `'member'`. Widening only the constraint would leave every `INSERT`
+ *   that omits the column writing a value the table now FORBIDS — the two would
+ *   contradict each other, and only on the path no test covers. The default is an
+ *   UNNAMED constraint, so it is found through `sys.default_constraints` and
+ *   dropped by the name SQL Server gave it.
+ *
+ * ★ ORDER IS LOAD-BEARING HERE TOO, for a different reason: `UPDATE ... SET role =
+ *   'staff' WHERE role = 'member'` has to run while the OLD constraint is still
+ *   off and the NEW one is not yet on, because the row being written is the row the
+ *   new constraint would reject.
+ */
+async function applyUserRoleMigrationSqlServer(store: SqlDriver): Promise<boolean> {
+  try {
+    const check = await store.execute({
+      sql:
+        'SELECT definition FROM sys.check_constraints ' +
+        "WHERE name = 'CK_app_user_role' AND parent_object_id = OBJECT_ID('dbo.app_user')",
+      args: [],
+    });
+    const definition = String(
+      (check.rows[0] as { definition?: unknown } | undefined)?.definition ?? '',
+    );
+
+    // Nothing to do: a fresh store was created from the DDL with the wide
+    // constraint already, so its definition names `administrator`. An empty
+    // definition means no such constraint exists, which this function does not
+    // create — it widens one, and a store without it was not built from this DDL.
+    if (definition === '' || definition.toUpperCase().includes('ADMINISTRATOR')) return false;
+
+    await store.execute({ sql: 'ALTER TABLE dbo.app_user DROP CONSTRAINT CK_app_user_role', args: [] });
+
+    // The default, found by column rather than by name. The name is SQL Server's
+    // own (`DF__app_user__role__1A14E395` and its cousins), so it cannot be typed
+    // here — and it is bracketed because an object name is an identifier and may
+    // contain a `]`, which is doubled to escape it.
+    const defaults = await store.execute({
+      sql:
+        'SELECT dc.name AS name FROM sys.default_constraints dc ' +
+        'JOIN sys.columns c ON c.object_id = dc.parent_object_id ' +
+        'AND c.column_id = dc.parent_column_id ' +
+        "WHERE dc.parent_object_id = OBJECT_ID('dbo.app_user') AND c.name = 'role'",
+      args: [],
+    });
+    const defaultName = (defaults.rows[0] as { name?: unknown } | undefined)?.name;
+    if (typeof defaultName === 'string' && defaultName !== '') {
+      await store.execute({
+        sql: `ALTER TABLE dbo.app_user DROP CONSTRAINT [${defaultName.replace(/]/g, ']]')}]`,
+        args: [],
+      });
+    }
+
+    // The mapping, between the two constraints. `administrator` is granted to
+    // nobody, deliberately — see the SQLite sibling.
+    await store.execute({
+      sql: "UPDATE dbo.app_user SET role = 'staff' WHERE role = 'member'",
+      args: [],
+    });
+
+    await store.execute({
+      sql:
+        'ALTER TABLE dbo.app_user ADD CONSTRAINT CK_app_user_role ' +
+        "CHECK (role IN ('super_admin','administrator','staff'))",
+      args: [],
+    });
+    await store.execute({
+      sql: "ALTER TABLE dbo.app_user ADD DEFAULT 'staff' FOR role",
+      args: [],
+    });
+
+    return true;
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(`[db] could not upgrade the SQL Server role constraint: ${message}`);
     return false;
   }
 }

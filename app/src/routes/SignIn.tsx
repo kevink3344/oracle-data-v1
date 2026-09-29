@@ -68,7 +68,7 @@ import { num, pluralise } from '../data/format';
 import { LEDGER_SCALE, recordsFloor, STORE_SCALE } from '../data/ledgerScale';
 import { useLedgerSummary, type LedgerObject } from '../data/ledgerSummary';
 import { capTotals, describeCapTotal, loadReadCaps, type ReadCapList } from '../data/readCaps';
-import { isSuperAdmin, signIn, signOut, useSession } from '../data/session';
+import { isSuperAdmin, roleLabel, signIn, signOut, useSession } from '../data/session';
 
 /**
  * Where the gate sent this reader from, or `null` if it did not send them.
@@ -760,7 +760,8 @@ export default function SignIn() {
        *   The role rule below is still the answer for somebody who opened `/sign-in`
        *   directly: the gear is the only reason an address and a password are worth
        *   typing, so a super admin lands on the screen the gear would have opened, and
-       *   anybody else lands on the dashboard, which is where a member's day starts.
+       *   anybody else lands on the dashboard, which is where a staff account's day
+       *   starts.
        */
       navigate(from ?? (isSuperAdmin(who) ? '/settings' : '/'), { replace: true });
     } catch (err) {
@@ -786,7 +787,7 @@ export default function SignIn() {
           <div className="signin__body">
             <div className="signin__head">
               <h2 className="signin__title">Signed in</h2>
-              <span className="signin__tag">{isSuperAdmin(user) ? 'super admin' : 'member'}</span>
+              <span className="signin__tag">{roleLabel(user.role)}</span>
             </div>
 
             <dl className="idcard">
@@ -826,8 +827,8 @@ export default function SignIn() {
 
             <p className="chart-note">
               {isSuperAdmin(user)
-                ? 'Administration › Settings opens the organization register, and the gear in the rail goes to the same page.'
-                : 'This account is a member, so the organization register is not offered. That is the whole difference between the two roles: a super admin may create and edit organizations, and a member may read.'}
+                ? 'Administration › Settings opens the organization and user registers, and the gear in the rail goes to the same page.'
+                : `This account holds the ${roleLabel(user.role).toLowerCase()} role, so neither register is offered. A super admin may create and edit organizations and accounts; ${user.role === 'administrator' ? 'an administrator reaches nothing a staff account does not' : 'staff may read what everyone reads and nothing further'}.`}
             </p>
 
             <div className="idcard__actions">
@@ -897,24 +898,43 @@ export default function SignIn() {
                 that leaving stage two happens to tidy up. Two guards, one of which is
                 load-bearing.
 
-              ★ THERE IS NO "FORGOT PASSWORD" LINK HERE, AND ITS ABSENCE IS A DECISION
-                RATHER THAN AN OVERSIGHT.
+              ★ THERE IS NO "FORGOT PASSWORD" LINK HERE, AND ITS ABSENCE IS STILL A
+                DECISION RATHER THAN AN OVERSIGHT — BUT THE REASONING BEHIND IT CHANGED.
 
-                There is no self-service reset: `/admin/users` is declared `built: false`,
-                there is no mail path out of this application, and the only way a password
-                is set is an operator running `npm run set:password -- --email <address>`.
-                A link promising a reset would therefore have nowhere to go, and the
-                honest version of it is a paragraph telling the reader to find an
-                administrator — which is a sentence on the login screen that changes
-                nothing for the reader and restates a runbook that belongs in `docs/`.
+                ★ WHAT THIS PARAGRAPH USED TO SAY, AND WHY IT IS WRONG NOW. It said
+                  there was no self-service reset because `/admin/users` was declared
+                  `built: false` and `npm run set:password` was the only way a password
+                  was ever set. Both of those are now false: the Users & roles panel
+                  under Settings sets an account's password, and `POST
+                  /api/users/{id}/password` is what it calls. Writing the old sentence
+                  next to a screen that does exactly what it denies is worse than
+                  writing nothing.
 
-                ★ THE PLACE THIS IS ACTUALLY A PROBLEM, NAMED: a member who forgets their
-                  password currently has no path at all, on screen or off it. The refusal
-                  is the generic 401, deliberately, so the server cannot be asked which
-                  accounts exist — which means nobody can even tell a locked-out member
-                  apart from a stranger. That is a gap in the feature, not in this file,
-                  and it should be closed with a reset flow rather than with a sentence
-                  here.
+                ★ AND IT IS STILL NOT A LINK, FOR A NARROWER AND STRONGER REASON. A
+                  reset link here would be clicked by somebody who cannot sign in, and
+                  every path that sets a password requires a session that is already
+                  established as a super admin. There is no mail path out of this
+                  application — no reset token, no outbound address, nothing to put in
+                  an email — so a link would either do nothing or would have to be a
+                  route that sets a password for an unauthenticated caller. The second
+                  is a way in, not a way back. So the honest control is the sentence
+                  below and a runbook in `docs/`, and the two people who need it are
+                  named there rather than here.
+
+                ★ THE PLACE THIS IS ACTUALLY A PROBLEM, NAMED AND NOW HALVED: a
+                  super admin who forgets their password still has no path on screen,
+                  because unlocking the panel that sets passwords needs the password.
+                  That one case has exactly one answer left — an operator with the
+                  connection string running `npm run set:password -- --email <address>`
+                  — and it is why that script survives a feature that otherwise
+                  replaced it. Everybody else is covered: any super admin can set any
+                  other account's password from Settings.
+
+                  The refusal on a failed sign-in stays generic on purpose, so the
+                  server cannot be asked which addresses exist. That means nobody can
+                  tell a locked-out account apart from a stranger by trying — which is
+                  the point, and is also why the recovery path has to be a person
+                  rather than a form.
             */}
             {problem !== null && stage === 'password' ? (
               /* ★ ONE sentence for a wrong password and for an address that does not exist,

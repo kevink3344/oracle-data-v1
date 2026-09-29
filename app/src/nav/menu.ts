@@ -671,14 +671,16 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
         label: 'Settings',
         to: '/settings',
         reads: 'app-side',
-        api: '/api/organizations',
+        api: '/api/organizations, /api/users',
         built: true,
         note:
-          'The organization register: the fund, the programs and the start fiscal year that ' +
-          'decide which rows this deployment reads, and how many rows each organization actually ' +
-          'selects. Super-admin only — a member may read every register in the app, but the four ' +
-          'endpoints behind this page answer 403.',
-        plan: 'docs/plans/organizations.md',
+          'Two registers on one page: the fund, the programs and the start fiscal year that ' +
+          'decide which rows this deployment reads, and the accounts that may sign in to change ' +
+          'them. They are one page because they are one decision from two sides — an account has ' +
+          'to belong to at least one organization, and an organization nobody can sign in to is a ' +
+          'row rather than a tenant. Super-admin only: a member may read every other register in ' +
+          'the app, but both endpoints behind this page answer 403.',
+        plan: 'docs/plans/organizations.md, docs/plans/users-and-roles.md',
       },
       {
         label: 'View builder',
@@ -746,14 +748,23 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
           'needed it, saying why a load came back empty instead of leaving you to guess.',
         plan: '§6, §9.10',
       },
-      {
-        label: 'Users & roles',
-        to: '/admin/users',
-        reads: 'app-side',
-        built: false,
-        note: 'Who may see and change what. App-side; the extract carries no identity at all.',
-        plan: '§9.11',
-      },
+
+      // ★ HERE USED TO BE A `'Users & roles'` LEAF AT `/admin/users`, AND IT WAS
+      //   RETIRED RATHER THAN REPOINTED. The feature shipped — as the second
+      //   accordion on `/settings` (`docs/plans/users-and-roles.md`) — and the
+      //   choice was between pointing this leaf at a URL with a `#` anchor on it
+      //   and deleting it. A second address for one screen is a second thing to
+      //   keep true: `built`, the `SCREENS` map in `App.tsx`, and this table would
+      //   all have to move together the next time the page is renamed, and the
+      //   screen would be reachable two ways with one of them being a redirect
+      //   nobody looks at. The two registers belong on one page because they are
+      //   one decision — who may exist, and what they may be — and a leaf is an
+      //   address, so it is deleted rather than left pointing at half of it.
+      //
+      //   Nothing else has to change with it: `/admin/users` was never in
+      //   `App.tsx`'s `SCREENS`, so removing it here leaves no screen without a
+      //   route and no route without a leaf — the two failures that block's ★
+      //   comment warns about, and neither of them is triggered by a deletion.
     ],
   },
 ];

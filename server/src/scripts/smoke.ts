@@ -4269,6 +4269,19 @@ async function main(): Promise<void> {
       ['GET', '/api/organizations', undefined],
       ['GET', '/api/organizations/options', undefined],
       ['POST', '/api/organizations', { name: ORG_NAME, fund: '04', startFy: 2022 }],
+      // The user register, all four operations. A register that hands out access
+      // is an access question, so every one of them is guarded — and the guard is
+      // asserted on all four rather than on the list alone, because a write route
+      // whose guard was left off returns 200 and nothing else in this suite would
+      // notice until it was used.
+      ['GET', '/api/users', undefined],
+      [
+        'POST',
+        '/api/users',
+        { name: 'Nope', email: 'nobody@example.test', organizations: [1], password: 'no-session-here' },
+      ],
+      ['PATCH', '/api/users/1', { name: 'Nope' }],
+      ['POST', '/api/users/1/password', { password: 'no-session-here' }],
     ] as const) {
       const res = await authorized(method, path, body === undefined ? {} : { body });
       assert.equal(res.status, 401, `${method} ${path} answered ${res.status} without a session`);
@@ -5570,7 +5583,7 @@ async function main(): Promise<void> {
       {
         email: MEMBER_EMAIL,
         name: 'Smoke Check Member',
-        role: 'member',
+        role: 'staff',
         org: await defaultOrgId(),
         // ★ THE HASH IS NOT OPTIONAL ANY MORE, AND THIS IS THE CHECK THAT WOULD
         //   CATCH IT IF IT WERE. A row with a NULL hash is refused by
@@ -5586,16 +5599,29 @@ async function main(): Promise<void> {
     const signedIn = await signIn(MEMBER_EMAIL, MEMBER_PASSWORD);
     assert.equal(signedIn.status, 200, `the member account could not sign in (${signedIn.status})`);
     const { data } = (await signedIn.json()) as { data: SignedIn };
-    assert.equal(data.user.role, 'member', 'a row with role=member signed in as something else');
+    assert.equal(data.user.role, 'staff', 'a row with role=staff signed in as something else');
     assert.equal(data.user.organizationId, await defaultOrgId(), 'the member did not resolve a tenant');
 
     // All four register routes, read and write alike: the capability is the
-    // register, not the verb.
-    for (const [method, path, body] of [
-      ['GET', '/api/organizations', undefined],
-      ['GET', '/api/organizations/options', undefined],
-      ['POST', '/api/organizations', { name: 'Nope', fund: '04', startFy: 2022 }],
-      ['PATCH', `/api/organizations/${ORG_SLUG}`, { name: 'Nope' }],
+    // register, not the verb. Both registers, too — `requireSuperAdmin` takes the
+    // register's name as an argument precisely because its sentence was hard-coded
+    // to the organization register, so a refused reader of the USER register was
+    // told they may not change an *organization*: a correct sentence about a
+    // different route.
+    for (const [method, path, body, register] of [
+      ['GET', '/api/organizations', undefined, 'organization register'],
+      ['GET', '/api/organizations/options', undefined, 'organization register'],
+      ['POST', '/api/organizations', { name: 'Nope', fund: '04', startFy: 2022 }, 'organization register'],
+      ['PATCH', `/api/organizations/${ORG_SLUG}`, { name: 'Nope' }, 'organization register'],
+      ['GET', '/api/users', undefined, 'user register'],
+      [
+        'POST',
+        '/api/users',
+        { name: 'Nope', email: MEMBER_EMAIL, organizations: [1], password: MEMBER_PASSWORD },
+        'user register',
+      ],
+      ['PATCH', '/api/users/1', { name: 'Nope' }, 'user register'],
+      ['POST', '/api/users/1/password', { password: MEMBER_PASSWORD }, 'user register'],
     ] as const) {
       const res = await authorized(method, path, {
         token: data.token,
@@ -5607,18 +5633,22 @@ async function main(): Promise<void> {
       assert.equal(res.status, 403, `${method} ${path} answered a member ${res.status}, expected 403`);
       const err = (await res.json()) as { error: { code: string; message: string; details?: { role?: string } } };
       assert.equal(err.error.code, 'FORBIDDEN', `${method} ${path} refused a member as ${err.error.code}`);
-      assert.equal(err.error.details?.role, 'member', 'the refusal does not carry the role it judged');
+      assert.equal(err.error.details?.role, 'staff', 'the refusal does not carry the role it judged');
       assert.ok(
         err.error.message.includes(MEMBER_EMAIL),
         `the refusal does not name the account: ${err.error.message}`,
       );
-      // ★ THE MESSAGE NAMES THE REGISTER, NOT THE VERB. It used to say "only a
-      //   super admin can CHANGE an organization", which is the right sentence
-      //   for POST and the wrong one for a member who was only reading the list —
-      //   it sent them to ask for permission they were not after.
+      // ★ THE MESSAGE NAMES THE REGISTER, NOT THE VERB — AND NOW THE RIGHT REGISTER.
+      //   It used to say "only a super admin can CHANGE an organization", which is
+      //   the right sentence for POST and the wrong one for a member who was only
+      //   reading the list — it sent them to ask for permission they were not
+      //   after. The assertion below is the second half of that fix: each route's
+      //   refusal has to name its OWN register, so a sentence that named the other
+      //   one would satisfy a looser check and still send the reader to the wrong
+      //   place.
       assert.ok(
-        err.error.message.includes('organization register'),
-        `the refusal names the wrong thing: ${err.error.message}`,
+        err.error.message.includes(register),
+        `the refusal names the wrong register — expected "${register}" in: ${err.error.message}`,
       );
       assert.ok(
         !err.error.message.includes('can change an organization'),
@@ -5724,6 +5754,39 @@ async function main(): Promise<void> {
       );
     }
 
+    // ★ THE USER REGISTER IS A SECTION OF ITS OWN, FOR THE SAME REASON THE TWO AP
+    //   REGISTERS ARE. A super admin looking for "who can sign in" should not have
+    //   to read the organization register first to find out that the answer is
+    //   somewhere else. Three paths, four operations — and the write to a password
+    //   is on the third path, which is why the paths are asserted individually
+    //   rather than by prefix.
+    for (const path of ['/api/users', '/api/users/{id}', '/api/users/{id}/password']) {
+      assert.ok(spec.paths[path], `${path} is registered but absent from the spec`);
+    }
+    assert.ok(spec.paths['/api/users']?.get, 'the user register has no GET in the spec');
+    assert.ok(spec.paths['/api/users']?.post, 'the user register has no POST in the spec');
+    assert.ok(spec.paths['/api/users/{id}']?.patch, 'the user register has no PATCH in the spec');
+    assert.ok(
+      spec.paths['/api/users/{id}/password']?.post,
+      'setting a password is not in the spec — an operation with no document is one nobody can find',
+    );
+    for (const [path, method] of [
+      ['/api/users', 'get'],
+      ['/api/users', 'post'],
+      ['/api/users/{id}', 'patch'],
+      ['/api/users/{id}/password', 'post'],
+    ] as const) {
+      assert.deepEqual(
+        tagged(path, method),
+        ['Users'],
+        `${method.toUpperCase()} ${path} is grouped under ${JSON.stringify(tagged(path, method))}, not Users`,
+      );
+    }
+    assert.ok(
+      names.includes('Users'),
+      'the Users tag is not declared, so the register has no section to group under',
+    );
+
     // ★ AND THE ORDER IS THE DECLARED ORDER, NOT ALPHABETICAL. `docs.ts` sets
     //   `tagsSorter: undefined`, so the array above IS the Swagger grouping order
     //   — which makes its order a decision somebody made, and `Meta` then `Auth` is
@@ -5749,6 +5812,748 @@ async function main(): Promise<void> {
       undefined,
       'a security scheme has appeared — the note in http/docs.ts about `persistAuthorization` and the ' +
         'frontmatter in `documentIdentity()` both need revisiting, and Swagger UI now has a Try-it-out field',
+    );
+  });
+
+  // ---- The user register (plan docs/plans/users-and-roles.md) -------------
+  //
+  // The feature is "a super admin says who may sign in, as what, and to which
+  // organization". Three things are worth asserting here and no more, because
+  // everything else is a restatement of the code:
+  //
+  //   1. The membership rule, in both directions. An account belongs to at least
+  //      one organization, and the one it signs in to has to be among them.
+  //      Neither is expressible as a database constraint — a `CHECK` cannot count
+  //      rows in another table, in either dialect — so both live in the handler,
+  //      and a happy-path check cannot see either of them.
+  //   2. That the capability the API *states* is the capability the API *enforces*.
+  //      The list response carries a prose table of what each role reaches, and the
+  //      `administrator` entry says in so many words that it reaches NOTHING a staff
+  //      account does not already reach. That is a claim about the server, so it is
+  //      tested against a signed-in administrator rather than trusted: it is the
+  //      kind of sentence that stays true only while somebody keeps checking it.
+  //   3. That no credential leaves. Not the password, not the derivative. Every
+  //      body in this block is searched by name for `password_hash`, because the
+  //      way that failure arrives is one `SELECT *` in a helper nobody re-reads.
+  //
+  // ★ AND THE THIRD CONTROL IS THE POINT OF THE WHOLE DOMAIN. `app_user` ships
+  //   with no rows, so the only honest reading of "the register" is of rows this
+  //   block put there — and the two states an account cannot sign in from (no
+  //   credential, no organization) are otherwise unreachable, which would leave the
+  //   counts that exist to report them untested.
+  //
+  // ★ THE ACCOUNTS AND ORGANIZATIONS ARE MADE HERE AND REMOVED AT BOTH ENDS. The
+  //   pre-deletes are what make a run after a CRASHED run behave like a fresh one,
+  //   and the final gate asserts nothing survived.
+
+  const USER_EMAIL = 'smoke-check-user@example.test';
+  const USER_PASSWORD = 'smoke-check-user-password';
+  const HANGING_EMAIL = 'smoke-check-unassigned@example.test';
+  /** Both domain organizations answer to this, so one glob clears either end. */
+  const DOMAIN_ORG_GLOB = 'smoke-check-users-%';
+
+  interface UserMembershipWire {
+    id: number;
+    slug: string;
+    name: string;
+    isPrimary: boolean;
+  }
+
+  interface UserWire {
+    id: number;
+    email: string;
+    name: string;
+    role: string;
+    primaryOrganizationId: number | null;
+    organizations: UserMembershipWire[];
+    hasPassword: boolean;
+    createdAt: string;
+    lastSeenAt: string | null;
+  }
+
+  interface CapabilityWire {
+    role: string;
+    label: string;
+    summary: string;
+    grants: string[];
+    withholds: string[];
+  }
+
+  interface UserListWire {
+    items: UserWire[];
+    counts: {
+      total: number;
+      superAdmins: number;
+      administrators: number;
+      staff: number;
+      unassigned: number;
+      withoutPassword: number;
+    };
+    bootstrapEmail: string | null;
+    roles: string[];
+    capabilities: CapabilityWire[];
+  }
+
+  const readRegister = async (): Promise<UserListWire> => {
+    const res = await authorized('GET', '/api/users', { token: superToken });
+    assert.equal(res.status, 200, `the user register returned ${res.status}`);
+    return ((await res.json()) as { data: UserListWire }).data;
+  };
+
+  const clearUserAccounts = async (): Promise<void> => {
+    // The memberships go first, by user id: `app_user_organization` names both a
+    // user and an organization and there is no cascade to lean on in either
+    // dialect, so deleting the account first would leave the link behind or be
+    // refused depending on which arm the suite is pointed at.
+    await execute(
+      'DELETE FROM app_user_organization WHERE user_id IN ' +
+        '(SELECT id FROM app_user WHERE email IN (:one, :two))',
+      { one: USER_EMAIL, two: HANGING_EMAIL },
+    );
+    await execute('DELETE FROM app_user WHERE email IN (:one, :two)', {
+      one: USER_EMAIL,
+      two: HANGING_EMAIL,
+    });
+  };
+
+  const clearDomainOrganizations = async (): Promise<void> => {
+    await execute(
+      'DELETE FROM app_user_organization WHERE organization_id IN ' +
+        '(SELECT id FROM organization WHERE slug LIKE :glob)',
+      { glob: DOMAIN_ORG_GLOB },
+    );
+    await execute('DELETE FROM organization WHERE slug LIKE :glob', { glob: DOMAIN_ORG_GLOB });
+  };
+
+  await clearUserAccounts();
+  await clearDomainOrganizations();
+
+  /** The register before this block touched it, for the closing comparison. */
+  const registerBaseline = await readRegister();
+
+  /**
+   * A second tenant, so "memberships" can mean more than "the one".
+   *
+   * ★ THE IDS COME FROM THE REGISTER, NOT FROM A GUESS. The suite reads them out of
+   *   the create response rather than assuming `1` and `2`, because an assumed id
+   *   that happens to belong to the seeded tenant would make every membership
+   *   assertion pass while testing nothing.
+   */
+  const createDomainOrg = async (name: string, programs: string[]): Promise<OrgWire> => {
+    const res = await authorized('POST', '/api/organizations', {
+      token: superToken,
+      body: { name, fund: '04', programs, startFy: 2022 },
+    });
+    assert.equal(res.status, 201, `creating "${name}" returned ${res.status}, not 201`);
+    return ((await res.json()) as { data: OrgWire }).data;
+  };
+
+  const alpha = await createDomainOrg('Smoke Check Users Alpha (temporary)', ['861']);
+  const beta = await createDomainOrg('Smoke Check Users Beta (temporary)', ['862']);
+  assert.notEqual(alpha.id, beta.id, 'two organizations were created with one id');
+  assert.ok(alpha.slug.startsWith('smoke-check-users-'), `the derived slug is not in the cleanup glob: ${alpha.slug}`);
+  assert.ok(beta.slug.startsWith('smoke-check-users-'), `the derived slug is not in the cleanup glob: ${beta.slug}`);
+
+  await check('GET /api/users reads the register, and counts what it cannot list', async () => {
+    const res = await authorized('GET', '/api/users', { token: superToken });
+    assert.equal(res.status, 200, `the user register returned ${res.status}`);
+
+    // ★ SEARCHED FOR BY NAME, IN THE RAW BODY, RATHER THAN BY FIELD. A helper that
+    //   grew a `SELECT *` would still produce a 200 with every field asserted below
+    //   exactly right, so the only place this failure is visible is the text.
+    const raw = await res.text();
+    assert.ok(
+      !raw.includes('password_hash') && !raw.includes('PASSWORD_HASH'),
+      'a payload from the user register names password_hash — the select has grown a `*`',
+    );
+    const { data } = JSON.parse(raw) as { data: UserListWire };
+
+    // ★ THE COUNTS ARE READINGS, NOT DECORATION. Each is asserted against the rows
+    //   in the same payload, which is the only comparison that catches a `WHERE`
+    //   that counts something other than it says — and the role counts are checked
+    //   to add up, so a fifth role or a row counted twice cannot hide behind a
+    //   total that happens to match.
+    assert.equal(data.counts.total, data.items.length, 'the register count disagrees with the rows it sent');
+    assert.equal(data.counts.withoutPassword, data.items.filter((u) => !u.hasPassword).length);
+    assert.equal(data.counts.unassigned, data.items.filter((u) => u.primaryOrganizationId === null).length);
+    assert.equal(
+      data.counts.superAdmins + data.counts.administrators + data.counts.staff,
+      data.counts.total,
+      'the role counts do not add up to the register — a role the vocabulary does not have, or one row counted twice',
+    );
+    for (const u of data.items) {
+      assert.ok(data.roles.includes(u.role), `an account holds role "${u.role}", which the vocabulary does not list`);
+    }
+
+    // ★ MOST PRIVILEGED FIRST, WRITTEN OUT. This array is also what a picker renders
+    //   in order, so its order is the answer somebody accepts by pressing Enter —
+    //   and "staff, administrator, super_admin" would make the most privileged role
+    //   the one keystroke away from the default.
+    assert.deepEqual(data.roles, ['super_admin', 'administrator', 'staff']);
+    assert.deepEqual(
+      data.capabilities.map((c) => c.role),
+      data.roles,
+      'the capability table is not in the role order the picker renders',
+    );
+
+    // ★ THE WITHHOLD IS THE PART WORTH ASSERTING. Every entry here is prose the
+    //   screen prints, so it is not the server's behaviour — with one exception, and
+    //   that exception is tested against a real account two checks below.
+    const admin = data.capabilities.find((c) => c.role === 'administrator');
+    assert.ok(admin !== undefined, 'the capability table has no administrator entry');
+    assert.ok(admin.withholds.length > 0, 'the administrator entry withholds nothing, which cannot be right');
+    assert.ok(
+      admin.withholds.some((w) =>
+        w.includes('reaches nothing at all that a staff account does not already reach'),
+      ),
+      'the administrator withhold no longer says it reaches nothing beyond staff — either the server grew an ' +
+        'administrator behaviour, or the sentence was edited away',
+    );
+    for (const c of data.capabilities) {
+      assert.ok(
+        c.label.trim().length > 0 && c.summary.trim().length > 0,
+        `the ${c.role} capability entry has no label or no summary`,
+      );
+      assert.ok(
+        c.grants.length > 0,
+        `the ${c.role} capability entry grants nothing — an empty list reads as "no access", not "unstated"`,
+      );
+    }
+
+    // ★ AND THE ONE ACCOUNT THE LIST CANNOT CONTAIN. `.env` is read before the
+    //   table, so the bootstrap address signs in and has no `app_user` row; the
+    //   field exists so a screen can name it rather than showing a register that
+    //   does not add up. It is `null` when unconfigured, never absent, so that "no
+    //   bootstrap account" is distinguishable from "this server predates the field".
+    const { email: bootstrap } = config.superAdmin;
+    assert.equal(
+      data.bootstrapEmail,
+      bootstrap ?? null,
+      'the bootstrap address on the wire is not the configured one',
+    );
+    if (data.bootstrapEmail !== null) {
+      assert.ok(
+        !data.items.some((u) => u.email === data.bootstrapEmail),
+        'the bootstrap address has a row — POST is supposed to refuse one, and sign-in would never reach it',
+      );
+    }
+  });
+
+  await check('the membership rule refuses every direction it can be broken from, in words', async () => {
+    const post = (body: unknown): Promise<Response> =>
+      authorized('POST', '/api/users', { token: superToken, body });
+
+    const base = { name: 'Smoke Check User', role: 'staff', password: USER_PASSWORD };
+
+    // ★ THE EMPTY SET IS REFUSED BY THE SCHEMA, NOT BY THE RULE, AND THE DIFFERENCE
+    //   IS VISIBLE. `POST` declares `organizations` as an array of at least one, so
+    //   an empty list never reaches the handler — which is the right layer for it,
+    //   because it is a fact about the shape. `PATCH` declares no minimum and the
+    //   rule catches it there (asserted further down). Both are 400; only one cites
+    //   the rule, and this assertion is what keeps that from being a coincidence.
+    const empty = await post({ ...base, email: USER_EMAIL, organizations: [] });
+    assert.equal(empty.status, 400, `an empty membership set answered ${empty.status}, expected 400`);
+    const emptyErr = (await empty.json()) as { error: { code: string } };
+    assert.equal(
+      emptyErr.error.code,
+      'VALIDATION_FAILED',
+      'an empty membership set is no longer refused by the shape',
+    );
+
+    // ★ AN UNKNOWN ORGANIZATION IS 400, NOT 409. Nothing is in conflict — the id is
+    //   simply not in the vocabulary — and a 409 would send the caller to change the
+    //   other thing, when the other thing is not what is wrong. The refusal carries
+    //   both halves: the ids it rejected and the ids the register holds.
+    const unknownId = 987654;
+    const unknown = await post({ ...base, email: USER_EMAIL, organizations: [alpha.id, unknownId] });
+    assert.equal(unknown.status, 400, `an unknown organization answered ${unknown.status}, expected 400`);
+    const unknownErr = (await unknown.json()) as {
+      error: { code: string; details?: { unknown?: number[]; accepts?: number[] } };
+    };
+    assert.equal(unknownErr.error.code, 'BAD_REQUEST');
+    assert.deepEqual(
+      unknownErr.error.details?.unknown,
+      [unknownId],
+      'the refusal does not name the id it rejected',
+    );
+    assert.ok(
+      (unknownErr.error.details?.accepts ?? []).includes(alpha.id),
+      'the refusal does not carry the ids the register does hold, so the caller cannot fix the request',
+    );
+
+    // Two memberships and no sign-in organization. There is no rule that would
+    // choose between them, so this endpoint will not choose either — "pick the
+    // first" would be a silent guess deciding every query the account runs.
+    const noPrimary = await post({ ...base, email: USER_EMAIL, organizations: [alpha.id, beta.id] });
+    assert.equal(noPrimary.status, 400, `two memberships with no sign-in organization answered ${noPrimary.status}`);
+    const noPrimaryErr = (await noPrimary.json()) as { error: { code: string; message: string } };
+    assert.equal(noPrimaryErr.error.code, 'BAD_REQUEST');
+    assert.ok(
+      noPrimaryErr.error.message.includes('no sign-in organization'),
+      `the refusal does not say what is missing: ${noPrimaryErr.error.message}`,
+    );
+
+    // A sign-in organization outside the set: the account would sign in to a tenant
+    // it does not belong to.
+    const outside = await post({
+      ...base,
+      email: USER_EMAIL,
+      organizations: [alpha.id],
+      primaryOrganizationId: beta.id,
+    });
+    assert.equal(outside.status, 400, `a sign-in organization outside the set answered ${outside.status}`);
+    const outsideErr = (await outside.json()) as { error: { code: string; message: string } };
+    assert.equal(outsideErr.error.code, 'BAD_REQUEST');
+    assert.ok(
+      outsideErr.error.message.includes('is not among the'),
+      `the refusal does not say the organization is outside the set: ${outsideErr.error.message}`,
+    );
+
+    // ★ AND THE SAME NULL, ON THE CREATE PATH. `POST` refuses it for the same
+    //   reason `PATCH` does — a null sign-in organization is the state the sign-in
+    //   path rejects — and the reason the assertion is repeated here rather than
+    //   assumed is that the two routes declare the field separately: a `.optional()`
+    //   added to one and not the other would leave exactly one route coercing the
+    //   null to organization 0. See the long note on the `PATCH` case for what the
+    //   coercion does to the sentence a caller reads.
+    const nullPrimaryCreate = await post({
+      ...base,
+      email: USER_EMAIL,
+      organizations: [alpha.id],
+      primaryOrganizationId: null,
+    });
+    assert.equal(
+      nullPrimaryCreate.status,
+      400,
+      `a null sign-in organization on the create path answered ${nullPrimaryCreate.status}`,
+    );
+    const nullPrimaryCreateErr = (await nullPrimaryCreate.json()) as {
+      error: { code: string; message: string };
+    };
+    assert.equal(nullPrimaryCreateErr.error.code, 'BAD_REQUEST');
+    assert.ok(
+      nullPrimaryCreateErr.error.message.includes('no sign-in organization'),
+      'the create path refuses a null sign-in organization without saying a null was the problem — ' +
+        'it is being read as organization 0',
+    );
+    assert.ok(
+      !nullPrimaryCreateErr.error.message.includes('Organization 0'),
+      'the create path convicted the null of being organization 0',
+    );
+
+    // ★ THE BOOTSTRAP ADDRESS IS REFUSED FIRST, BEFORE ANY OTHER WORK, AND NAMED.
+    //   A row for it would be inert — `.env` is checked before the table — so the
+    //   register refuses to create an account that appears to exist and can never
+    //   sign in, and the refusal says which setting to change instead.
+    const bootstrapAddress = config.superAdmin.email ?? 'smoke-check-bootstrap@example.test';
+    const bootstrapRes = await post({ ...base, email: bootstrapAddress, organizations: [alpha.id] });
+    assert.equal(bootstrapRes.status, 409, `the bootstrap address answered ${bootstrapRes.status}, expected 409`);
+    const bootstrapErr = (await bootstrapRes.json()) as { error: { code: string; message: string } };
+    assert.equal(bootstrapErr.error.code, 'CONFLICT');
+    assert.ok(
+      bootstrapErr.error.message.includes('SUPER_ADMIN_EMAIL'),
+      `the refusal does not say which setting to change: ${bootstrapErr.error.message}`,
+    );
+
+    // ★ NOTHING WAS CREATED BY ANY OF THAT, AND THIS IS ASSERTED RATHER THAN
+    //   ASSUMED. Five refusals in a row is exactly the shape that leaves a row
+    //   behind when one of them refuses too late — after the insert, or after the
+    //   memberships.
+    const after = await rows<{ n: number }>('SELECT COUNT(*) AS n FROM app_user WHERE email = :email', {
+      email: USER_EMAIL,
+    });
+    assert.equal(after[0]?.n, 0, 'a refused create left an account behind');
+  });
+
+  await check('an account is created with its memberships, and signs in to the one it named', async () => {
+    const res = await authorized('POST', '/api/users', {
+      token: superToken,
+      body: {
+        // ★ UPPER-CASED AND PADDED ON PURPOSE. The handler trims and lower-cases
+        //   before it looks and before it writes, and the unique key is the
+        //   lower-cased address — so this is also the row the case-insensitive
+        //   duplicate check below has to find, which is what makes `Dana@x.gov` and
+        //   `dana@x.gov` one account rather than two.
+        email: `  ${USER_EMAIL.toUpperCase()}  `,
+        name: 'Smoke Check User (temporary)',
+        role: 'administrator',
+        organizations: [beta.id, alpha.id],
+        primaryOrganizationId: beta.id,
+        password: USER_PASSWORD,
+      },
+    });
+    assert.equal(res.status, 201, `creating an account returned ${res.status}, expected 201`);
+    const created = ((await res.json()) as { data: UserWire }).data;
+
+    assert.equal(created.email, USER_EMAIL, 'the address was not trimmed and lower-cased on write');
+    assert.equal(created.name, 'Smoke Check User (temporary)', 'the display name was not carried through');
+    assert.equal(created.role, 'administrator', 'the role was not carried through');
+    assert.equal(created.hasPassword, true, 'an account created with a password reports that it has none');
+    assert.equal(created.lastSeenAt, null, 'a brand-new account reports that it has signed in');
+    assert.equal(
+      created.primaryOrganizationId,
+      beta.id,
+      'the account does not sign in to the organization it named',
+    );
+    // Order-insensitive: the set is the store's to order, and the request named the
+    // two in the other order deliberately.
+    assert.deepEqual(
+      created.organizations.map((o) => o.id).sort((a, b) => a - b),
+      [alpha.id, beta.id].sort((a, b) => a - b),
+      'the membership set is not the set that was asked for',
+    );
+    // ★ EXACTLY ONE FLAG, AND IT IS THE ONE THAT WAS NAMED. The sign-in organization
+    //   is a column on `app_user` and the set is a second table, so nothing in the
+    //   store makes the two agree; `isPrimary` is derived, and it is where a reader
+    //   can see whether a write left them agreeing.
+    const flagged = created.organizations.filter((o) => o.isPrimary);
+    assert.equal(flagged.length, 1, `${flagged.length} memberships are marked as the sign-in organization`);
+    assert.equal(flagged[0]?.id, beta.id, 'the wrong membership is marked as the sign-in organization');
+
+    // The address is the key sign-in looks the row up by, so a second row for it is
+    // a conflict and not a 500 from the unique index.
+    const dup = await authorized('POST', '/api/users', {
+      token: superToken,
+      body: {
+        email: USER_EMAIL,
+        name: 'Smoke Check User Again',
+        organizations: [alpha.id],
+        password: USER_PASSWORD,
+      },
+    });
+    assert.equal(dup.status, 409, `a duplicate address answered ${dup.status}, expected 409`);
+    const dupErr = (await dup.json()) as { error: { code: string; details?: { email?: string } } };
+    assert.equal(dupErr.error.code, 'CONFLICT');
+    assert.equal(dupErr.error.details?.email, USER_EMAIL, 'the conflict does not name the address that clashed');
+
+    // ★ AND THE MEMBERSHIP IS NOT DECORATION: it is the tenant the account reads.
+    //   `app_user.organization_id` is what every scoped query resolves, so this is
+    //   the only observable meaning of "belongs to an organization".
+    const signedIn = await signIn(USER_EMAIL, USER_PASSWORD);
+    assert.equal(signedIn.status, 200, `the account that was just created could not sign in (${signedIn.status})`);
+    const session = ((await signedIn.json()) as { data: SignedIn }).data;
+    assert.equal(session.user.role, 'administrator', 'the account signed in with a role other than the one set');
+    assert.equal(
+      session.user.organizationId,
+      beta.id,
+      'the account signs in to an organization other than the one named',
+    );
+    assert.equal(session.user.organizationName, beta.name, 'the sign-in tenant is not the organization it named');
+
+    // ★ THE STATED CAPABILITY, TESTED RATHER THAN TRUSTED. The list response tells a
+    //   reader that an administrator "reaches nothing at all that a staff account
+    //   does not already reach". This is that sentence against the account that was
+    //   just made with that role. If the server ever grows an administrator
+    //   behaviour, this fails — and the failure is the signal to go and edit the
+    //   prose, not to loosen the check.
+    const asAdmin = await authorized('GET', '/api/users', { token: session.token });
+    assert.equal(asAdmin.status, 403, `an administrator read the user register (${asAdmin.status})`);
+    const asAdminErr = (await asAdmin.json()) as { error: { code: string; details?: { role?: string } } };
+    assert.equal(asAdminErr.error.code, 'FORBIDDEN');
+    assert.equal(
+      asAdminErr.error.details?.role,
+      'administrator',
+      'the refusal does not carry the role it judged',
+    );
+    // The other half of the same withhold, on the other register.
+    const orgsAsAdmin = await authorized('GET', '/api/organizations', { token: session.token });
+    assert.equal(
+      orgsAsAdmin.status,
+      403,
+      `an administrator read the organization register (${orgsAsAdmin.status})`,
+    );
+  });
+
+  await check('PATCH changes what it names, and re-judges the membership only when the membership changed', async () => {
+    const list = await readRegister();
+    const account = list.items.find((u) => u.email === USER_EMAIL);
+    assert.ok(account !== undefined, 'the account created above is not in the register');
+
+    // ★ `last_seen_at` IS STAMPED BEFORE THE SIGN-IN REPLY, AND THIS IS WHERE THAT
+    //   IS OBSERVABLE. It is written rather than fired and forgotten, so a register
+    //   read immediately after a sign-in cannot still say "never signed in" — which
+    //   is a wrong answer in the direction that gets somebody's access revoked.
+    assert.ok(
+      account.lastSeenAt !== null,
+      'the account signed in above and the register still says it has never signed in — ' +
+        'the stamp is no longer awaited before the reply',
+    );
+
+    const patch = (body: unknown): Promise<Response> =>
+      authorized('PATCH', `/api/users/${account.id}`, { token: superToken, body });
+
+    // ★ NOTHING NAMED IS A MISTAKE IN THE REQUEST, NOT A NO-OP TO SWALLOW — the same
+    //   rule the organization register applies. A 200 here hands back a row the
+    //   caller believes it edited. The refusal lists what it would have accepted,
+    //   because "no fields" on its own is not actionable.
+    const empty = await patch({});
+    assert.equal(empty.status, 400, `an empty PATCH answered ${empty.status}, expected 400`);
+    const emptyErr = (await empty.json()) as { error: { details?: { accepts?: string[] } } };
+    assert.deepEqual(
+      emptyErr.error.details?.accepts,
+      ['name', 'role', 'organizations', 'primaryOrganizationId'],
+      'the empty-PATCH refusal does not list what it would have accepted',
+    );
+
+    // ★ AND THE ORDER OF THOSE TWO: nothing-named is refused BEFORE the row is
+    //   looked for, so an empty PATCH to an id that does not exist is a 400 about
+    //   the request rather than a 404 about the row. Asserted so that reversing the
+    //   two becomes a deliberate act rather than a refactor nobody notices.
+    const emptyUnknown = await authorized('PATCH', '/api/users/987654', {
+      token: superToken,
+      body: {},
+    });
+    assert.equal(emptyUnknown.status, 400, `an empty PATCH to an unknown id answered ${emptyUnknown.status}`);
+
+    const unknown = await authorized('PATCH', '/api/users/987654', {
+      token: superToken,
+      body: { name: 'Nope' },
+    });
+    assert.equal(unknown.status, 404, `an unknown id answered ${unknown.status}, expected 404`);
+    const unknownErr = (await unknown.json()) as { error: { code: string; message: string } };
+    assert.equal(unknownErr.error.code, 'NOT_FOUND');
+    assert.ok(
+      unknownErr.error.message.includes('Account 987654'),
+      `the 404 does not name the account: ${unknownErr.error.message}`,
+    );
+
+    // ★ `primaryOrganizationId: null` IS REFUSED, AND THE SHAPE IS NOT WHAT REFUSES
+    //   IT — WHICH IS THE PART WORTH ASSERTING. An account whose sign-in
+    //   organization is null can never sign in, so this endpoint will not create
+    //   the state; the refusal belongs to `assertSignInOrganization`, whose message
+    //   explains why. What the shape must NOT do is coerce the null away:
+    //   `z.coerce.number()` is `Number(value)`, `Number(null)` is `0`, and `0` is
+    //   an integer — so a schema written as plain `IntParam` would let the null
+    //   through as an organization id of ZERO, and the caller would be told
+    //   "Organization 0 is this account's sign-in organization and is not among the
+    //   organizations it belongs to [⋯]": a refusal about an id nobody sent, naming
+    //   an organization that does not exist. The field is validated as
+    //   `PrimaryAskSchema` so the null survives to the handler and the sentence a
+    //   reader can act on is the one that speaks. Both halves are asserted below.
+    const nullPrimary = await patch({ primaryOrganizationId: null });
+    assert.equal(nullPrimary.status, 400, `a null sign-in organization answered ${nullPrimary.status}`);
+    const nullPrimaryErr = (await nullPrimary.json()) as {
+      error: { code: string; message: string; details?: { primaryOrganizationId?: unknown } };
+    };
+    assert.equal(
+      nullPrimaryErr.error.code,
+      'BAD_REQUEST',
+      'a null sign-in organization is refused by something other than the membership rule',
+    );
+    assert.ok(
+      nullPrimaryErr.error.message.includes('no sign-in organization'),
+      'a null sign-in organization is refused without saying a null was the problem — the coercion ' +
+        'turned the null into an organization id of 0 and the refusal is about an id nobody sent',
+    );
+    assert.ok(
+      !nullPrimaryErr.error.message.includes('Organization 0'),
+      'a null sign-in organization produced the coerced-zero message — the null is being convicted ' +
+        'of being organization 0',
+    );
+    assert.equal(
+      nullPrimaryErr.error.details?.primaryOrganizationId,
+      null,
+      'the refusal does not carry the null it judged, so a screen cannot point at the field',
+    );
+
+    // The set may not be emptied by a PATCH either — and here the RULE answers,
+    // because `PATCH` declares no minimum on the array, so this is the handler's
+    // message about an account that could sign in and then have nothing to show.
+    const emptied = await patch({ organizations: [] });
+    assert.equal(emptied.status, 400, `PATCH organizations: [] answered ${emptied.status}`);
+    const emptiedErr = (await emptied.json()) as { error: { code: string; message: string } };
+    assert.equal(
+      emptiedErr.error.code,
+      'BAD_REQUEST',
+      'the emptied set is refused by the shape rather than by the membership rule',
+    );
+    assert.ok(
+      emptiedErr.error.message.includes('at least one organization'),
+      `the refusal does not state the rule: ${emptiedErr.error.message}`,
+    );
+
+    // ★ A RENAME RE-JUDGES NOTHING, AND THAT IS THE POINT OF THE GUARD. Whether the
+    //   membership rule applies is decided by WHAT WAS ASKED, not by what is stored:
+    //   re-checking an untouched membership set would refuse a change on a row this
+    //   API did not write — a state `npm run set:password` can leave — with a
+    //   complaint about a field the caller never mentioned.
+    const renamed = await patch({ name: 'Smoke Check User (renamed)' });
+    assert.equal(renamed.status, 200, `a rename answered ${renamed.status}`);
+    const renamedRow = ((await renamed.json()) as { data: UserWire }).data;
+    assert.equal(renamedRow.name, 'Smoke Check User (renamed)', 'the rename did not take');
+    assert.equal(renamedRow.primaryOrganizationId, beta.id, 'a rename moved the sign-in organization');
+    assert.equal(renamedRow.organizations.length, 2, 'a rename changed the memberships');
+
+    // A set of one: the sign-in organization follows it, because with one membership
+    // there is exactly one organization the account could sign in to, so filling the
+    // column from it is an inference and not a choice.
+    const shrunk = await patch({ organizations: [alpha.id] });
+    assert.equal(shrunk.status, 200, `shrinking the set answered ${shrunk.status}`);
+    const shrunkRow = ((await shrunk.json()) as { data: UserWire }).data;
+    assert.deepEqual(shrunkRow.organizations.map((o) => o.id), [alpha.id], 'the set was not replaced');
+    assert.equal(
+      shrunkRow.primaryOrganizationId,
+      alpha.id,
+      'a set of one left the sign-in organization outside it — the one state the rule forbids',
+    );
+
+    // ★ AND AN UNCHANGED SIGN-IN ORGANIZATION SURVIVES A SET THAT STILL CONTAINS IT,
+    //   EVEN ONE WITH SEVERAL ENTRIES. The account's primary is `alpha`; the set
+    //   below names `beta` first and says nothing about the primary. A "pick the
+    //   first entry" rule would move this account; re-deciding it would move an
+    //   account somebody deliberately put somewhere.
+    const resubmitted = await patch({ organizations: [beta.id, alpha.id] });
+    assert.equal(resubmitted.status, 200, `re-submitting the set answered ${resubmitted.status}`);
+    const resubmittedRow = ((await resubmitted.json()) as { data: UserWire }).data;
+    assert.equal(
+      resubmittedRow.primaryOrganizationId,
+      alpha.id,
+      're-submitting a set re-decided the sign-in organization — an account somebody put somewhere was moved',
+    );
+
+    // Explicitly named, so the row the cleanup deletes is the row this block made.
+    const restored = await patch({ primaryOrganizationId: beta.id });
+    assert.equal(restored.status, 200, `naming the sign-in organization answered ${restored.status}`);
+    const restoredRow = ((await restored.json()) as { data: UserWire }).data;
+    assert.equal(restoredRow.primaryOrganizationId, beta.id, 'an explicit sign-in organization did not take');
+    assert.equal(restoredRow.organizations.length, 2, 'naming the primary changed the memberships');
+  });
+
+  await check('setting a password is 200, flips hasPassword, and never returns the derivative', async () => {
+    // ★ A ROW WITH NO CREDENTIAL, WRITTEN DIRECTLY, BECAUSE `POST` CANNOT MAKE ONE.
+    //   Every account this API creates is created with a password, so
+    //   `hasPassword: false` is otherwise unreachable — and it is exactly the state
+    //   the operator's queue counts. It is written the same way the member account
+    //   is, and with no membership and no sign-in organization on purpose: the
+    //   second count, `unassigned`, is that state and this row is what exercises it.
+    await execute(
+      'INSERT INTO app_user (email, display_name, role, organization_id, password_hash) ' +
+        'VALUES (:email, :name, :role, NULL, NULL)',
+      { email: HANGING_EMAIL, name: 'Smoke Check Unassigned (temporary)', role: 'staff' },
+    );
+
+    const readRow = async (): Promise<{ list: UserListWire; row: UserWire }> => {
+      const list = await readRegister();
+      const row = list.items.find((u) => u.email === HANGING_EMAIL);
+      assert.ok(row !== undefined, 'the hashless row is not in the register');
+      return { list, row };
+    };
+
+    const before = await readRow();
+    assert.equal(before.row.hasPassword, false, 'a row with no hash reports that it has a password');
+    assert.deepEqual(before.row.organizations, [], 'a row with no memberships came back with some');
+    assert.equal(before.row.primaryOrganizationId, null, 'a row with no sign-in organization came back with one');
+    assert.ok(
+      before.list.counts.withoutPassword >= 1,
+      'a row with no credential did not reach the withoutPassword count',
+    );
+    assert.ok(
+      before.list.counts.unassigned >= 1,
+      'a row with no sign-in organization did not reach the unassigned count',
+    );
+
+    // ★ A HASH LESS ROW IS REFUSED AS UNRECOGNISED, NOT TOLD WHAT IS MISSING. The
+    //   sign-in surface must not be usable to ask which addresses have accounts, so
+    //   an address with no credential produces the SAME 401 as an address that does
+    //   not exist — and not the 403 below, which would confirm the row.
+    const noCredential = await signIn(HANGING_EMAIL, USER_PASSWORD);
+    assert.equal(
+      noCredential.status,
+      401,
+      `signing in to a row with no password answered ${noCredential.status} — a null hash must not be readable ` +
+        'as "no secret to check, so let them in", and it must not disclose that the row exists either',
+    );
+    const noCredentialErr = (await noCredential.json()) as { error: { code: string } };
+    assert.equal(noCredentialErr.error.code, 'UNAUTHORIZED');
+
+    // ★ 200, NOT THE 201 A POST DEFAULTS TO. Nothing is created — a derivative that
+    //   was already there is replaced — and a 201 with no `Location` is the kind of
+    //   answer a client caches wrongly.
+    const set = await authorized('POST', `/api/users/${before.row.id}/password`, {
+      token: superToken,
+      body: { password: USER_PASSWORD },
+    });
+    assert.equal(
+      set.status,
+      200,
+      `setting a password answered ${set.status}, expected 200 rather than the POST default`,
+    );
+    const setRaw = await set.text();
+    assert.ok(
+      !setRaw.includes('password_hash') && !setRaw.includes(USER_PASSWORD),
+      'the password-set response carries the credential or the name of its column',
+    );
+    const setRow = (JSON.parse(setRaw) as { data: UserWire }).data;
+    assert.equal(setRow.hasPassword, true, 'the row still reports that it has no password after one was set');
+    assert.equal(setRow.id, before.row.id, 'the response is a different account');
+
+    const after = await readRow();
+    assert.equal(after.row.hasPassword, true, 'the flip did not reach the store');
+    assert.equal(
+      after.list.counts.withoutPassword,
+      before.list.counts.withoutPassword - 1,
+      'the withoutPassword count did not follow the write',
+    );
+
+    // ★ AND THE TWO QUEUES ARE TWO DIFFERENT REASONS, WHICH IS WHY THERE ARE TWO.
+    //   The row can now be found and its credential checked — so the refusal is no
+    //   longer about the credential at all. It is a 403 naming the other thing, and
+    //   the message says which one, because "you cannot sign in" without saying why
+    //   is the answer an operator has to reconstruct from the schema.
+    const unassigned = await signIn(HANGING_EMAIL, USER_PASSWORD);
+    assert.equal(
+      unassigned.status,
+      403,
+      `an account with a password and no sign-in organization signed in, or was refused as ` +
+        `${unassigned.status} — the sign-in path must refuse a null organization rather than ` +
+        'falling back to the default tenant, because that would grant a tenant nobody put them in',
+    );
+    const unassignedErr = (await unassigned.json()) as { error: { code: string; message: string } };
+    assert.equal(unassignedErr.error.code, 'FORBIDDEN');
+    assert.ok(
+      unassignedErr.error.message.includes('has not been assigned to an organization'),
+      `the refusal does not say which of the two reasons applies: ${unassignedErr.error.message}`,
+    );
+
+    // ★ AND THE FLOOR IS A LENGTH AND NOTHING MORE. This project has no dictionary,
+    //   no breach list and no rotation; validating an uppercase and a symbol would
+    //   make a weak password look checked. So the assertion below is the floor, and
+    //   deliberately not a strength claim.
+    const short = await authorized('POST', `/api/users/${before.row.id}/password`, {
+      token: superToken,
+      body: { password: 'short' },
+    });
+    assert.equal(short.status, 400, `a five-character password answered ${short.status}, expected 400`);
+    const shortErr = (await short.json()) as { error: { code: string } };
+    assert.equal(shortErr.error.code, 'VALIDATION_FAILED', 'the length floor is no longer refused by the shape');
+  });
+
+  // ★ AND THE REGISTER IS PUT BACK, AT BOTH ENDS, FOR THE SAME REASON THE
+  //   ORGANIZATION REGISTER IS — see the note on the checks below.
+  await clearUserAccounts();
+  await clearDomainOrganizations();
+
+  await check('the user register was left where it was found', async () => {
+    const users = await rows<{ n: number }>('SELECT COUNT(*) AS n FROM app_user WHERE email IN (:one, :two)', {
+      one: USER_EMAIL,
+      two: HANGING_EMAIL,
+    });
+    const orgs = await rows<{ n: number }>('SELECT COUNT(*) AS n FROM organization WHERE slug LIKE :glob', {
+      glob: DOMAIN_ORG_GLOB,
+    });
+    assert.equal(users[0]?.n, 0, 'a smoke account survived the run — the register is not where it was found');
+    assert.equal(orgs[0]?.n, 0, 'a smoke organization survived the run');
+
+    // ★ AND THE COUNTS, COMPARED WITH THE BASELINE TAKEN BEFORE ANYTHING WAS
+    //   CREATED. Asserting the rows are gone proves the deletions worked; asserting
+    //   the counts match proves nothing else moved underneath — a membership left
+    //   on an organization, a role rewritten in place — which the row-by-row checks
+    //   above cannot see.
+    const closing = await readRegister();
+    assert.deepEqual(
+      closing.counts,
+      registerBaseline.counts,
+      'the register counts do not match the baseline taken before this block ran',
     );
   });
 
