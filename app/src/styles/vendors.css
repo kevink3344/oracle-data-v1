@@ -1094,12 +1094,12 @@ td.n.vc-num.vs-zero {
   background: var(--surface-sunken);
 }
 
-/* ★ THE MAP CONTAINER MUST HAVE A HEIGHT OF ITS OWN, OR MAPBOX DRAWS NOTHING. Mapbox
+/* ★ THE MAP CONTAINER MUST HAVE A HEIGHT OF ITS OWN, OR MAPLIBRE DRAWS NOTHING. MapLibre
    measures this element's box once, at construction, and sizes its canvas to it; a
    container whose height comes from its content is zero tall at that moment, so the
    canvas comes out 0 × 0 and the panel shows an empty frame with no error anywhere —
    the same silent collapse as an inline element given a percentage size. `position` is
-   `relative` because Mapbox positions its own controls (attribution, logo) absolutely
+   `relative` because MapLibre positions its own controls (attribution, logo) absolutely
    against this box, and because an absolutely positioned child escapes any ancestor
    scroller that is not its containing block. */
 .vsmap__canvas {
@@ -1108,8 +1108,23 @@ td.n.vc-num.vs-zero {
 }
 
 /* Attribution is required on the tiles and is left switched on; only its type is
-   brought down to the panel's own scale so it does not shout. */
-.vsmap__canvas .mapboxgl-ctrl-attrib {
+   brought down to the panel's own scale so it does not shout.
+
+   ★ THE SELECTOR IS `maplibregl-`, NOT `mapboxgl-`, AND THE DIFFERENCE IS THE WHOLE RULE.
+   This block was authored against Mapbox GL JS and the fork moved the control class prefix
+   with it — measured on the live panel, the attribution element's class list is
+   `maplibregl-ctrl maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show` —
+   while MapLibre's OWN stylesheet contains no `mapboxgl-*` rule at all (grepped: zero
+   matches). So a `mapboxgl-` selector here matches nothing and the attribution rendered at
+   MapLibre's own 12px rather than the 10px this sheet asks for.
+
+   ★ AND IT PRODUCED NO DIAGNOSTIC ANYWHERE. `tsc` does not read CSS, the linter does not
+   cross-check selectors against markup, and the browser reports a selector that matches
+   nothing silently — so a dead rule is indistinguishable from a working one until someone
+   reads both sides. That is why the fix is a rename rather than a second rule: adding
+   `maplibregl-` while leaving `mapboxgl-` in place would have left the same dead line
+   behind for the next reader to trust. */
+.vsmap__canvas .maplibregl-ctrl-attrib {
   font-size: 0.625rem;
 }
 

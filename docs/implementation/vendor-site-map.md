@@ -333,16 +333,30 @@ the attribution element's exact class list is:
 maplibregl-ctrl maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show
 ```
 
-and MapLibre's own stylesheet carries no `.mapboxgl-*` rule at all. The panel's stylesheet still
-contains
+and MapLibre's own stylesheet carries no `.mapboxgl-*` rule at all. The panel's stylesheet used to
+contain
 
 ```css
-.vsmap__canvas .mapboxgl-ctrl-attrib { font-size: 0.625rem; }   /* vendors.css:979 — matches nothing */
+.vsmap__canvas .mapboxgl-ctrl-attrib { font-size: 0.625rem; }   /* matched nothing */
 ```
 
-so the attribution renders at MapLibre's own **12px** (computed, measured) rather than the 10px the
+so the attribution rendered at MapLibre's own **12px** (computed, measured) rather than the 10px the
 sheet asks for. **An unused selector produces no diagnostic** — not from `tsc`, not from the linter,
 not from the browser. The sheet has to be reconciled against the markup by reading both (§12).
+
+★ **FIXED — the selector is renamed, not duplicated (`vendors.css:1127`).** The rule now reads
+`.vsmap__canvas .maplibregl-ctrl-attrib`. It was fixed by **renaming** rather than by adding a
+second rule: leaving `mapboxgl-` in place beside a new `maplibregl-` line would have kept the same
+dead declaration in the file, still looking load-bearing to the next reader.
+
+★ **THE HONEST FORM OF THE GREP, SINCE THE EXPLANATION ITSELF NAMES THE OLD PREFIX.**
+`git grep -n mapboxgl -- app/src` returns **4 hits, all four inside the comment block above the
+rule (`vendors.css:1112–1126`)** — the comment has to spell the old class to explain why the new
+one is right. **Zero hits are in a selector position**: `git grep -nE "^\s*\.?[a-z-]*mapboxgl" --
+app/src` returns nothing. That second query is the one that means something — an unexplained
+count would have a future reader opening four comment lines to decide, which is exactly the work
+this note exists to save. `VendorSiteMap.tsx` carries **4** prose mentions of Mapbox and, correctly,
+**zero** `mapboxgl` identifier hits.
 
 ---
 
@@ -465,14 +479,16 @@ Two of these were applied after the fact, on request; two are deliberately left 
   default, which on a 220-pixel panel reads as the map still arriving. No measurement needed: it is
   a canvas fade, so no probe can see it — one look at two reloads is the whole test.
 
-**Deliberately left alone.**
+**Deliberately left alone in that pass — item 1 has since been fixed on its own.**
 
-1. **`app/src/styles/vendors.css:979` — `.vsmap__canvas .mapboxgl-ctrl-attrib` matches nothing**
-   (measured: the element is `maplibregl-ctrl-attrib`, the computed size is MapLibre's 12px, not
-   the sheet's 10px). Left alone: it is a type size on an attribution line, and renaming the
-   selector is a one-line change that deserves to be made deliberately rather than inside this pass.
-   Note the sheet still carries a **`mapboxgl-`** class, so this file is now the only place in the
-   panel where the old library's name survives — a future reader grepping for it will find this.
+1. **`app/src/styles/vendors.css` — `.vsmap__canvas .mapboxgl-ctrl-attrib` matched nothing. NOW
+   FIXED** (measured: the element is `maplibregl-ctrl-attrib`, the computed size was MapLibre's
+   12px, not the sheet's 10px). It was left alone in that pass deliberately — a one-line rename on
+   an attribution line deserved its own change rather than riding inside a larger one — and that
+   change is the rename to `.maplibregl-ctrl-attrib` at `vendors.css:1127`. The old prefix survives
+   only inside the explanatory comment above the rule (four times, §8); **no `mapboxgl-` string sits
+   in a selector position anywhere in `app/src`,** and `VendorSiteMap.tsx`'s four Mapbox mentions are
+   the deliberate before/after contrast described in §11's other item, not stale naming.
 2. **The geocode script's row-versus-`.env` advisory guard is dead.**
    `server/src/scripts/geocode-vendor-sites.ts` reads `process.env.MAPBOX_START_LATITUDE` /
    `MAPBOX_START_LONGITUDE`, names that appear **nowhere** in `.env` (which holds `START_LATITUDE` /
@@ -530,6 +546,6 @@ false with real attribution text** (the style loaded). `glyphPbf` non-zero corro
 | --- | --- |
 | `app/package.json` | `maplibre-gl ^6.10.0` added (line 17); `mapbox-gl` / `@types/mapbox-gl` removed |
 | `app/src/components/VendorSiteMap.tsx` | the whole panel: `STYLE_URL`, `loadMaplibre()` with `setWorkerUrl`, the construction with **no `accessToken`** (`fadeDuration: 0` added later, §11), the route refs and effects, the load-time sources and layers, `applyRoute`, `ResizeObserver`, teardown, and the tile-failure copy (which no longer names a token — it names the tile host, a proxy, a content filter or being offline). The mileage caption no longer names Mapbox either (§11) |
-| `app/src/styles/vendors.css` | the `.vsmap*` block, lines 957–1116: frame, canvas height (`220px`, `180px` under 720px), key and swatches, coordinate line, band ramp, fact rows, turns. Line 979 still carries a **`mapboxgl-`** class that matches nothing (§8, §11) |
+| `app/src/styles/vendors.css` | the `.vsmap*` block, lines 1090–1261: frame, canvas height (`220px`, `180px` under 720px), key and swatches, coordinate line, band ramp, fact rows, turns. The attribution rule at **line 1127** was renamed `mapboxgl-` → **`maplibregl-`** (§8, §11) — it had matched nothing since the fork, so the attribution had been rendering at MapLibre's 12px instead of this sheet's 10px |
 | `app/.env`, `app/.env.example` | `VITE_MAPBOX_TOKEN` **removed**, with comment blocks kept explaining why this folder holds no browser credential — and that the same token is still required, server-side, as the root `.env`'s `MAPBOX_API_KEY` |
 | **not touched, deliberately** | the root `.env` (`MAPBOX_API_KEY` is still used by the server-side geocoding step; `START_LATITUDE` / `START_LONGITUDE` are the seed's recorded provenance — the app reads the origin out of `geo_origin`, not out of the environment), `server/src/scripts/geocode-vendor-sites.ts`, and `data/sql/turso/01-app.sql` |

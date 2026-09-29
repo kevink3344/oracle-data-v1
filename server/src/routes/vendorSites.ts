@@ -1264,15 +1264,35 @@ function observe(
  * A `vendor_site_geo` row as the app store holds it.
  *
  * ★★ LOWER CASE, AND THAT IS LOAD-BEARING RATHER THAN COSMETIC. The ledger is Oracle
- *    and answers with `VENDOR_SITE_ID`; the app store is SQLite/libSQL and answers with
- *    `vendor_site_id`. Every other app-store reader in this repository is lower case for
- *    the same reason. Getting it wrong does not throw — `row.VENDOR_SITE_ID` is simply
- *    `undefined`, `num()` turns that into `0`, and the join matches nothing, so the
- *    symptom is "0 of 800 sites covered" beside a table that holds 800 rows. **The
- *    `as unknown as` cast needed to satisfy the compiler is what hides it: a cast through
- *    `unknown` asserts the shape and therefore stops the compiler from noticing that the
- *    declared keys cannot be right.** Mirror the store's own spelling, and treat a
- *    suspiciously empty result as a naming bug before a data bug.
+ *    and answers with `VENDOR_SITE_ID`; the app store answers with `vendor_site_id`.
+ *    Every other app-store reader in this repository is lower case for the same reason.
+ *    Getting it wrong does not throw — `row.VENDOR_SITE_ID` is simply `undefined`,
+ *    `num()` turns that into `0`, and the join matches nothing, so the symptom is
+ *    "0 of 800 sites covered" beside a table that holds 800 rows. **The `as unknown as`
+ *    cast needed to satisfy the compiler is what hides it: a cast through `unknown`
+ *    asserts the shape and therefore stops the compiler from noticing that the declared
+ *    keys cannot be right.** Mirror the store's own spelling, and treat a suspiciously
+ *    empty result as a naming bug before a data bug.
+ *
+ * ★★ AND THE QUERY ITSELF HAS TO BE WRITTEN IN LOWER CASE, WHICH IS NOT OBVIOUS — because
+ *    the two engines decide a result key by DIFFERENT rules, and only lower case is a
+ *    spelling both agree on. Measured, same table, same driver:
+ *
+ *      - **libSQL answers with the table's DECLARED name.** A query written
+ *        `SELECT VENDOR_SITE_ID` still returns the key `vendor_site_id`, because the
+ *        column was declared that way. This is why the uppercase projection below was
+ *        harmless for as long as the app store was Turso.
+ *      - **SQL Server answers with the case you WROTE.** `SELECT VENDOR_SITE_ID` returns
+ *        the key `VENDOR_SITE_ID`, and this interface's `vendor_site_id` reads
+ *        `undefined`.
+ *
+ *    So moving the app store to the SQL Server database did not change one row of data —
+ *    it changed the SPELLING of every app-store result key, and only for reads that name
+ *    their columns in upper case. The `embedded` database really did hold all 800 rows
+ *    throughout: `SELECT COUNT(*) FROM vendor_site_geo` answered 800 while the register
+ *    reported `covered: 0`. **A query whose case disagrees with its interface is invisible
+ *    on one engine and silently empty on the other** — which is why the projection below
+ *    is lower case even though T-SQL resolves identifiers case-insensitively either way.
  */
 interface GeoRow {
   vendor_site_id: unknown;
@@ -1334,10 +1354,10 @@ async function readSiteGeo(
   try {
     const res = await storeDriver('app').execute({
       sql:
-        'SELECT VENDOR_SITE_ID, LATITUDE, LONGITUDE, GEOCODE_STATUS, GEOCODE_REASON,' +
-        ' MATCH_CONFIDENCE, ACCURACY, FEATURE_TYPE, QUERY_ADDRESS, GEOCODED_AT,' +
-        ' DRIVE_MILES, DRIVE_MINUTES, DRIVE_STATUS, DRIVE_ORIGIN_SLUG' +
-        ' FROM vendor_site_geo ORDER BY VENDOR_SITE_ID',
+        'SELECT vendor_site_id, latitude, longitude, geocode_status, geocode_reason,' +
+        ' match_confidence, accuracy, feature_type, query_address, geocoded_at,' +
+        ' drive_miles, drive_minutes, drive_status, drive_origin_slug' +
+        ' FROM vendor_site_geo ORDER BY vendor_site_id',
       args: {},
     });
     rows = res.rows as unknown as GeoRow[];
@@ -1517,10 +1537,16 @@ async function readSiteGeo(
  *   `drive_*` stamp from when they were `matched`). One statement reads both, so the
  *   gate below costs nothing rather than a second round trip.
  *
- * ★ LOWER CASE, FOR THE SAME REASON `GeoRow` IS. The app store is SQLite/libSQL and
- *   the ledger is Oracle; reading `row.VENDOR_SITE_ID` here would be `undefined`, and
- *   an `undefined` id with no row is indistinguishable from "this site was never
- *   routed". Mirror the store's own spelling.
+ * ★ LOWER CASE, FOR THE SAME REASON `GeoRow` IS — AND HERE IT MATTERS TWICE OVER. The
+ *   app store answers with `vendor_site_id`; reading `row.VENDOR_SITE_ID` here would be
+ *   `undefined`, and an `undefined` id with no row is indistinguishable from "this site
+ *   was never routed". **That is the failure this read actually suffered**: with every
+ *   key `undefined`, `pinned` came out false for all 622 stored routes and every one of
+ *   them was served as `unpinned` — "A route is stored for this site but its coordinate
+ *   has been withdrawn" — a sentence about the DATA, printed for every site, about a
+ *   table holding 622 `ok` routes whose pins were all intact. See the `GeoRow` header
+ *   for the two engines' key-casing rules and why the query text itself must be lower
+ *   case.
  */
 interface RouteRow {
   vendor_site_id: unknown;
@@ -1586,12 +1612,12 @@ async function readSiteRoute(siteId: number): Promise<Record<string, unknown>> {
   try {
     const res = await storeDriver('app').execute({
       sql:
-        'SELECT r.VENDOR_SITE_ID, r.ROUTE_STATUS, r.ROUTE_REASON, r.ROUTE_MILES, r.ROUTE_MINUTES,' +
-        ' r.ROUTE_ORIGIN_SLUG, r.GEOMETRY, r.STEPS, r.STEP_COUNT, r.ROUTE_AT,' +
-        ' g.GEOCODE_STATUS, g.LATITUDE, g.LONGITUDE' +
+        'SELECT r.vendor_site_id, r.route_status, r.route_reason, r.route_miles, r.route_minutes,' +
+        ' r.route_origin_slug, r.geometry, r.steps, r.step_count, r.route_at,' +
+        ' g.geocode_status, g.latitude, g.longitude' +
         ' FROM vendor_site_route r' +
-        ' LEFT JOIN vendor_site_geo g ON g.VENDOR_SITE_ID = r.VENDOR_SITE_ID' +
-        ' WHERE r.VENDOR_SITE_ID = :id',
+        ' LEFT JOIN vendor_site_geo g ON g.vendor_site_id = r.vendor_site_id' +
+        ' WHERE r.vendor_site_id = :id',
       args: { id: siteId },
     });
     rows = res.rows as unknown as RouteRow[];

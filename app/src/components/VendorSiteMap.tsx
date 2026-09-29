@@ -463,7 +463,7 @@ export default function VendorSiteMap({
   //   returned — a second metered map load per panel, plus the reader's pan and zoom
   //   thrown away, to change one source. Instead the map publishes a *setter* here and
   //   the route effect calls it; the coordinates are also held in a ref so a route that
-  //   arrives **before** Mapbox finishes loading is applied in `map.on('load')` rather
+  //   arrives **before** MapLibre finishes loading is applied in `map.on('load')` rather
   //   than dropped by an `undefined` source.
   const routeSetterRef = useRef<((coords: [number, number][] | null) => void) | null>(null);
   const routeCoordsRef = useRef<[number, number][] | null>(null);

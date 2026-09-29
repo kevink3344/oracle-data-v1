@@ -733,19 +733,40 @@ function recordsetColumns(rs: unknown): string[] | undefined {
 }
 
 /**
- * ★ T-SQL IDENTIFIER CASE IS *PRESERVED*, SO THE ORACLE PROXY IS NOT NEEDED HERE.
+ * ★ T-SQL ANSWERS WITH THE CASE YOU *WROTE*, WHICH IS NOT THE RULE libSQL USES — AND
+ *   THE DIFFERENCE HAS ALREADY COST THIS PROJECT A FEATURE.
  *
- *   `oracle.ts` wraps every row in a Proxy because Oracle folds unquoted
- *   identifiers to upper case, so `SELECT SEGMENT1 AS fund` comes back as `FUND`
- *   and `r.fund` reads `undefined`. SQL Server does not fold: a column keeps the
- *   case it was declared or aliased with, and `mssql` returns exactly that. So
- *   `r.fund` works, `r.FUND` would not, and — because every ledger alias in this
- *   repo is lower-case and every table column is upper-case, matching how they
- *   were written — the reads resolve the way they always did against libSQL.
+ *   `oracle.ts` wraps every row in a Proxy because Oracle folds unquoted identifiers
+ *   to upper case, so `SELECT SEGMENT1 AS fund` comes back as `FUND` and `r.fund`
+ *   reads `undefined`. SQL Server neither folds nor consults the table: a result key
+ *   carries the case of the *text in the statement*, whether that text is a column
+ *   reference or a lower-case alias. So `r.fund` works and `r.FUND` would not.
  *
- *   This is written down because it is the *absence* of a fix, and an absent fix
- *   looks like an oversight. It is a measurement: the alias case in the queries
- *   and the case SQL Server reports agree, so no translation is required.
+ *   libSQL decides the same question the other way. Measured on the app's own tables,
+ *   against both the real Turso database and a local `file::memory:` client:
+ *
+ *     - `SELECT vendor_site_id …` → key `vendor_site_id`
+ *     - `SELECT VENDOR_SITE_ID …` → key `vendor_site_id`  ← the DECLARED name, not the
+ *       queried one. libSQL answers with the column's declared spelling.
+ *
+ *   So an upper-case projection of an app table is HARMLESS on Turso and EMPTY on SQL
+ *   Server, and the two engines agree on exactly one spelling: the declared one. That
+ *   is why every app-table read in this repo is lower case (the app DDL declares lower
+ *   case) and every ledger read is upper case (the ledger's columns are declared upper
+ *   case) — not a stylistic split, a portability rule.
+ *
+ *   ★ `vendorSites.ts` broke that rule in two queries and the symptom was not an error.
+ *     The app store moved to SQL Server; `SELECT VENDOR_SITE_ID … FROM vendor_site_geo`
+ *     then returned rows keyed `VENDOR_SITE_ID` while `GeoRow` declares `vendor_site_id`,
+ *     so every field read `undefined`, `num()` turned that into `0`, and the register
+ *     reported `covered: 0` beside a table holding 800 rows — with all ten counts zero,
+ *     which is internally consistent and therefore silent.
+ *
+ *   This is written down because it is the *absence* of a fix, and an absent fix looks
+ *   like an oversight. It is a measurement, and the measurement is per QUERY: the
+ *   earlier version of this comment generalised from the ledger queries it was written
+ *   against — "the alias case and the case SQL Server reports agree" — which was true
+ *   of those and false of the app-store ones.
  */
 export function createSqlServerDriver(): SqlDriver {
   return {
