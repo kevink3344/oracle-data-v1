@@ -36,6 +36,14 @@
   min-height: 100vh;
   padding: 40px 20px;
   background: var(--app-bg);
+  /* ★ THESE TWO ARE FOR THE BACKGROUND LAYERS AT THE FOOT OF THIS FILE, and neither is
+     cosmetic. `relative` gives the absolutely positioned layers a containing block;
+     `isolate` makes this element a stacking context, which is what lets them sit at
+     `z-index: -1` — behind the card, but still in front of the page's own background
+     instead of behind it, where they would be invisible. Without the pair the layers paint
+     over the card; with the pair they never can. */
+  position: relative;
+  isolation: isolate;
 }
 
 /* ★ 580px AND NOT 460px, BECAUSE THE BRAND IS TWICE THE SIZE. The product's name is
@@ -740,4 +748,243 @@
   .signin__body {
     gap: 16px;
   }
+}
+
+/* ==========================================================================
+   The background — eight choices in one vocabulary.
+
+   ★ THE OPTION CLASSES SIT ON `.signin` ITSELF, and they are the SAME classes the
+     Settings picker puts on its thumbnail. Each option declares exactly one custom
+     property, `--bg-layer`, and there are two consumers: the full-bleed layer below and
+     the swatch in `settings.css`. A picture is therefore named once — a thumbnail list
+     kept quietly beside a stylesheet is the thing that drifts.
+
+   ★ THE ORDER OF THE RULES BELOW MATTERS AND IT IS NOT OBVIOUS. `.signin` and `.bgopt--*`
+     are each one class, so they are equally specific, and the only reason the option
+     classes win over the `background: var(--app-bg)` above is that they come after it.
+     Move them and the background silently reverts to flat grey, with nothing failing.
+   ========================================================================== */
+
+/* --- the vocabulary: one property per option ------------------------------- */
+
+/* `none` states the property rather than leaving it out. An option that declares nothing
+   cannot be told apart from an option whose class was never applied — which is precisely
+   the failure this whole construct exists to prevent. */
+.bgopt--none {
+  --bg-layer: none;
+}
+
+/*
+  ★ THE FIVE PHOTOGRAPHS, ONE LINE EACH. Full-bleed only — no split, no pale wash — so the
+  same picture at a narrow window is a different crop of one design rather than a second
+  design to keep.
+
+  ★ `bgopt--photo` RIDES ALONGSIDE EACH OF THEM AND CARRIES THE SHARED TREATMENT — the scrim
+  and the light card. Those are what a photograph needs and a drawn background does not, and
+  writing them five times would be five places to forget.
+*/
+.bgopt--toronto {
+  --bg-layer: url('/login-bg/toronto.jpg');
+}
+.bgopt--boston {
+  --bg-layer: url('/login-bg/boston.jpg');
+}
+.bgopt--hcmc {
+  --bg-layer: url('/login-bg/hcmc.jpg');
+}
+.bgopt--raleigh {
+  --bg-layer: url('/login-bg/raleigh.jpg');
+}
+.bgopt--office {
+  --bg-layer: url('/login-bg/office.jpg');
+}
+
+/*
+  ★ DRAWN FROM THE BRAND RAMP, SO IT FOLLOWS THE THEME — and written with `rgba()` rather
+  than `color-mix()`. `color-mix` appears nowhere else in this application's CSS, and a
+  background whose only definition needs a function no other sheet uses is a compatibility
+  assumption smuggled in with a gradient. The four colours are the values `tokens.css`
+  holds, so the mesh cannot drift from the brand.
+
+  ★ THE DARK SET IS NOT THE LIGHT SET AT LOWER OPACITY. A pale tint over a near-black
+  surface reads as a smudge; the dark version lifts the blue and drops the yellow, which is
+  the one ramp colour that turns to mud on a dark ground.
+*/
+.bgopt--mesh {
+  --bg-layer:
+    radial-gradient(60% 55% at 12% 8%, rgba(0, 173, 208, 0.32), rgba(0, 173, 208, 0) 70%),
+    radial-gradient(55% 50% at 88% 4%, rgba(22, 87, 136, 0.34), rgba(22, 87, 136, 0) 72%),
+    radial-gradient(70% 60% at 78% 96%, rgba(223, 109, 28, 0.2), rgba(223, 109, 28, 0) 70%),
+    radial-gradient(55% 50% at 6% 92%, rgba(254, 209, 0, 0.18), rgba(254, 209, 0, 0) 70%),
+    linear-gradient(160deg, #f7fafc, #eef4f9 55%, #e7eef5);
+}
+
+[data-theme='dark'] .bgopt--mesh {
+  --bg-layer:
+    radial-gradient(60% 55% at 12% 8%, rgba(0, 173, 208, 0.3), rgba(0, 173, 208, 0) 70%),
+    radial-gradient(55% 50% at 88% 4%, rgba(22, 87, 136, 0.52), rgba(22, 87, 136, 0) 72%),
+    radial-gradient(70% 60% at 78% 96%, rgba(110, 39, 61, 0.44), rgba(110, 39, 61, 0) 70%),
+    radial-gradient(55% 50% at 6% 92%, rgba(254, 209, 0, 0.1), rgba(254, 209, 0, 0) 70%),
+    linear-gradient(160deg, #0b1220, #0e1a30 55%, #0b1220);
+}
+
+/*
+  ★ IT IS ONE DIAGONAL OF BRAND COLOUR, NOT A STRIPE ACROSS THE MIDDLE. The mock this came
+  from drew a 72px bar at a fixed vertical offset, which needed an explicit `z-index`
+  argument to keep it behind the card and stopped reading as a band at any other window
+  height. A diagonal that fills the screen has no offset to get wrong and no z-fighting to
+  fix, because the layer is already behind everything (see `isolation` above).
+
+  ★ THE OUTER STOPS ARE FULLY TRANSPARENT, so the app background shows through and the
+  screen still reads as the same product. A solid band would be a different design rather
+  than a background for this one.
+*/
+.bgopt--band {
+  --bg-layer: linear-gradient(
+    112deg,
+    rgba(22, 87, 136, 0) 0%,
+    rgba(22, 87, 136, 0) 40%,
+    rgba(22, 87, 136, 0.16) 40%,
+    rgba(0, 173, 208, 0.18) 52%,
+    rgba(223, 109, 28, 0.14) 62%,
+    rgba(223, 109, 28, 0) 70%,
+    rgba(223, 109, 28, 0) 100%
+  );
+}
+
+[data-theme='dark'] .bgopt--band {
+  --bg-layer: linear-gradient(
+    112deg,
+    rgba(0, 173, 208, 0) 0%,
+    rgba(0, 173, 208, 0) 40%,
+    rgba(0, 173, 208, 0.22) 40%,
+    rgba(22, 87, 136, 0.45) 52%,
+    rgba(110, 39, 61, 0.4) 62%,
+    rgba(110, 39, 61, 0) 70%,
+    rgba(110, 39, 61, 0) 100%
+  );
+}
+
+/* --- the two layers -------------------------------------------------------- */
+
+/*
+  ★ ONE ABSOLUTELY POSITIONED LAYER UNDER THE WHOLE SCREEN. No element is added to the
+  markup for any of this — `none` therefore renders the screen exactly as it was before
+  this feature existed, which is what makes it an honest choice rather than a placeholder.
+
+  ★ `center 42%` AND NOT `center`: every one of the five pictures is a skyline with its
+  interest in the lower two thirds, and dead centre crops the buildings out of the frame
+  first. The offset was measured against the five, not picked.
+*/
+.signin::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--bg-layer, none);
+  background-size: cover;
+  background-position: center 42%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/*
+  ★ THE SCRIM IS A SECOND LAYER RATHER THAN A SECOND BACKGROUND IMAGE, because it has to
+  hold still while `cover` varies the crop. Painted after `::before` in tree order, it lies
+  over the picture and under the card.
+*/
+.signin::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-scrim, none);
+  pointer-events: none;
+}
+
+/* ★ ONLY THE PHOTOGRAPHS GET A SCRIM. A drawn background is already at the contrast its
+   author chose, and a dark wash over the mesh or the band would be repairing a problem
+   neither of them has. */
+.bgopt--photo {
+  --bg-scrim: linear-gradient(
+    180deg,
+    rgba(6, 12, 22, 0.72) 0%,
+    rgba(6, 12, 22, 0.5) 45%,
+    rgba(6, 12, 22, 0.78) 100%
+  );
+}
+
+/* --- the light pane a photograph forces ------------------------------------ */
+
+/*
+  ★ A CARD THAT FOLLOWS THE THEME IS INVISIBLE ON A DARK PHOTOGRAPH. In dark mode the card
+  is `--surface: #131e33` against a picture carrying `rgba(6, 12, 22, 0.72)` — the same
+  value to within a few percent — so it dissolves into its own background and the fields
+  appear to float on the image. Under a photograph this screen is a light pane whatever the
+  application theme is; the picture is the reason, and it is the same reason the scrim
+  exists.
+
+  ★ THE TOKENS ARE RE-POINTED RATHER THAN THE ELEMENTS RESTYLED. Everything inside the card
+  already reads `--text-heading`, `--border`, `--link` and the rest, so re-pointing them
+  here puts a dozen existing rules back to work instead of writing a dozen near-copies that
+  would each have to keep pace with `tokens.css`.
+
+  ★ `--app-bg` IS DELIBERATELY NOT AMONG THEM. It is read by `body` in `base.css`, and a
+  custom property set on `.signin` cannot reach an ancestor — declaring it here would look
+  like it did something and change nothing.
+*/
+.signin.bgopt--photo {
+  --surface: #ffffff;
+  --surface-sunken: #f6f8fa;
+  --surface-hover: #f0f2f5;
+  --surface-active: #eef4f9;
+  --text-heading: #1a1a1a;
+  --text-body: #3d3d3d;
+  /* Darker than the theme's `#727272`, which was chosen for a pale grey page and measures
+     under 4.5:1 on pure white. */
+  --text-muted: #5c5c5c;
+  --text-faint: #767676;
+  --link: #165788;
+  --border: #e3e3e3;
+  --border-strong: #cfcfcf;
+}
+
+/*
+  ★ THE SHADOW IS WHAT LIFTS THE CARD OFF THE PICTURE, and it is heavier than the themed
+  one on purpose: that shadow was written to separate a white card from a grey page and
+  reads as no shadow at all against a photograph.
+
+  ★ `border-color` IS OVERRIDDEN TOO. The themed border is a hairline against a page; over a
+  busy picture the card's edge needs to be white, because the edge is what the eye uses to
+  find where the card starts.
+*/
+.signin.bgopt--photo .signin__card {
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 60px -18px rgba(0, 0, 0, 0.75);
+}
+
+/* --- the licence line ------------------------------------------------------ */
+
+/*
+  ★ IT IS ONLY EVER RENDERED OVER A PHOTOGRAPH, WHICH IS WHY WHITE IS LEGITIMATE. The two
+  options that carry a credit are both pictures under a scrim, so a white label at 9.5px
+  sits on a known dark ground in BOTH themes — there is no theme-aware colour to choose and
+  no contrast question left to answer. The `text-shadow` is not decoration: it is what keeps
+  the line readable where the scrim thins over a bright part of the picture.
+
+  ★ IT IS POSITIONED, NOT LAID OUT. This element is a child of a centred grid; left in flow
+  it would become a grid item and push the card off centre by its own height. Taking it out
+  of the flow leaves the card exactly where the layout put it, and it paints over the card
+  if the two ever meet because it comes later in the document.
+*/
+.bgcredit {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  max-width: 520px;
+  font-size: 9.5px;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: right;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }

@@ -976,3 +976,109 @@
     margin-left: 0;
   }
 }
+
+/* ==========================================================================
+   The sign-in background picker.
+
+   ★ `--bg-layer` IS NOT DEFINED HERE, AND THAT IS THE POINT. Each option's background is
+     declared once in `signin.css`, beside the screen that draws it, and the swatch in this
+     sheet reads the SAME property. So the tile cannot show one picture while the sign-in
+     screen shows another — the one failure a hand-kept thumbnail list produces, silently,
+     the first time a picture is swapped.
+   ★ NO ORDERING REQUIREMENT BETWEEN THE TWO FILES. A custom property is resolved on the
+     element that uses it, so it does not matter which sheet declares it or which loads
+     first — only that both are loaded.
+   ========================================================================== */
+
+.bgpref {
+  display: grid;
+  gap: 2px;
+}
+
+/* The row IS the label, so the whole tile is the hit target — including the picture, which
+   is the part a reader will aim at. */
+.bgpref__opt {
+  display: grid;
+  grid-template-columns: auto 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.bgpref__opt:hover {
+  background: var(--surface-hover);
+}
+
+/* ★ ALIGNED TO THE FIRST LINE OF TEXT, NOT TO THE MIDDLE OF THE ROW. A 15px control
+   centred against a 64px tile floats away from the words it belongs to; pinned to the
+   label's own line it reads as part of them. */
+.bgpref__opt input[type='radio'] {
+  margin: 3px 0 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary-color);
+}
+
+/*
+  ★ `background-color` IS NOT DECORATION HERE. `--bg-layer` is `none` for the first option,
+  so without a colour the "None" tile would be an empty box while the two drawn options sat
+  as faint washes — three states that look like each other. `--app-bg` is exactly what "None"
+  means, which makes the tile truthful rather than merely visible.
+*/
+.bgpref__swatch {
+  width: 64px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--app-bg);
+  background-image: var(--bg-layer, none);
+  background-size: cover;
+  background-position: center 42%;
+  background-repeat: no-repeat;
+}
+
+.bgpref__text {
+  display: grid;
+  gap: 3px;
+}
+
+.bgpref__label {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.bgpref__hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* ★ SEPARATED FROM THE HINT ON PURPOSE. The hint says a credit line is shown on the screen;
+   this line IS that credit. Run together as one paragraph, the licence term would read as
+   more description of the picture. */
+.bgpref__credit {
+  font-size: 0.6875rem;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.bgpref__note {
+  margin-top: 8px;
+  max-width: 72ch;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 620px) {
+  /* The radio and the swatch take 90px of a narrow panel. The picture is the part worth
+     keeping, so the tile shrinks and the text column takes whatever is left. */
+  .bgpref__opt {
+    grid-template-columns: auto 48px minmax(0, 1fr);
+  }
+
+  .bgpref__swatch {
+    width: 48px;
+    height: 32px;
+  }
+}

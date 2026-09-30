@@ -67,6 +67,7 @@ import AppBrand from '../components/AppBrand';
 import { num, pluralise } from '../data/format';
 import { LEDGER_SCALE, recordsFloor, STORE_SCALE } from '../data/ledgerScale';
 import { useLedgerSummary, type LedgerObject } from '../data/ledgerSummary';
+import { useLoginBg } from '../data/loginBackground';
 import { capTotals, describeCapTotal, loadReadCaps, type ReadCapList } from '../data/readCaps';
 import { isSuperAdmin, roleLabel, signIn, signOut, useSession } from '../data/session';
 
@@ -705,6 +706,15 @@ export default function SignIn() {
    */
   const [stage, setStage] = useState<'email' | 'password'>('email');
 
+  /**
+   * The background chosen on Settings, already resolved to its option.
+   *
+   * ★ DESTRUCTURED TO ONE ELEMENT ON PURPOSE. This screen only ever reads the preference, and a
+   *   `setBg` that nothing here calls is a second route to the value that no reader of this file
+   *   has to hold in their head. The setter lives on Settings, beside the control that uses it.
+   */
+  const [bg] = useLoginBg();
+
   const signedIn = user?.authenticated === true;
   const from = readFrom(location.state);
   const address = email.trim();
@@ -777,7 +787,11 @@ export default function SignIn() {
   }
 
   return (
-    <div className="signin">
+    <div className={`signin ${bg.className}`}>
+      {/* ★ THE OPTION CLASS SITS ON THIS ELEMENT, NOT ON THE CARD. `signin.css` draws the
+          background as a pseudo-element beneath the whole screen and — for a photograph — flips
+          the card to a light pane; both are decisions about the screen, so both are reached by
+          `.signin` together with the option's own class. */}
       <div className="signin__card">
         {/* The name of the app is the title of this screen, so the brand block carries
             the page's `<h1>` and everything below it is a level down. */}
@@ -1162,6 +1176,20 @@ export default function SignIn() {
           </form>
         )}
       </div>
+
+      {/*
+        ★ THE CREDIT LINE IS RENDERED ONLY FOR THE PICTURES THAT OBLIGE US TO.
+
+          Raleigh (CC BY 4.0) and the office photograph (CC BY 3.0) require the author to be named
+          wherever the image is shown. The other three are public domain or CC0, where a credit
+          would be a label for nothing — an attribution nobody owes reads as a puzzle.
+
+        ★ THIS BLOCK HOLDS NO LICENCE KNOWLEDGE. Which option needs a credit, and what it says,
+          is decided in `data/loginBackground.ts` and arrives with the option — so this prints
+          what it was given, or nothing at all, and a picture added there cannot be shown without
+          its licence term travelling alongside it.
+      */}
+      {bg.credit ? <span className="bgcredit">{bg.credit}</span> : null}
 
       {/*
         ★ THE FOOT NOTE IS GONE, AND THE ARGUMENT FOR IT IS WORTH RECORDING PRECISELY

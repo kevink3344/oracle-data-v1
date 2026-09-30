@@ -95,6 +95,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Link } from 'react-router-dom';
 import { Chip } from '../components/Chip';
 import ResizeGrip, { clampWidth, readStoredWidth, storeWidth } from '../components/ResizeGrip';
+import { LOGIN_BG_OPTIONS, useLoginBg } from '../data/loginBackground';
 import {
   ApiError,
   acceptedValues,
@@ -642,6 +643,102 @@ function ScopeFields({
         </p>
       </div>
     </>
+  );
+}
+
+/**
+ * The picture behind the sign-in screen, as a reader preference.
+ *
+ * ── WHY THE CONTROL IS ON THIS PAGE
+ *
+ * Like the SQL switch below it, this is a *reading* preference rather than a property of any one
+ * record: it changes a screen that this page never shows, so it belongs with the other
+ * deployment-wide settings. It is deliberately **not** behind `requireSuperAdmin` — the person who
+ * looks at the sign-in screen every morning is the person with an opinion about it, and the panel
+ * is reachable by a member while the registers above it are not.
+ *
+ * ── ★ WHY A RADIO GROUP RATHER THAN A DROPDOWN
+ *
+ * Eight options, six of which are a picture. A `<select>` of eight names asks a person to choose a
+ * photograph they cannot see; the swatch beside each row means the choice is made by looking at it.
+ *
+ * ★ THE SWATCH AND THE SCREEN DRAW THE SAME PROPERTY, AND THAT IS THE POINT. Each option sets
+ *   `--bg-layer` once, in `signin.css`; the sign-in screen uses it as a full-bleed background and
+ *   the swatch here uses it as a thumbnail. So the tile cannot show one picture while the screen
+ *   shows another — which is exactly what a hand-kept thumbnail list beside a stylesheet does the
+ *   first time a picture is swapped.
+ *
+ * ── ★ THE LICENCE RIDES WITH THE OPTION, AND SHOWS TWICE
+ *
+ * Two of the photographs are CC BY and carry an attribution line that is rendered on the sign-in
+ * screen whenever they are selected. The same line is printed under the option here, so the
+ * obligation is visible at the moment the choice is made rather than only afterwards.
+ *
+ * ── ★ IT FOLDS, AND THE HEAD ALREADY CARRIES THE ANSWER
+ *
+ * The count beside the title is the current option's own name, so the panel can be collapsed
+ * without hiding the one fact a reader opens it for. It is the same `.acc` the two registers above
+ * it use rather than a second kind of collapsible, and it starts open the way they do — a folding
+ * panel that began folded would hide a choice behind a control that looks like a label.
+ */
+function LoginBgPanel() {
+  const [bg, setBg] = useLoginBg();
+  const [open, setOpen] = useState(true);
+
+  return (
+    <section className="panel acc">
+      <div className="panel__head">
+        <button
+          type="button"
+          className="acc__toggle"
+          aria-expanded={open}
+          aria-controls="login-bg-body"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="acc__caret" aria-hidden="true">
+            {open ? '▾' : '▸'}
+          </span>
+          Sign-in background
+        </button>
+        <div className="acc__actions">
+          <span className="panel__count">{bg.label}</span>
+        </div>
+      </div>
+      <div className="panel__body" id="login-bg-body" hidden={!open}>
+        <div className="bgpref">
+          {LOGIN_BG_OPTIONS.map((option) => (
+            <label className="bgpref__opt" key={option.id}>
+              <input
+                type="radio"
+                name="login-bg"
+                id={`login-bg-${option.id}`}
+                checked={bg.id === option.id}
+                onChange={() => setBg(option.id)}
+              />
+              {/* `aria-hidden` because the radio's own name is the text beside it; a screen
+                  reader announcing the picture as well would read the same choice twice. */}
+              <span
+                className={`bgpref__swatch ${option.className}`}
+                aria-hidden="true"
+              />
+              <span className="bgpref__text">
+                <span className="bgpref__label">{option.label}</span>
+                <span className="bgpref__hint">{option.hint}</span>
+                {option.credit ? (
+                  <span className="bgpref__credit">{option.credit}</span>
+                ) : null}
+              </span>
+            </label>
+          ))}
+
+          <span className="bgpref__note">
+            A preference on this browser, like the theme — it is remembered between visits and does
+            not change what anyone else sees. It is applied on the sign-in screen, which is the only
+            screen reachable without a session.
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1395,6 +1492,8 @@ export default function Settings() {
 
         </div>
       </section>
+
+      <LoginBgPanel />
 
       <SqlPreferencePanel />
 
