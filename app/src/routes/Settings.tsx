@@ -760,17 +760,37 @@ function LoginBgPanel() {
  * will appear: a real statement, in the annotation colour, at the size it will be. Somebody who
  * does not want that on every page can decide before they turn it on, which is the difference
  * between a preference and a surprise.
+ *
+ * ── ★ IT FOLDS, AND THE HEAD ALREADY CARRIES THE ANSWER
+ *
+ * The count beside the title reads `on` or `off`, which is the whole state of this switch, so
+ * folding the panel cannot hide whether the setting is on. Same `.acc` as the panels around it,
+ * open to begin with; `LoginBgPanel` above carries the fuller note.
  */
 function SqlPreferencePanel() {
   const [on, setOn] = useShowSql();
+  const [open, setOpen] = useState(true);
 
   return (
-    <section className="panel">
+    <section className="panel acc">
       <div className="panel__head">
-        <h2 className="panel__title">Show the SQL behind the figures</h2>
-        <span className="panel__count">{on ? 'on' : 'off'}</span>
+        <button
+          type="button"
+          className="acc__toggle"
+          aria-expanded={open}
+          aria-controls="sql-pref-body"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="acc__caret" aria-hidden="true">
+            {open ? '▾' : '▸'}
+          </span>
+          Show the SQL behind the figures
+        </button>
+        <div className="acc__actions">
+          <span className="panel__count">{on ? 'on' : 'off'}</span>
+        </div>
       </div>
-      <div className="panel__body">
+      <div className="panel__body" id="sql-pref-body" hidden={!open}>
         <div className="sqlpref">
           <div className="sqlpref__row">
             <input
