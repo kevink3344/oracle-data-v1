@@ -227,8 +227,15 @@ export interface VendorsExtract {
   vendors: Vendor[];
   /** What the register is a slice of, read from the file. Never assumed. */
   scope: InvoiceScope;
-  /** The fiscal year the pull was bounded to. */
-  window: { from: string; to: string; fiscalYear: number };
+  /**
+   * The fiscal years the register was bounded to, carried on the response itself.
+   *
+   * ★ `fiscalYearEnd` DIFFERS FROM `fiscalYear` ONLY FOR A RANGE, and the page needs both to say
+   *   "FY2026–2027" without recomputing. `0` on either means the server did not declare a year,
+   *   which the page treats as "no year to name" rather than as year zero. Same shape and same
+   *   rule as `InvoicesExtract.window`, because this register IS that register grouped by payee.
+   */
+  window: { from: string; to: string; fiscalYear: number; fiscalYearEnd: number };
   /** The dates actually present, which are narrower than the bound. */
   observed: { from: string; to: string };
   /** Invoices behind the vendor list. 126. */
@@ -326,7 +333,7 @@ function scopeAccount(accounts: readonly InvoiceAccount[]): { code: string; prog
 export function groupVendors(extract: {
   invoices: readonly Invoice[];
   scope: InvoiceScope;
-  window: { from: string; to: string; fiscalYear: number };
+  window: { from: string; to: string; fiscalYear: number; fiscalYearEnd: number };
   observed: { from: string; to: string };
 }): VendorsExtract {
   // One pass. The register arrives ordered by invoice id, so the per-vendor lists
@@ -485,9 +492,25 @@ export function groupVendors(extract: {
  *   register followed the invoice register to the ledger for free. That is the delegation paying
  *   for itself — a second fetch of `invoices.json` here would have been a second place to repoint,
  *   and the one most likely to be missed.
+ *
+ * ★ IT ALSO TAKES THE FISCAL-YEAR RANGE FOR THE SAME REASON, AND THIS IS THE POINT OF THE
+ *   PARAMETER RATHER THAN A CONVENIENCE. The register is bounded to a fiscal year and always was,
+ *   which means a vendor whose only in-scope invoice is dated outside that year is not grouped at
+ *   all — it is not hidden row-by-row, it never becomes a row. Measured: `BALFOUR BEATTY
+ *   CONSTRUCTION` (`VENDOR_ID` 75064) has 125 in-scope invoices back to 2020 and its most recent is
+ *   dated **2026-06-30**, one day before the newest year's window opens, so the payee with the
+ *   largest single commitment on this tenant was absent from a register of payees. The fix is to
+ *   let the reader move the bound, which means the bound has to reach this call.
+ *
+ * ★ ABSENT STILL MEANS "SEND NO RANGE", NOT "NO FILTER". Passing nothing leaves the server's own
+ *   newest-year default in force, so a caller that has not read the year list yet — or could not —
+ *   still gets a register. `loadInvoices` owns that rule; this only forwards it.
  */
-export async function loadVendors(signal?: AbortSignal): Promise<VendorsExtract> {
-  const register = await loadInvoices(signal);
+export async function loadVendors(
+  signal?: AbortSignal,
+  fy?: { start: number; end: number },
+): Promise<VendorsExtract> {
+  const register = await loadInvoices(signal, fy);
   return groupVendors({
     invoices: register.invoices,
     scope: register.scope,

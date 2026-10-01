@@ -41,6 +41,12 @@ export const num = (n: number): string => new Intl.NumberFormat('en-US').format(
  *   thousand. Nobody reads an Oracle id that way: `VENDOR_ID` is a label, and the
  *   commas both suggest a magnitude and make the string hard to paste into the
  *   query that would look it up. Digits only, always.
+ *
+ * ★ IT WAS DELETED ONCE AND THE WHOLE APP STOPPED MOUNTING. `VendorCompanies` and
+ *   `VendorSites` both import it by name, so removing the export is not a local
+ *   tidy-up — Vite refuses the module graph and every route renders blank with no
+ *   error in the page. Two importers, two call sites in the panel, one export: if
+ *   this is ever genuinely unwanted, the call sites go first.
  */
 export const ident = (n: number): string => String(Number(n) || 0);
 

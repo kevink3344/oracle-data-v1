@@ -509,9 +509,23 @@ const VENDORS: MenuBlock = {
         '`PARENT_VENDOR_ID` is **null on every row** the app has seen — so no parent → subsidiary ' +
         'tree exists to build, and §5.3’s Nest is a plan rather than a shape the data has. ' +
         'The screen reads its two halves from two places on purpose: the payments come from the ' +
-        'scoped AP extract (nothing else records who was paid), the master row is looked up live ' +
-        'one company at a time. **55 vendors** on the Fund 04 / 861-862 register, across 126 ' +
-        'invoices and 65 checks — the largest payee on 15 invoices, the busiest on 5 checks.',
+        'scoped AP register (nothing else records who was paid), the master row is looked up live ' +
+        'one company at a time. ★ **Every figure below now names the window it was measured in.** ' +
+        'That is a correction, not a flourish: the register is bounded by fiscal year — the bound ' +
+        'is real, because behind it sits the tenant’s whole AP register — and moving the bound ' +
+        'moves companies in and out of the page. At the server’s own default, FY2027, it holds ' +
+        '**55 vendors** across 126 invoices and 65 checks, the largest payee on 15 of those ' +
+        'invoices and the busiest on 5 of those checks. At this organization’s Start FY, ' +
+        '**FY2022–2027** (`2021-07-01 → 2027-06-30`), it holds **762 vendor rows across 21,037 ' +
+        'invoices**. Neither figure is stale; they are one register measured a year at a time. ' +
+        'The page now opens at the second, states the dates it used on a `Window` line under the ' +
+        'filter bar, and carries the fiscal-year picker beside the search. ★ The window is not ' +
+        'academic — **BALFOUR BEATTY CONSTRUCTION** (`VENDOR_ID` 75064; 70 invoices at Start FY, ' +
+        '**$96,566,412.20**) is **absent from FY2027 entirely**, and that absence is what this ' +
+        'leaf owes the reader an answer to. What the register bounds is the **invoice** date, so a ' +
+        'company paid inside a year for an invoice dated before it opens does not appear in it: ' +
+        'Balfour’s last invoice is dated 2026-06-30, one day before FY2027 begins, and his check ' +
+        '`44407353` — $229,185.86, dated 2026-07-28 — settles it inside FY2027.',
       plan: '§5.3',
     },
     {

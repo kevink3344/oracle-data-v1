@@ -3,10 +3,18 @@
 
    Extends `.panel`, `.table-wrap`, `table.data`, `.filterbar`, `.pager`, `.dsec`,
    `.drawer`, `.btn`, `.notice`, `.chart-note`, `.chkstats`/`.chkstat*`,
-   `.chkrows`/`.chkrow*`, `.chkempty`/`.chkempty__hint`, `.pager__gap` and
-   `.scopenote`, all of which it inherits from tokens.css, base.css,
-   components.css, projects.css, panel.css, objectdetail.css and checks.css.
+   `.chkrows`/`.chkrow*`, `.chkempty`/`.chkempty__hint`, `.pager__gap`,
+   `.scopenote`, `.fyrange`/`.fselect--fy`/`.fyrange__dash` and `.fywindow*`, all of
+   which it inherits from tokens.css, base.css, components.css, projects.css,
+   panel.css, objectdetail.css, invoices.css and checks.css.
    Nothing here redeclares any of them.
+
+   ★ `.fyrange` AND `.fywindow` COME FROM `invoices.css`, WHICH IS WHERE THE
+     FISCAL-YEAR CONTROL WAS FIRST BUILT, AND NOTHING HERE REDEFINES THEM. The
+     `<select>` pair and the sentence that names the resulting bound are the same on
+     all three registers because they ARE the same rules; `.vcwindow` beside
+     `.vcfilter__miss` below adds the one thing this page needs and they do not —
+     an inset.
 
    ★ THE TWO PRIMITIVES THIS SHEET BORROWS FROM `checks.css` ARE BORROWED ON
      PURPOSE AND NOT COPIED. `.chkstats`, `.chkstat*`, `.chkrows`, `.chkrow*`,
@@ -103,6 +111,22 @@
 .vcfilter__miss code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.9em;
+}
+
+/* The fiscal-year window line, inset to the same 16px the bar and the notes use.
+
+   ★ THE SHARED `.fywindow` RULE HAS NO HORIZONTAL MARGIN, and that is right where it
+   lives: on `/invoices` and `/checks` the line is a direct child of a `.panel` whose
+   padding is zero, so it sits flush to the panel's inner edge. On THIS page every
+   panel child is inset — `.vcfilter__miss` at `0 16px 12px`, the table's cells, the
+   pager — so a flush line would set the one sentence that explains the whole table
+   16px out of the column it is explaining. The offset is stated here rather than
+   inherited because the two situations differ.
+
+   ★ IT IS SPACING, NOT WORDING. The sentence itself comes from `windowOriginSentence`,
+   shared with both registers, and the classes that draw it are shared too. */
+.vcwindow {
+  margin: 10px 16px 12px;
 }
 
 /* --- the vendor table ------------------------------------------------- */

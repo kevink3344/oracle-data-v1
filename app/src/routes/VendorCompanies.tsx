@@ -12,6 +12,8 @@ import {
   type VendorMaster,
   type VendorsExtract,
 } from '../data/vendors';
+import { loadFiscalYears, type FiscalYear } from '../data/invoices';
+import { windowFromSettings, windowOriginSentence } from '../data/fiscalWindow';
 import ErrorNotice from '../components/ErrorNotice';
 import { CustomNamesNote, EditableField } from '../components/EditableField';
 import { customLabels, useOverrides, type OverrideState } from '../data/customFields';
@@ -316,8 +318,8 @@ export default function VendorCompanies() {
    * `raw` is what the endpoint sent; `data` below is that with any custom vendor names
    * folded in. They are kept apart because the two reads are independent requests with
    * independent fates — the override read can fail while the register is perfectly
-   * loaded — and because saving one name must not re-download 55 vendors' worth of
-   * invoices to change one label.
+   * loaded — and because saving one name must not re-download the whole register's
+   * worth of invoices to change one label.
    */
   const [raw, setRaw] = useState<VendorsExtract | null>(null);
   const [error, setError] = useState('');
@@ -334,18 +336,131 @@ export default function VendorCompanies() {
 
   const { scope: liveScope, scopeTenant } = useStore();
 
+  /*
+    ── THE FISCAL-YEAR WINDOW ────────────────────────────────────────────────
+
+    ★ THE REGISTER IS BOUNDED TO A FISCAL YEAR, AND THAT BOUND IS NOT A FILTER — IT IS THE
+      REGISTER. The route reads one window of invoices, so a payee whose every in-scope invoice
+      falls outside it is not hidden row by row: it never becomes a row, and this page cannot
+      report it as missing because it has never heard of it. The table then reads as a complete
+      list of the companies this tenant has paid, which it is not.
+
+    ★ MEASURED, LIVE, ON THIS TENANT — the same register at three windows:
+
+        FY2027    (default)   126 invoices ·   55 vendors ·  BALFOUR 0
+        FY2026–27            4,106 invoices ·  359 vendors ·  BALFOUR 12
+        FY2022–27            21,037 invoices · 764 vendors ·  BALFOUR 70
+
+      `BALFOUR BEATTY CONSTRUCTION` (`VENDOR_ID` 75064) holds the largest in-scope commitment on
+      this tenant and was on none of the first 126 rows, because its most recent in-scope invoice
+      is dated `2026-06-30` — one day before FY2027 opens. A register of payees that omits a payee
+      has to say what it is bounded to and let the reader move the bound; that is the whole of
+      what this control and the sentence below it do.
+
+    ★ `windowFromSettings` AND `windowOriginSentence` ARE IMPORTED, NOT REIMPLEMENTED. The bound
+      comes from the organization's Start FY, and the sentence that names its source has to read
+      the same on all three registers — two copies of one sentence is how two registers come to
+      say it differently. `/invoices` and `/checks` use these same two functions.
+
+    ★ THE RANGE IS DERIVED, NOT SEEDED INTO STATE BY AN EFFECT. The sibling registers latch the
+      default once with a `defaulted` ref; here `fyRange` holds only the reader's own movement and
+      the default is `fyRange ?? settingsWindow`, so nothing has to be applied after mount. That is
+      not just less code — the latch needs a second render to take hold, which means the register
+      is fetched once at the server's default and then fetched AGAIN at Start FY, and the first of
+      those two fetches is visible: the table renders 55 vendors and then replaces them with 764.
+      It would also break the `?vendor=` deep link below, which resolves a name against whatever
+      register is in hand and latches whether it found it.
+  */
+
+  /**
+   * The fiscal years the ledger carries, newest first.
+   *
+   * An empty list is a working state, not a blank one: it means the range is not yet known, and
+   * `windowFromSettings` answers `null` for it, which sends **no parameters at all** so the route
+   * falls back to its own newest year.
+   */
+  const [years, setYears] = useState<FiscalYear[]>([]);
+
+  /**
+   * ★ THE GATE, AND IT IS WHAT KEEPS THIS PAGE TO ONE REGISTER FETCH.
+   *
+   * The year list arrives after the first render, so the window is not knowable at mount. Waiting
+   * for it costs one fast local read and buys two things: the register is fetched once, and the
+   * `?vendor=` deep link is resolved against the window the reader is actually looking at rather
+   * than against the 55-vendor default that is about to be thrown away.
+   *
+   * ★ A FAILED YEAR READ STILL OPENS THE GATE. `years` stays empty, no range is sent, and the
+   *   route answers with its newest year — fewer rows, never no rows.
+   */
+  const [yearsRead, setYearsRead] = useState(false);
+  /** The reader's own movement. `null` means "whatever this organization's Start FY says". */
+  const [fyRange, setFyRange] = useState<{ start: number; end: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     const controller = new AbortController();
+    loadFiscalYears(controller.signal)
+      .then(setYears)
+      .catch(() => {
+        if (!controller.signal.aborted) setYears([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setYearsRead(true);
+      });
+    return () => controller.abort();
+  }, []);
+
+  /** Where this organization's Start FY would open the register, and whether it had to clamp. */
+  const settingsWindow = useMemo(
+    () => (scopeTenant ? windowFromSettings(scopeTenant.startFy, years) : null),
+    [scopeTenant, years],
+  );
+
+  /** The reader's choice if they have made one, and this organization's Start FY if they have not. */
+  const effectiveRange = useMemo(
+    () => fyRange ?? (settingsWindow ? { start: settingsWindow.start, end: settingsWindow.end } : null),
+    [fyRange, settingsWindow],
+  );
+
+  /**
+   * ★ WHETHER THE READER HAS MOVED THE WINDOW, WHICH IS A DIFFERENT QUESTION FROM WHETHER IT IS
+   *   WIDER THAN THE FISCAL FLOOR. It drives the way back: a reader who has moved the start needs
+   *   to be able to undo it without going to Settings to find out which year it holds — so the
+   *   button names that year instead of sending them to look it up.
+   */
+  const movedFromSettings = Boolean(
+    settingsWindow &&
+      fyRange &&
+      (fyRange.start !== settingsWindow.start || fyRange.end !== settingsWindow.end),
+  );
+
+  const windowOrigin = useMemo(
+    () => windowOriginSentence(settingsWindow, fyRange),
+    [settingsWindow, fyRange],
+  );
+
+  useEffect(() => {
+    if (!yearsRead) return;
+    const controller = new AbortController();
     setError('');
-    setRaw(null);
-    loadVendors(controller.signal)
-      .then((next) => setRaw(next))
+    setLoading(true);
+    // ★ THE PREVIOUS REGISTER IS DELIBERATELY LEFT IN PLACE WHILE THE NEXT ONE LOADS. Blanks on a
+    //   window change would read as "no vendors", which is the exact conclusion this control
+    //   exists to stop a reader reaching. The rows stay and the window line stays with them,
+    //   because `data.window` is the window those rows were read at — so the two never disagree
+    //   while the wider read is in flight. The count is what says a read is happening.
+    loadVendors(controller.signal, effectiveRange ?? undefined)
+      .then((next) => {
+        setRaw(next);
+        setLoading(false);
+      })
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
+        setLoading(false);
         setError(e instanceof Error ? e.message : String(e));
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, effectiveRange, yearsRead]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -420,17 +535,29 @@ export default function VendorCompanies() {
     if (query !== arrivalQuery.current) setMissing('');
   }, [query, missing]);
 
+  /**
+   * ★ ONE FLATTENED HAYSTACK PER VENDOR, BUILT ONCE — NOT ONCE PER KEYSTROKE, AND NOT PER VENDOR
+   *   PER KEYSTROKE.
+   *
+   * `haystack` walks every invoice and every check of a vendor and joins their numbers, dates,
+   * accounts and orders into one string. That was 55 vendors and 126 invoices when it was written,
+   * which is cheap enough to redo inside the filter; at the organization's Start FY it is 764
+   * vendors over 21,037 invoices, and redoing it per keystroke is the difference between a search
+   * box and a stutter. The register is fetched in one piece, so the index is built in one piece.
+   */
+  const index = useMemo(
+    () => (data ? data.vendors.map((vendor) => ({ vendor, hay: haystack(vendor) })) : []),
+    [data],
+  );
+
   const matches = useMemo(() => {
     const terms = termsOf(query);
     if (!terms.length) return data?.vendors ?? [];
     // ★ FILTER, THEN SLICE — never the other way round. Slicing first and filtering
     //   the window silently denies that matches exist outside it, so a search for a
     //   vendor that is provably on page 2 reports nothing.
-    return (data?.vendors ?? []).filter((v) => {
-      const hay = haystack(v);
-      return terms.every((t) => hay.includes(t));
-    });
-  }, [data, query]);
+    return index.filter((entry) => terms.every((t) => entry.hay.includes(t))).map((entry) => entry.vendor);
+  }, [index, data, query]);
 
   const sorted = useMemo(() => sortRows(matches, COLUMNS, sort), [matches, sort]);
 
@@ -535,9 +662,10 @@ export default function VendorCompanies() {
             The register was built with <strong>{scope?.label ?? scopeLabel(fileScope, fileScope.programs)}</strong>{' '}
             applied in the extract query, but the scope above the search box is now{' '}
             <strong>{scopeLabel(liveScope, scopeTenant?.programs ?? [])}</strong>. The vendors shown
-            are the ones the file holds. The app cannot re-apply a different fund and program to
-            them, because on this register the rule lives in the SQL, not in the browser — re-run{' '}
-            <code>node server/scripts/pull-invoices-extract.mjs</code> to rebuild it.
+            are the ones this window of the register holds. The app cannot re-apply a different fund
+            and program to them, because on this register the rule lives on the server, not in the
+            browser — change the organization's fund and programs in <strong>Settings</strong> and
+            the route applies them.
           </span>
         </p>
       ) : null}
@@ -549,9 +677,8 @@ export default function VendorCompanies() {
           heading="The payment register could not be read."
           hint={
             <p>
-              This page reads <code>app/public/oracle/invoices.json</code>, written by{' '}
-              <code>node server/scripts/pull-invoices-extract.mjs</code> against the live Oracle
-              ledger.
+              This page reads the live AP register at <code>/api/ap/invoices</code>, grouped by
+              payee, with the year range above sent as <code>fyStart</code> and <code>fyEnd</code>.
             </p>
           }
         />
@@ -585,7 +712,7 @@ export default function VendorCompanies() {
                 </p>
               </div>
               <span className="panel__count">
-                {num(shown.length)} of {num(sorted.length)}
+                {loading ? 'Reading the register…' : `${num(shown.length)} of ${num(sorted.length)}`}
               </span>
             </div>
 
@@ -619,17 +746,166 @@ export default function VendorCompanies() {
                   </button>
                 ) : null}
               </div>
+
+              {/*
+                ★ THE FISCAL-YEAR RANGE, BESIDE THE SEARCH RATHER THAN INSTEAD OF IT.
+
+                  The two do different jobs and neither replaces the other. The search is a needle:
+                  it finds a company by name, invoice number, check number or account, in whatever
+                  the register holds. The range decides WHAT THE REGISTER HOLDS — which is the
+                  question a reader arrives with when the company they are looking for is not
+                  there to be searched for.
+
+                ★ THE IDS ARE PREFIXED `vc-` LIKE `vc-q`, because both selects and the search box
+                  are live on one page and an unprefixed `fy-start` would be the only control here
+                  whose id does not say which page owns it.
+
+                ★ IT IS GATED ON THE RANGE BEING KNOWN, NOT MERELY ON THE YEAR LIST EXISTING. A
+                  `<select>` with `value=""` and a list of years shows the browser's first option
+                  while the page believes nothing is selected — the control would claim FY2027 and
+                  the register would hold something else. No range, no control.
+
+                ★ EACH END CLAMPS THE OTHER RATHER THAN REFUSING. A reversed range is a 400 from
+                  the route — deliberately, because a window that begins after it ends is a
+                  question with no answer, not an empty one — and the picker must not be able to
+                  ask it. Choosing a start after the end drags the end up with it, which is what
+                  the reader meant.
+              */}
+              {years.length > 0 && effectiveRange ? (
+                <div className="fyrange" role="group" aria-label="Fiscal year range">
+                  <label className="sr" htmlFor="vc-fy-start">
+                    First fiscal year
+                  </label>
+                  <select
+                    id="vc-fy-start"
+                    className="fselect fselect--fy"
+                    value={String(effectiveRange.start)}
+                    onChange={(e) => {
+                      const start = Number(e.target.value);
+                      setFyRange((prev) => {
+                        const end = prev && prev.end >= start ? prev.end : start;
+                        return { start, end };
+                      });
+                      setPage(1);
+                    }}
+                    title="The first fiscal year to include"
+                  >
+                    {years.map((y) => (
+                      <option key={y.fiscalYear} value={y.fiscalYear}>
+                        FY{y.fiscalYear}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="fyrange__dash" aria-hidden="true">
+                    –
+                  </span>
+                  <label className="sr" htmlFor="vc-fy-end">
+                    Last fiscal year
+                  </label>
+                  <select
+                    id="vc-fy-end"
+                    className="fselect fselect--fy"
+                    value={String(effectiveRange.end)}
+                    onChange={(e) => {
+                      const end = Number(e.target.value);
+                      setFyRange((prev) => {
+                        const start = prev && prev.start <= end ? prev.start : end;
+                        return { start, end };
+                      });
+                      setPage(1);
+                    }}
+                    title="The last fiscal year to include"
+                  >
+                    {years.map((y) => (
+                      <option key={y.fiscalYear} value={y.fiscalYear}>
+                        FY{y.fiscalYear}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              {movedFromSettings && settingsWindow && settingsWindow.asked > 0 ? (
+                <button
+                  type="button"
+                  className="fchip"
+                  onClick={() => {
+                    setFyRange({ start: settingsWindow.start, end: settingsWindow.end });
+                    setPage(1);
+                  }}
+                  title="Set the year range back to this organization's Start FY"
+                >
+                  Back to Start FY {settingsWindow.asked}
+                </button>
+              ) : null}
             </div>
+
+            {/*
+              ★★ THE WINDOW, STATED — AND THIS LINE IS THE OTHER HALF OF THE FIX.
+
+                Widening the register is not enough on its own. The bound is real (the view behind it
+                is the tenant's whole AP register, so an unbounded read is a way to ask for a hang)
+                and the reader may move it — which means a reader can still end up looking at a slice
+                without knowing it. So the slice is always named, and it is named on this page in the
+                same words as on the other two.
+
+              ★ IT NAMES THE DATES AS WELL AS THE YEARS. "FY2027" is a label; "2026-07-01" is a fact
+                a vendor's latest invoice date can be held against.
+
+              ★ IT IS UNCONDITIONAL, NOT GATED ON "DID THE WINDOW COST ANYTHING". A note shown only
+                when rows were dropped would be absent on the default view — which is precisely the
+                view the reader was on when they concluded the data was missing.
+
+              ★ IT IS A PLAIN SENTENCE RATHER THAN A `.notice` BOX. Nothing is wrong; a window is a
+                fact about the register. Dressing a fact as a warning is how a reader learns to
+                ignore warnings.
+
+              ★ IT READS "VENDORS PAID BY INVOICES DATED", WHICH IS NOT THE SAME CLAIM AS THE
+                OTHER TWO REGISTERS MAKE. `/invoices` says "invoices dated" and `/checks` says
+                "checks dated", because those pages list those things. This page lists companies,
+                and what the dates bound is the invoices that qualified them — so the invoice
+                dates are named, and the sentence does not call a company "dated". `data.window`
+                is the invoice register's window, because this page groups that register.
+            */}
+            {data ? (
+              <p className="fywindow vcwindow">
+                <span className="fywindow__flag">Window</span>
+                <span className="fywindow__text">
+                  {data.window.fiscalYear > 0 ? (
+                    <>
+                      <strong>
+                        {data.window.fiscalYearEnd > data.window.fiscalYear
+                          ? `FY${data.window.fiscalYear}–${data.window.fiscalYearEnd}`
+                          : `FY${data.window.fiscalYear}`}
+                      </strong>{' '}
+                      — vendors paid by invoices dated <strong>{data.window.from}</strong> to{' '}
+                      <strong>{data.window.to}</strong>.{' '}
+                    </>
+                  ) : (
+                    <>
+                      Vendors paid by invoices dated <strong>{data.window.from}</strong> to{' '}
+                      <strong>{data.window.to}</strong>.{' '}
+                    </>
+                  )}
+                  {windowOrigin}
+                </span>
+              </p>
+            ) : null}
 
             {/*
               ★ A LINK CAN NAME A VENDOR THIS REGISTER DOES NOT HOLD, AND SAYING SO IS
                 THE WHOLE JOB OF THE NOTE. `missing` was tracked from the start and
                 rendered nowhere, so a pasted `?vendor=` link that matched nothing
-                showed the full 55-vendor register with no indication that anything
-                had been asked for — which reads as "the link worked and this is the
-                answer" rather than "that company is not here". The note names the
-                value that was asked for, so the reader can see it was a lookup by
-                name rather than a filter they typed.
+                showed the whole register with no indication that anything had been
+                asked for — which reads as "the link worked and this is the answer"
+                rather than "that company is not here". The note names the value that
+                was asked for, so the reader can see it was a lookup by name rather
+                than a filter they typed.
+
+                ★ AND IT IS STILL HONEST ABOUT ITS OWN BOUND, WHICH IS WHY IT POINTS
+                  AT THE YEAR RANGE ABOVE RATHER THAN ONLY AT `PO_VENDORS` BELOW.
+                  "Not on this register" now has two causes with one symptom, and the
+                  one a reader is most likely to have hit is the year range.
             */}
             {missing ? (
               <div className="chkempty vcfilter__miss">
@@ -638,10 +914,11 @@ export default function VendorCompanies() {
                   has that name.
                 </p>
                 <p className="chkempty__hint">
-                  Only the {num(data?.vendors.length ?? 0)} companies paid out of this register are
-                  listed — a company in the wider <code>PO_VENDORS</code> table that drew nothing
-                  from this fund and these programs is not here. The list below is the whole
-                  register, unfiltered.
+                  Only the {num(data?.vendors.length ?? 0)} companies paid out of this window of the
+                  register are listed. A company outside the year range above is not here — widen it
+                  to look further back. A company in the wider <code>PO_VENDORS</code> table that
+                  drew nothing from this fund and these programs is not here either. The list below
+                  is the whole window, unfiltered.
                 </p>
               </div>
             ) : null}
