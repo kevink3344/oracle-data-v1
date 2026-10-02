@@ -574,7 +574,7 @@ function dualInsertAt(sql: string): number | null {
 }
 
 function oracleCode(code: string): string {
-  let out = code.replace(IFNULL_RE, 'NVL(');
+  const out = code.replace(IFNULL_RE, 'NVL(');
 
   const paged = LIMIT_OFFSET_RE.exec(out);
   if (paged) {

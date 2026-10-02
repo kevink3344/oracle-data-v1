@@ -431,7 +431,43 @@ function LedgerSnapshot() {
               sentence below answers) and the wrong one for "what is in this database".
               The two sets are named separately for that reason rather than reconciled.
           */}
-          {pluralise(STORE_SCALE.tables, 'table')}, {recordsFloor(STORE_SCALE)} rows
+          {/*
+            ★★ THE FIGURES ARE NOW THE LIVE COUNT WHEN THERE IS ONE, AND THE RECORDED
+               SNAPSHOT ONLY WHEN THERE IS NOT.
+
+            The line below used to read `STORE_SCALE.tables` / `recordsFloor(STORE_SCALE)`
+            unconditionally — a constant measured off-line by `npm run store:scale`. That
+            was the right trade while a live pass cost 51–397 s on Oracle, and it is the
+            wrong one now that the pass is stored: the card asks for `counts=true`, the
+            server serves the last pass from `ledger_summary_cache`, and the figures
+            arrive in the same payload as the table list they describe.
+
+            ★ SO THE LIVE FIGURE LEADS AND THE SNAPSHOT IS THE FALLBACK, NOT THE REVERSE.
+              A reader is looking at a list of objects with counts on it; a headline
+              quoting a different, older measurement of the same store would be the two
+              sources disagreeing on one screen — the defect this block was already fixed
+              for once, in the other direction.
+
+            ★ AND THE FALLBACK IS STILL NEEDED. `counts` can be absent (a server that has
+              not had the DDL applied, a read-only app store, a pass that failed), and on
+              those the card must still say something true about the store. `STORE_SCALE`
+              is a real measurement with a date, and `recordsFloor` keeps it a floor rather
+              than a promise.
+
+            ★ THE OBJECT COUNT IS THE PAYLOAD'S OWN `objectCount`, NOT `STORE_SCALE.tables`.
+              They answer different questions and the card is now about the first: 55 is
+              what the API serves, ~50 is what the database holds. The row list below is
+              the same population as this figure, so the two agree by construction.
+          */}
+          {summary.ledgerRecords !== null ? (
+            <>
+              {pluralise(summary.objects.length, 'object')}, {num(summary.ledgerRecords)} rows
+            </>
+          ) : (
+            <>
+              {pluralise(STORE_SCALE.tables, 'table')}, {recordsFloor(STORE_SCALE)} rows
+            </>
+          )}
           {/*
             ★ THE CAP TOTAL IS APPENDED ONLY WHEN A CAP IS IN FORCE, AND THE CONDITION
               IS THE HONESTY OF THE SENTENCE RATHER THAN A LAYOUT CHOICE.
@@ -633,32 +669,27 @@ function LedgerRow({
 
   if (whole === null) {
     /*
-     * ★ `rowCount: null` NOW MEANS "NOT ASKED FOR" RATHER THAN "COULD NOT BE COUNTED",
-     *   AND THE ROW SAYS WHICH.
+     * ★ `rowCount: null` MEANS THE PASS DID NOT ANSWER FOR THIS OBJECT, AND THE ROW
+     *   SAYS SO WITHOUT IMPLYING A FAULT.
      *
-     *   This branch used to print `not counted`, which was right when the endpoint
-     *   always tried and an object could genuinely fail to answer. The card now asks
-     *   for `counts=false`, so every row is `null` for the same benign reason, and
-     *   `not counted` on all 34 rows would read as 34 failures — the exact
-     *   misreading this project has been bitten by before, where a count that could
-     *   not be taken was compared against a table total.
+     *   The card now asks for `counts=true`, so this branch is reached only when an
+     *   object genuinely could not be counted — a `WCSEXP_*` view or an `X_REPORT_*`
+     *   table that does not exist on this deployment. That is a real and expected
+     *   state: measured on the SQL Server mirror, 15 of 55 objects are absent by
+     *   design, because the mirror holds the base tables and not the Oracle views.
      *
-     *   So the row states the absence without implying a fault. The distinction is
-     *   preserved for a caller that does ask: a `counts=true` payload whose object
-     *   failed still arrives as `null`, and the two are told apart by `countedAt` —
-     *   a stamp means the pass ran, `null` means it did not.
-     *
-     *   ★ AND `rows not counted` IS STILL THE RIGHT WORDS FOR AN UNCAPPED ROW. The cap
-     *     branch above returns first, so reaching here means no cap is in force and no
-     *     count was taken — both true, and the note above the list says the uncapped
-     *     objects are read whole.
+     *   ★ SO THE WORDS ARE `not on this database`, NOT `rows not counted`. The old
+     *     wording described a pass that was never taken; this one describes an object
+     *     the ledger does not have here, which is what a reader is actually looking
+     *     at. Saying "not counted" for an absent table invites the reader to wait for
+     *     a figure that will never arrive.
      */
     return (
       <li className={rowClass(appOwned)}>
         <span className="signin__ledger-name" title={object.label}>
           {object.name}
         </span>
-        <span className="signin__ledger-count signin__ledger-count--none">rows not counted</span>
+        <span className="signin__ledger-count signin__ledger-count--none">not on this database</span>
       </li>
     );
   }

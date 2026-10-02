@@ -1504,7 +1504,6 @@ CREATE TABLE IF NOT EXISTS ledger_read_cap (
   -- because Oracle uppercases unquoted identifiers and a person typing a table
   -- name will not reliably do so.
   table_name  TEXT NOT NULL PRIMARY KEY,
-
   -- The statement the app runs for this object. Stored WITHOUT a row cap: the cap
   -- is appended per dialect at read time (see the header). NULL means "no stored
   -- statement" — the object is capped but still read by whatever route owns it,
@@ -1542,3 +1541,101 @@ CREATE TABLE IF NOT EXISTS ledger_read_cap (
 -- app reads (tens, not thousands), and every read is a point lookup by name or a
 -- full scan of the whole table for the admin list. An index would be decoration.
 
+
+
+-- ============================================================================
+--  ledger_summary_cache — the last counted pass over the ledger, kept so the
+--  sign-in card does not pay for it on every load.
+--
+--  ---------------------------------------------------------------------------
+--  WHAT THIS IS FOR
+--  ---------------------------------------------------------------------------
+--  `GET /api/meta/ledger-summary?counts=true` runs a `COUNT(*)` per ledger
+--  object. On the SQL Server mirror that is a couple of seconds; on Oracle it
+--  was measured at 51-397 s for one pass. The sign-in screen is answered before
+--  anyone has signed in and is reloaded freely, so a per-request pass is the
+--  wrong shape on both deployments: slow on one, wasteful on the other.
+--
+--  This table holds the result of the last pass, keyed by the scope it was
+--  taken under. The card reads it; a pass is only taken when there is no row
+--  for the current scope, or when the row has aged past the TTL.
+--
+--  ---------------------------------------------------------------------------
+--  ★ THE FIGURE IS AN ESTIMATE, AND THE COLUMN THAT SAYS SO IS `captured_at`
+--  ---------------------------------------------------------------------------
+--  A count is only true of the instant it was taken. Ledger tables move — the
+--  extract is a snapshot of a database that keeps being written to — so a
+--  stored count is a measurement with a date on it, never a live figure. Every
+--  reader must print that date; a stored count presented without its timestamp
+--  is a remembered number wearing the clothes of a fresh one, which is the
+--  exact failure the sign-in block was rewritten to avoid.
+--
+--  ---------------------------------------------------------------------------
+--  ★ THE KEY IS THE SCOPE, AND IT IS A HASH OF THE WHOLE PASS
+--  ---------------------------------------------------------------------------
+--  Two requests with the same fund, programs and floor describe the same rows
+--  and may share a row here. A pass taken under a different `FUND_CODE` must
+--  never answer for a scope that did not ask for it — so the scope is part of
+--  the primary key rather than a column beside the figure.
+--
+--  `scope_key` is a digest of the resolved scope AND the object list the pass
+--  covered, because the object list is not a constant: the descriptor registry
+--  changes as routes are added, and a pass that counted 34 objects must not be
+--  served to a request that would count 55. Storing the digest rather than the
+--  scope columns keeps one row per distinct pass, which is what the reader
+--  wants, and avoids a composite key over a variable-length list.
+--
+--  ---------------------------------------------------------------------------
+--  ★ THE PER-OBJECT FIGURES ARE JSON, AND THAT IS THE SAME TRADE AS programs_json
+--  ---------------------------------------------------------------------------
+--  `objects_json` holds the whole per-object array as one document. It is read
+--  and written whole, never queried into — no screen asks "which objects had
+--  more than a million rows" — so a child table would be a join per read to
+--  answer a question nobody asks. This is the trade `organization.programs_json`
+--  and `saved_view.params_json` already made.
+--
+--  ---------------------------------------------------------------------------
+--  ★ IT IS A CACHE, SO IT IS ALLOWED TO BE DELETED
+--  ---------------------------------------------------------------------------
+--  Nothing here is a record of anything. Dropping every row costs one slow pass
+--  on the next load and loses no history. That is the test for whether a table
+--  belongs in a cache: if losing it would destroy a fact, it is not a cache.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS ledger_summary_cache (
+  -- A digest of the scope and the object list this pass covered. See above.
+  scope_key      TEXT NOT NULL PRIMARY KEY,
+
+  -- The scope in readable form, for the panel and for anyone reading the table
+  -- by hand. Not used for lookup — `scope_key` is.
+  scope_label    TEXT,
+
+  -- ★ WHEN THE PASS WAS TAKEN, AND THE ONLY THING THAT MAKES THIS HONEST.
+  --   A reader that prints the figure must print this beside it. Stored as an
+  --   ISO 8601 instant rather than a day, because unlike `table_count_snapshot`
+  --   the comparison here is "how stale is this", which a day cannot answer.
+  captured_at    TEXT NOT NULL,
+
+  -- Which database produced the counts. A figure separated from its store is a
+  -- claim rather than a measurement — the same rule `table_count_snapshot`
+  -- records on its own `counted_in` column.
+  counted_in     TEXT,
+
+  -- The whole per-object array: name, label, store, rowCount, scopeMode,
+  -- scopedRowCount. See the header for why this is JSON and not a child table.
+  objects_json   TEXT NOT NULL,
+
+  -- The totals, stored beside the array so a reader that only wants the
+  -- headline does not parse the document. They are derivable from
+  -- `objects_json` and are stored anyway because they are what the sign-in card
+  -- prints, and a figure that has to be recomputed to be shown is a figure that
+  -- can disagree with the one beside it.
+  ledger_records INTEGER,
+  app_records    INTEGER,
+  scoped_records INTEGER,
+  uncounted      INTEGER,
+  object_count   INTEGER NOT NULL
+);
+
+-- No index beyond the primary key. One row per distinct scope, which is a
+-- handful at most, and every read is a point lookup by `scope_key`.

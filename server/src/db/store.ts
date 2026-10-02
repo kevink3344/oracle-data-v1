@@ -266,6 +266,11 @@ export const ROUTING_APP_TABLES = [
   // read-only, so the routing question this list answers is which store holds the
   // CAP, not which holds the rows being capped.
   'ledger_read_cap',
+  // The last counted pass over the ledger, keyed by scope. Listed here in the same
+  // change that added it to the DDL and to `app-schema.ts`. It is an app-owned
+  // cache of figures *about* the ledger, so it lives in the app store while the
+  // rows it counts do not — the same split `table_count_snapshot` makes.
+  'ledger_summary_cache',
 ] as const;
 
 /**

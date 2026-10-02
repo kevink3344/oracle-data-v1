@@ -675,3 +675,41 @@ CREATE TABLE dbo.table_count_snapshot (
   CONSTRAINT UQ_table_count_snapshot UNIQUE (object_name, snapshot_date)
 );
 GO
+
+
+-- ----------------------------------------------------------------------------
+--  ledger_summary_cache — the last counted pass over the ledger, keyed by scope,
+--  so the sign-in card reads a stored estimate instead of re-counting each load.
+--
+--  ★ THE FIGURE IS AN ESTIMATE AND `captured_at` IS WHAT SAYS SO. A count is true
+--    of the instant it was taken; ledger tables keep being written to. Every
+--    reader must print that timestamp -- a stored count shown without its date is
+--    a remembered number wearing the clothes of a fresh one.
+--
+--  ★ `scope_key` IS A DIGEST OF THE SCOPE *AND* THE OBJECT LIST. Two requests with
+--    the same fund/programs/floor describe the same rows and may share a row; a
+--    pass under a different FUND_CODE must never answer for a scope that did not
+--    ask. The object list is in the digest because the descriptor registry changes
+--    as routes are added, and a pass that counted 34 objects must not be served to
+--    a request that would count 55.
+--
+--  ★ IT IS A CACHE: every row may be deleted without losing a fact. That is the
+--    test for whether a table belongs in a cache.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.ledger_summary_cache', 'U') IS NULL
+CREATE TABLE dbo.ledger_summary_cache (
+  -- A sha256 hex digest of the full pass identity (scope + object list + declared
+  -- columns). 64 chars. Storing the identity itself would need tens of thousands
+  -- of characters -- see the note in server/src/routes/meta.ts.
+  scope_key      NVARCHAR(64) NOT NULL PRIMARY KEY,
+  scope_label    NVARCHAR(400) NULL,
+  captured_at    NVARCHAR(30) NOT NULL,
+  counted_in     NVARCHAR(200) NULL,
+  objects_json   NVARCHAR(MAX) NOT NULL,
+  ledger_records BIGINT NULL,
+  app_records    BIGINT NULL,
+  scoped_records BIGINT NULL,
+  uncounted      INT NULL,
+  object_count   INT NOT NULL
+);
+GO

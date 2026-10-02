@@ -15,6 +15,7 @@
     "build:web": "node scripts/copy-web.mjs",
     "copy:ddl": "node scripts/copy-ddl.mjs",
     "typecheck": "tsc -b --force",
+    "lint": "eslint .",
     "openapi": "tsx src/scripts/emit-openapi.ts",
     "smoke": "tsx src/scripts/smoke.ts",
     "geocode": "tsx src/scripts/geocode-vendor-sites.ts",
@@ -41,12 +42,15 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/mssql": "^12.3.0",
     "@types/node": "^22.10.2",
     "@types/swagger-ui-express": "^4.1.7",
+    "eslint": "^10.11.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.71.0"
   }
 }

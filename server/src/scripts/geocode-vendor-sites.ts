@@ -1940,8 +1940,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── Step 1: geocode ──────────────────────────────────────────────────────
-  let fetched = new Map<string, GeoAnswer>();
+  // ── Step 1: geocode ────────────────────────────────────────────────────────
+  const fetched = new Map<string, GeoAnswer>();
   let requestError: string | null = null;
 
   if (!DISTANCE_ONLY && !ROUTE_ONLY && capped.length > 0) {

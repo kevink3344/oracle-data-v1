@@ -639,6 +639,10 @@ say(`  part paid                ${N(buckets.partPaid)}`);
 say(`  paid EXCEEDS the invoice ${N(buckets.exceeds)}${buckets.exceeds ? '  ** impossible — check the join **' : '  ok'}`);
 if (buckets.exceeds) fatal.push('an invoice is paid more than its own amount');
 say(`  totals: ${amountTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} invoiced`);
+// ★ THE PAID TOTAL IS PRINTED BESIDE THE INVOICED ONE, which is the comparison this
+//   whole bucket block exists to make. It was accumulated and never shown, so the
+//   script computed a figure no reader could see — the linter caught the dead store.
+say(`          ${paidTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} paid`);
 
 // 7. Invoices nobody paid. Counted, because a list that silently shows only paid
 //    invoices answers a different question from the one the page asks.

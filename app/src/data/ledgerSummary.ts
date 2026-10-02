@@ -273,21 +273,35 @@ export type LedgerSummaryState =
   | { status: 'failed'; message: string };
 
 /*
- * ★ `counts=false` IS THE WHOLE FIX, AND IT IS ONE QUERY PARAMETER.
+ * ★★ `counts=true` IS NOW THE CARD'S REQUEST, AND THE SERVER'S STORED PASS IS WHY.
  *
- *   The default on the server is now *no counts*, and this screen is the reason: it is
- *   answered before anyone has signed in, and it was paying for a `COUNT(*)` over
- *   `GL_BALANCES` at 157 M rows plus two composed views at ~13 s each, on every load.
- *   Parallelising the count loop did not make it acceptable (397.3 s sequential, 307.7 s
- *   with four workers, and the second run lost its connection before answering), so the
- *   figure was removed from this screen rather than made faster.
+ *   The history matters, because the line below has been the other way round twice.
  *
- *   ★ WRITTEN EXPLICITLY RATHER THAN RELYING ON THE SERVER'S DEFAULT. A screen that
- *   needs a figure to be absent should say so in its request; otherwise a future change
- *   to the default silently reintroduces a six-minute sign-in page, and the screen that
- *   caused the change looks like it is still asking for the figures.
+ *   The card originally asked for no counts because a pass cost 51–397 s on Oracle —
+ *   a `COUNT(*)` over `GL_BALANCES` at 157 M rows plus two composed views at ~13 s
+ *   each, run one statement at a time, on every load of a page nobody had signed in
+ *   to yet. So the figures were removed from the screen rather than made faster.
+ *
+ *   Two things then changed, and both are measured:
+ *
+ *     1. **The pass is stored.** `ledger_summary_cache` holds the last pass per
+ *        scope, so a reload — and a server restart — reads one row instead of
+ *        re-counting. The expensive pass happens once, not per view.
+ *     2. **The pass is cheap on the deployment that is running.** Measured against
+ *        the SQL Server mirror on 2026-10-02: **2.6 s** for all 55 objects. The
+ *        Oracle figures above are real but they describe Oracle.
+ *
+ *   ★ SO THE FIGURE IS AN ESTIMATE, AND `countedAt` IS NOT OPTIONAL. A stored count
+ *     is true of the instant it was taken and ledger tables keep being written to.
+ *     The card prints the age beside the figure; a stored number shown without its
+ *     date is a remembered figure wearing the clothes of a fresh one, which is the
+ *     exact failure this module was written to stop.
+ *
+ *   ★ AND `counts=false` REMAINS THE SERVER'S DEFAULT, so a caller that wants the
+ *     fast names-only payload still gets it. This screen is the one that wants the
+ *     figures, so it says so.
  */
-const API = '/api/meta/ledger-summary?counts=false';
+const API = '/api/meta/ledger-summary?counts=true';
 
 function asText(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;

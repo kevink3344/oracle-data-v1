@@ -1,11 +1,13 @@
 import { Router } from 'express';
+import { createHash } from 'node:crypto';
 import { createApi } from '../http/api.js';
 import { z, FlagQuery, isTrue } from '../http/z.js';
 import { dbStatus, probeDb } from '../db/client.js';
-import { quoteIdent, rows } from '../db/sql.js';
+import { quoteIdent, rows, execute } from '../db/sql.js';
 import { API_VERSION } from '../http/openapi.js';
 import { config, DB_MODES, REPO_ROOT } from '../config/env.js';
 import { storeForTable, tablesOfClass, type StoreId } from '../db/store.js';
+import { storeDriver } from '../db/client.js';
 import { ledgerPlan } from '../db/ledger-shape.js';
 import { isDerivedTable } from '../db/derived.js';
 import { scopeModeFor } from './activity.js';
@@ -890,6 +892,38 @@ async function countObjects(targets: readonly CountTarget[]): Promise<Map<string
         }
 
         if (mode === 'segments' || mode === 'lookup') {
+          /*
+           * ★★ THE LOOKUP ARM BRANCHES ON DIALECT, AND THE BRANCH IS THE FIX FOR A
+           *    SILENT UNDERCOUNT. See `lookupJoinPredicate` for the measurement:
+           *    SQL Server rejects `COUNT(CASE WHEN x IN (SELECT …) THEN 1 END)`
+           *    outright, so the three largest ledger tables came back uncounted and
+           *    the headline was 2.9 M rows short.
+           *
+           * `segments` is unaffected — it filters on the object's own columns and
+           * contains no subquery — so only `lookup` needs the second spelling.
+           */
+          const useJoin = mode === 'lookup' && storeDriver('ledger').dialect === 'sqlserver';
+
+          if (useJoin) {
+            const p = lookupJoinPredicate(scope!, 'lk');
+            const result = await rows<{ n: unknown; scoped: unknown }>(
+              `SELECT COUNT(*) AS n, COUNT(CASE WHEN ${p.scopedTest} THEN 1 END) AS scoped ` +
+                `FROM (SELECT * FROM ${from}) AS src ${p.join}`,
+              p.args,
+            );
+            const whole = countOf(result[0]?.n);
+            const narrowed = countOf(result[0]?.scoped);
+            if (whole !== null) {
+              out.set(name, {
+                rowCount: whole,
+                scopedRowCount: narrowed,
+                scopeMode: mode,
+                scoped: narrowed !== null,
+              });
+            }
+            continue;
+          }
+
           const predicate = mode === 'segments' ? segmentPredicate(scope!) : lookupPredicate(scope!);
           const result = await rows<{ n: unknown; scoped: unknown }>(
             `SELECT COUNT(*) AS n, COUNT(CASE WHEN ${predicate.sql} THEN 1 END) AS scoped FROM ${from}`,
@@ -1009,6 +1043,179 @@ interface CountedPass {
 const countCache = new Map<string, CountedPass>();
 const countPasses = new Map<string, Promise<CountedPass>>();
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * ★★ THE PASS IS ALSO PERSISTED, SO A RESTART DOES NOT RE-PAY FOR IT.
+ *
+ * The in-memory memo above makes repeats free *within one process*. It does
+ * nothing across a restart — and this server restarts on every source save under
+ * `tsx watch`, which is the normal state of a dev machine. So the figure the
+ * sign-in card shows would be re-counted whenever the API bounced, which is
+ * exactly the cost the memo exists to avoid.
+ *
+ * `ledger_summary_cache` holds the last pass per scope. The order of preference:
+ *
+ *   1. the in-memory memo, if fresh (free, and shares an in-flight pass);
+ *   2. the stored row, if fresh (one point lookup — milliseconds);
+ *   3. a real pass, which is then written.
+ *
+ * ★ THE STORED FIGURE IS AN ESTIMATE AND IS SERVED AS ONE. `capturedAt` travels
+ *   with it and the client prints the age. The alternative — refusing to serve a
+ *   stored figure so that every number is live — is what made this screen show
+ *   nothing at all for minutes on Oracle.
+ *
+ * ★ A FAILED WRITE IS NOT A FAILED READ. The cache is an optimisation; if the
+ *   table is missing (an older database that has not had the DDL applied) or the
+ *   store is read-only, the pass still returns and the screen still renders. The
+ *   write is therefore wrapped, and its failure is logged rather than thrown.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** One row of `ledger_summary_cache`, as the driver returns it. */
+interface CacheRow {
+  scope_key: string;
+  scope_label: string | null;
+  captured_at: string;
+  counted_in: string | null;
+  objects_json: string;
+  ledger_records: number | null;
+  app_records: number | null;
+  scoped_records: number | null;
+  uncounted: number | null;
+  object_count: number;
+}
+
+/** The stored pass, reshaped into the in-memory form. `null` when unreadable. */
+function passFromRow(row: CacheRow): CountedPass | null {
+  try {
+    const objects = JSON.parse(row.objects_json) as [string, ObjectCount][];
+    const counts = new Map<string, ObjectCount>(objects);
+    const at = Date.parse(row.captured_at);
+    // An unparseable timestamp makes the age unknowable, and an age the client
+    // cannot print is the one thing that makes serving a stored figure honest.
+    // Treat it as absent rather than as "now" — the mistake this whole file warns
+    // about, in one line.
+    if (!Number.isFinite(at)) return null;
+    return { at, counts };
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredPass(key: string): Promise<CountedPass | null> {
+  try {
+    // ★ THROUGH `rows()`, WHICH ROUTES BY THE TABLE NAMED. `ledger_summary_cache`
+    //   is registered as an app table, so this statement reaches the app store
+    //   without the caller having to say so — the same discipline every other
+    //   read in this server follows.
+    const found = await rows<CacheRow>(
+      `SELECT scope_key, scope_label, captured_at, counted_in, objects_json,
+              ledger_records, app_records, scoped_records, uncounted, object_count
+         FROM ledger_summary_cache
+        WHERE scope_key = :key`,
+      { key },
+    );
+    const row = found[0];
+    return row ? passFromRow(row) : null;
+  } catch {
+    // A missing table is not an error here — it is a database that has not had
+    // this DDL applied, and the pass below is the correct answer for it.
+    return null;
+  }
+}
+
+async function writeStoredPass(key: string, label: string, pass: CountedPass): Promise<void> {
+  const objects = JSON.stringify([...pass.counts.entries()]);
+  const rowsArr = [...pass.counts.entries()];
+  const ledgerRecords = rowsArr.reduce((s, [, c]) => s + (c.rowCount ?? 0), 0);
+  const uncounted = rowsArr.filter(([, c]) => c.rowCount === null).length;
+  const scopedRecords = rowsArr.reduce((s, [, c]) => s + (c.scopedRowCount ?? 0), 0);
+  try {
+    /*
+     * ★★ THE UPSERT IS TWO STATEMENTS BECAUSE SQL SERVER HAS NO `ON CONFLICT`.
+     *
+     * The first version of this used SQLite's `INSERT … ON CONFLICT(scope_key) DO
+     * UPDATE`, which is not T-SQL. SQL Server rejected it with
+     * `Incorrect syntax near the keyword 'ON'` — and the failure was INVISIBLE,
+     * because the write is wrapped in a catch that logs a warning (correctly: the
+     * figure was computed and must still return) while the in-memory memo kept
+     * serving the pass. So the table stayed empty and every request in that process
+     * looked cached. Only a direct probe of the table showed it.
+     *
+     * ★ `MERGE` IS THE T-SQL SPELLING, BUT IT IS DELIBERATELY NOT USED HERE.
+     *   `MERGE` has a well-documented history of surprising behaviour under
+     *   concurrency (and needs a `HOLDLOCK` to be safe), and this table is a cache
+     *   written once per pass — an `UPDATE`, then an `INSERT` if nothing was
+     *   updated, is simpler to reason about and cannot silently do nothing.
+     *
+     * ★ THE DIALECT IS READ, NOT GUESSED — the same rule the count loop follows.
+     */
+    const isSqlServer = storeDriver('app').dialect === 'sqlserver';
+    const params = {
+      key,
+      label,
+      at: new Date(pass.at).toISOString(),
+      store: config.db.label,
+      objects,
+      ledger: ledgerRecords,
+      app: 0,
+      scoped: scopedRecords,
+      uncounted,
+      objectCount: pass.counts.size,
+    };
+
+    if (isSqlServer) {
+      const updated = await execute(
+        `UPDATE ledger_summary_cache SET
+           scope_label = :label, captured_at = :at, counted_in = :store,
+           objects_json = :objects, ledger_records = :ledger, app_records = :app,
+           scoped_records = :scoped, uncounted = :uncounted, object_count = :objectCount
+         WHERE scope_key = :key`,
+        params,
+      );
+      // ★ `rowsAffected` IS THE BRANCH, NOT A SECOND SELECT. A read-then-write
+      //   would be two round trips and a race; the driver already reports whether
+      //   the UPDATE matched anything.
+      if (updated.rowsAffected === 0) {
+        await execute(
+          `INSERT INTO ledger_summary_cache
+             (scope_key, scope_label, captured_at, counted_in, objects_json,
+              ledger_records, app_records, scoped_records, uncounted, object_count)
+           VALUES (:key, :label, :at, :store, :objects, :ledger, :app, :scoped, :uncounted, :objectCount)`,
+          params,
+        );
+      }
+    } else {
+      await execute(
+        `INSERT INTO ledger_summary_cache
+           (scope_key, scope_label, captured_at, counted_in, objects_json,
+            ledger_records, app_records, scoped_records, uncounted, object_count)
+         VALUES (:key, :label, :at, :store, :objects, :ledger, :app, :scoped, :uncounted, :objectCount)
+         ON CONFLICT(scope_key) DO UPDATE SET
+           scope_label    = excluded.scope_label,
+           captured_at    = excluded.captured_at,
+           counted_in     = excluded.counted_in,
+           objects_json   = excluded.objects_json,
+           ledger_records = excluded.ledger_records,
+           app_records    = excluded.app_records,
+           scoped_records = excluded.scoped_records,
+           uncounted      = excluded.uncounted,
+           object_count   = excluded.object_count`,
+        params,
+      );
+    }
+  } catch (e) {
+    // ★ LOGGED, NOT THROWN. The figure was computed correctly; only its storage
+    //   failed. Turning that into a 500 would trade a good answer for none.
+    //
+    // ★ BUT IT MUST BE LOUD ENOUGH TO FIND. This catch hid a dialect error for a
+    //   whole verification pass, because the memo kept the screen correct. The
+    //   message names the table and the operation so a grep finds it.
+    console.warn(
+      `[meta] could not persist the ledger count pass to ledger_summary_cache ` +
+        `(the figure still returns): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
 function countPassKey(targets: readonly CountTarget[]): string {
   const scope = declaredScope();
   // `null` programs (the file was silent) and `[]` (no filter wanted) are different
@@ -1023,9 +1230,44 @@ function countPassKey(targets: readonly CountTarget[]): string {
   return `${scopeKey}::${targets.map((t) => `${t.name}(${t.columns.join('+')})`).join('|')}`;
 }
 
+/**
+ * ★★ THE STORED KEY IS A DIGEST, BECAUSE THE REAL KEY DOES NOT FIT IN A COLUMN.
+ *
+ * `countPassKey` is the full identity — the scope *and* every object with its
+ * declared columns — and it runs to **tens of thousands of characters** for a
+ * 55-object pass. The first version of the cache stored it verbatim and SQL Server
+ * refused the write:
+ *
+ *     String or binary data would be truncated in table 'ledger_summary_cache',
+ *     column 'scope_key'. Truncated value:
+ *     '04/861,862,863/2021::AP_INVOICE_DISTRIBUTIONS_ALL()|AP_INVOICE_LINES_ALL()|…'
+ *
+ * ★ AND THE FAILURE WAS INVISIBLE FOR A WHOLE VERIFICATION PASS, because the write
+ *   is (correctly) wrapped in a catch — the figure was computed and kept returning
+ *   — while the in-memory memo served it. The table stayed empty and every request
+ *   in that process looked cached. Only probing the table directly exposed it, and
+ *   only the improved log message named the column.
+ *
+ * `sha256` of the full key is fixed-width, collision-resistant for this purpose, and
+ * is what the DDL's own comment always said this column was. The full key is not
+ * lost: `scope_label` carries the readable scope, and the object list is recoverable
+ * from `objects_json`.
+ *
+ * ★ NOT A TRUNCATION. Truncating the key would make two different object lists
+ *   collide on their shared prefix — the exact failure a cache key must not have.
+ */
+function countPassDigest(targets: readonly CountTarget[]): string {
+  return createHash('sha256').update(countPassKey(targets)).digest('hex');
+}
+
 async function countedObjects(targets: readonly CountTarget[]): Promise<CountedPass> {
   const key = countPassKey(targets);
+  // ★ THE STORED KEY IS A DIGEST; THE IN-MEMORY KEY IS THE FULL STRING. They are
+  //   different on purpose — see `countPassDigest`. The memo can hold the long
+  //   key because it lives in a Map; the column cannot.
+  const digest = countPassDigest(targets);
 
+  // 1. The in-memory memo — free, and it is the one that shares an in-flight pass.
   const cached = countCache.get(key);
   if (cached !== undefined && Date.now() - cached.at < LEDGER_COUNT_TTL_MS) return cached;
 
@@ -1036,10 +1278,23 @@ async function countedObjects(targets: readonly CountTarget[]): Promise<CountedP
   const running = countPasses.get(key);
   if (running !== undefined) return running;
 
+  // 2. The stored pass — one point lookup, and it survives a restart. See the
+  //    block above `passFromRow` for why this exists and what it gives up.
+  const stored = await readStoredPass(digest);
+  if (stored !== null && Date.now() - stored.at < LEDGER_COUNT_TTL_MS) {
+    // Seed the memo so the next request in this process does not even look it up.
+    countCache.set(key, stored);
+    return stored;
+  }
+
+  // 3. A real pass, persisted for the next process.
   const pass = countObjects(targets)
     .then((counts) => {
       const done: CountedPass = { at: Date.now(), counts };
       countCache.set(key, done);
+      // Fire-and-forget: the figure is already correct, and a storage failure
+      // must not turn a good answer into none. `writeStoredPass` logs its own.
+      void writeStoredPass(digest, scopeLabelOf(targets), done);
       return done;
     })
     .finally(() => {
@@ -1048,6 +1303,14 @@ async function countedObjects(targets: readonly CountTarget[]): Promise<CountedP
 
   countPasses.set(key, pass);
   return pass;
+}
+
+/** The scope in readable form, for the stored row's `scope_label`. */
+function scopeLabelOf(targets: readonly CountTarget[]): string {
+  const scope = declaredScope();
+  if (scope === null) return `no scope · ${targets.length} objects`;
+  const programs = scope.programs === null ? '*' : scope.programs.join(',');
+  return `fund ${scope.funds.join(',')} · program ${programs} · from FY${scope.startYear ?? '-'} · ${targets.length} objects`;
 }
 
 /** The account scope as configuration declares it, or `null` when it declares no fund. */
@@ -1123,6 +1386,55 @@ function lookupPredicate(scope: DeclaredScope): { sql: string; args: string[] } 
     sql:
       `${quoteIdent('CODE_COMBINATION_ID')} IN (SELECT ${quoteIdent('CODE_COMBINATION_ID')} ` +
       `FROM ${quoteIdent('GL_CODE_COMBINATIONS')} WHERE ${inner.sql})`,
+    args: inner.args,
+  };
+}
+
+/**
+ * ★★ SQL SERVER CANNOT PUT A SUBQUERY INSIDE AN AGGREGATE, AND THAT SILENTLY LOST
+ *    THE THREE LARGEST TABLES IN THE LEDGER.
+ *
+ * `lookupPredicate` above is used as `COUNT(CASE WHEN <pred> THEN 1 END)`. On Oracle
+ * that is fine. On SQL Server it is a hard error:
+ *
+ *     Cannot perform an aggregate function on an expression containing an
+ *     aggregate or a subquery.
+ *
+ * Measured on the SQL Server mirror, 2026-10-02: `GL_BALANCES` (1,448,776 rows),
+ * `GL_JE_LINES` (294,855) and `PO_DISTRIBUTIONS_ALL` (1,159,998) all take the
+ * `lookup` mode, all three threw, and `countObjects`'s catch left each one
+ * `rowCount: null`. So the sign-in headline read "over 8 million rows" while
+ * **2,903,629 rows — 56 % of the ledger — were missing from the total**, and
+ * `uncounted: 18` looked like "18 tables do not exist here" when three of them
+ * were present, readable, and simply uncountable by that statement.
+ *
+ * ★ THE FIX IS A JOIN, NOT A DIFFERENT AGGREGATE. The same predicate is expressed
+ *   as a `LEFT JOIN` against the distinct combination ids, and the scoped count
+ *   becomes `COUNT(CASE WHEN <joined key> IS NOT NULL THEN 1 END)` — an aggregate
+ *   over a COLUMN, which every dialect accepts. Verified on the mirror: the rewrite
+ *   returns `n=1448776` (identical to the bare `COUNT(*)`) and `scoped=443509`.
+ *
+ * ★ IT IS APPLIED TO SQL SERVER ONLY, ON PURPOSE. Oracle's form is unchanged, so
+ *   the timing recorded against Oracle in this file's notes still describes the
+ *   statement that runs there. The two forms are the same predicate; only the
+ *   spelling differs, and the dialect is read from the store rather than guessed.
+ *
+ * ★ `DISTINCT` IS LOAD-BEARING. Without it a combination id appearing twice in
+ *   `GL_CODE_COMBINATIONS` would duplicate every matching row in the join and
+ *   inflate the whole-object count — the `n` figure would stop agreeing with the
+ *   bare `COUNT(*)`, which is the check that proves this rewrite is faithful.
+ */
+function lookupJoinPredicate(
+  scope: DeclaredScope,
+  alias: string,
+): { join: string; scopedTest: string; args: string[] } {
+  const inner = segmentPredicate(scope);
+  const key = quoteIdent('CODE_COMBINATION_ID');
+  return {
+    join:
+      `LEFT JOIN (SELECT DISTINCT ${key} FROM ${quoteIdent('GL_CODE_COMBINATIONS')} ` +
+      `WHERE ${inner.sql}) AS ${alias} ON ${alias}.${key} = src.${key}`,
+    scopedTest: `${alias}.${key} IS NOT NULL`,
     args: inner.args,
   };
 }

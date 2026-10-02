@@ -153,7 +153,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...(init?.headers ?? {}) } });
 
-  let payload: unknown = null;
+  // `payload` is assigned on every path below (the try's success branch and the catch),
+  // so it needs no initializer — an initializer here is dead and the linter says so.
+  let payload: unknown;
   let text = '';
   try {
     text = await res.text();

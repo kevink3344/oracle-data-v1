@@ -197,6 +197,10 @@ export const APP_TABLES = [
   // `order_by` column is required whenever `max_rows` is set — a cap with no
   // ordering is a random sample, not a smaller answer. See the DDL header.
   'ledger_read_cap',
+  // The last counted pass over the ledger, keyed by scope, so the sign-in card
+  // reads a stored estimate instead of re-counting on every load. A cache: every
+  // row may be deleted without losing a fact. See the DDL header.
+  'ledger_summary_cache',
 ] as const;
 
 const APP_TABLE_SET: ReadonlySet<string> = new Set<string>(APP_TABLES);
@@ -285,8 +289,13 @@ async function apply(): Promise<AppSchemaStatus> {
   } catch (e) {
     // A missing file is a deployment problem, not a data problem, and saying so
     // by path is the difference between a two-minute fix and a hunt.
+    //
+    // ★ `cause` IS CARRIED ON PURPOSE. The message names the path, but the original
+    //   error carries the errno (`ENOENT`/`EACCES`) and the stack — the two facts that
+    //   distinguish "the file is not there" from "the process may not read it".
+    //   Dropping them turns a diagnosable failure into a sentence.
     const message = e instanceof Error ? e.message : String(e);
-    throw new Error(`could not read ${schemaFile}: ${message}`);
+    throw new Error(`could not read ${schemaFile}: ${message}`, { cause: e });
   }
 
   const statements = splitSql(source);

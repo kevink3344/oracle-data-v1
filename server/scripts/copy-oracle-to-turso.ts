@@ -920,7 +920,7 @@ async function main(): Promise<void> {
     say(`    composed reporting views   ${ledgerViews.join(', ') || '(none)'}`);
     say('      → they are VIEWs in the destination, composed by src/db/derived.ts from the base');
     say('        tables this copy loads; copying them would double-write the same facts.');
-    say(`    this app\'s own tables      ${appObjects.join(', ') || '(none)'}`);
+    say(`    this app's own tables      ${appObjects.join(', ') || '(none)'}`);
     say('      → they live in the app store (APP_DB_URL), not the ledger. Untouched here.');
     say('    the four AP_* tables       AP_INVOICES_ALL, AP_INV_LINES,');
     say('        AP_INVOICE_DISTRIBUTIONS_ALL, AP_INVOICE_PAYMENTS_ALL');
@@ -1890,7 +1890,14 @@ async function main(): Promise<void> {
         // ★ The delete is one unit on purpose. §6: "a delete that runs before a
         //   load which then refuses 100,000 rows leaves the destination emptier
         //   than it started." Rolling the whole delete back keeps it reversible.
-        throw new Error(`the delete half failed and was rolled back, so the destination is intact: ${(err as Error).message}`);
+        //
+        // ★ `cause` IS CARRIED so the rollback message does not REPLACE the driver's
+        //   own error — the outer sentence says what was rolled back, the cause says
+        //   why the delete failed (a constraint, a timeout, a dropped connection).
+        throw new Error(
+          `the delete half failed and was rolled back, so the destination is intact: ${(err as Error).message}`,
+          { cause: err },
+        );
       }
       say('');
     }

@@ -70,6 +70,23 @@ jobs:
           npm ci
           npm run build
 
+      # ★ LINT RUNS AFTER BOTH BUILDS AND BEFORE THE DEPLOY, AND IT IS A GATE.
+      #   `tsc` verifies types; it has no opinion on whether a hook was called
+      #   conditionally, whether an effect is missing a dependency, or whether a
+      #   promise was left floating. This repo has already been bitten by the first
+      #   of those (`useStore()` below an early return in `CombinationPanel`) and the
+      #   console was the only detector. Both packages lint clean at `error` severity
+      #   today — the remaining findings are warnings, so this step fails only on a
+      #   NEW error-level finding. Put it here rather than before the builds so a
+      #   compile failure is reported first: a broken build is the more urgent news.
+      - name: Lint the app
+        working-directory: app
+        run: npm run lint
+
+      - name: Lint the API
+        working-directory: server
+        run: npm run lint
+
       - name: Serve the app from the API
         working-directory: server
         run: npm run build:web
