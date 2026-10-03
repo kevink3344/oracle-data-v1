@@ -521,13 +521,21 @@ function ScopeFields({
         <label className="field__label" htmlFor={`${idPrefix}-name`}>
           Name <span className="field__req">required</span>
         </label>
+        {/* ★ A DEPARTMENT, NOT A SCHOOL. An organization is a fund plus a set of programs, so
+            the name is whatever office keeps that slice of the ledger; a school is only one
+            thing that can be named here. The old example named one, which read as if this
+            register were a list of schools.
+
+            It is one placeholder rather than two because the create form and the edit panel
+            share this component — the field is the same field and an example is about the
+            field, not about which of the two forms is below it. */}
         <input
           id={`${idPrefix}-name`}
           className="input"
           type="text"
           autoComplete="off"
           value={draft.name}
-          placeholder="e.g. Athens Drive High School"
+          placeholder="e.g. Accounting"
           onChange={(event) => onChange({ name: event.target.value })}
         />
         <p className="field__hint">{nameHint}</p>

@@ -488,7 +488,7 @@ export function registerOrganizations(api: Api): void {
           .min(1)
           .max(200)
           .openapi({
-            example: 'Athens Drive High School',
+            example: 'Accounting',
             description: 'What the organization is called. Required, and the source of the key.',
           }),
         fund: FundSchema,
