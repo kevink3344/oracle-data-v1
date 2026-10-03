@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PACKAGE_ROOT, REPO_ROOT, config } from '../config/env.js';
 import { storeDriver } from './client.js';
-import type { SqlDriver } from './driver.js';
+import type { Dialect, SqlDriver } from './driver.js';
 
 /**
  * Applies `data/sql/turso/01-app.sql` — the tables this application owns.
@@ -106,15 +106,69 @@ const DDL_ROOTS: readonly string[] = [
 const APP_SCHEMA_NAME = '01-app.sql';
 
 /**
+ * The ledger views, applied AFTER the tables.
+ *
+ * ★★ ONLY MYSQL HAS THIS FILE, AND THAT IS NOT AN OMISSION. The other two arms
+ *    get these two views from somewhere else:
+ *
+ *      - `local`/`turso` — `data/sql/turso/00-schema.sql` creates them as part of
+ *        the sample build, so they already exist in the store.
+ *      - `sqlserver` — the Azure mirror was created by a copy script that
+ *        reproduced the views alongside the tables.
+ *      - `mysql` — the mirror was built by this project's own migration, which
+ *        copies BASE TABLES. It deliberately does not copy views, because a view
+ *        is a definition rather than data and belongs in a versioned file. So the
+ *        two views this app reads BY NAME have to be created here.
+ *
+ * ★ A MISSING FILE IS NOT AN ERROR. `findSchemaFile` throws for `01-app.sql`
+ *   because the app cannot run without its tables; this one is optional, and a
+ *   deployment that has not shipped it simply gets no views — which is exactly the
+ *   state every non-MySQL arm is in.
+ */
+const VIEWS_SCHEMA_NAME = '02-views.sql';
+
+/**
  * Resolve the DDL to apply for a store dialect.
  *
  * ★ THIS THROWS RATHER THAN RETURNING A PATH THAT MIGHT NOT EXIST, because a path
  *   is only useful here if it can be read, and the caller needs a message naming
  *   what was missing. `apply()` treats this and a read failure alike, so both
  *   arrive as the same `failed` status carrying the paths attempted.
+ *
+ * ★ THE PARAMETER IS A FOLDER NAME, NOT A `Dialect`, AND THE TWO ARE NOT THE SAME
+ *   SET. The libSQL arm reads `turso/` — named for the remote service rather than
+ *   the engine — so the folder vocabulary is
+ *   `'turso' | 'sqlserver' | 'mysql'`, while `Dialect` is
+ *   `'sqlite' | 'oracle' | 'sqlserver' | 'mysql'`. `SchemaFolder` names the
+ *   former so the mapping lives in exactly one place (`DIALECT_FOLDER` below)
+ *   instead of being re-derived at each call site. Passing a bare `Dialect` here
+ *   would compile for `sqlserver`/`mysql` and silently look for a `sqlite/`
+ *   folder that does not exist.
  */
-function findSchemaFile(dialect: 'turso' | 'sqlserver'): string {
-  const candidates = DDL_ROOTS.map((root) => path.join(root, dialect, APP_SCHEMA_NAME));
+type SchemaFolder = 'turso' | 'sqlserver' | 'mysql';
+
+/**
+ * Which DDL folder each dialect reads, in one place.
+ *
+ * ★ THE FOLDER NAME IS NOT ALWAYS THE DIALECT NAME. The libSQL arm reads
+ *   `turso/` — named for the remote service rather than the engine — while
+ *   `sqlserver/` and `mysql/` are named for theirs. Keeping the mapping here
+ *   means `apply()` and `applyViews()` cannot drift apart, which they would if
+ *   each carried its own ternary.
+ *
+ * ★ A MISSING KEY IS MEANINGFUL, NOT AN ERROR. `oracle` has no app-schema folder
+ *   because the Oracle arm is read-only against a mirrored ledger and owns no
+ *   tables of its own. `undefined` is how that is expressed; the callers decide
+ *   whether it is fatal (`apply`) or expected (`applyViews`).
+ */
+const DIALECT_FOLDER: Partial<Record<Dialect, SchemaFolder>> = {
+  sqlite: 'turso',
+  sqlserver: 'sqlserver',
+  mysql: 'mysql',
+};
+
+function findSchemaFile(dialect: SchemaFolder, name = APP_SCHEMA_NAME): string {
+  const candidates = DDL_ROOTS.map((root) => path.join(root, dialect, name));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (found) return found;
 
@@ -263,7 +317,7 @@ async function apply(): Promise<AppSchemaStatus> {
    */
   const store = storeDriver('app');
 
-  if (store.dialect !== 'sqlite' && store.dialect !== 'sqlserver') {
+  if (store.dialect !== 'sqlite' && store.dialect !== 'sqlserver' && store.dialect !== 'mysql') {
     // Reachable only if someone points `APP_DB_URL` at a non-SQLite, non-SQL-Server
     // store — Oracle today. Not an error state — there is simply no DDL this module
     // can apply there, and saying so is more useful than a syntax error from the
@@ -280,8 +334,18 @@ async function apply(): Promise<AppSchemaStatus> {
   //   store is what receives the statements, so it is what should choose the
   //   syntax. A future `APP_DB_URL` pointing at SQL Server under a libSQL ledger
   //   would then get the right DDL without this function learning about it.
-  const isSqlServer = store.dialect === 'sqlserver';
-  const schemaFile = findSchemaFile(isSqlServer ? 'sqlserver' : 'turso');
+  //
+  // ★ THREE ARMS NOW, AND THE FOLDER NAME IS NOT ALWAYS THE DIALECT NAME. The
+  //   mapping lives at module scope in `DIALECT_FOLDER` so `applyViews` cannot
+  //   drift from it — see the note there.
+  const folder = DIALECT_FOLDER[store.dialect];
+  if (folder === undefined) {
+    throw new Error(
+      `no app schema is declared for the ${store.dialect} dialect. ` +
+        'Add a folder under data/sql/ and an arm here, or the app-owned tables cannot be created.',
+    );
+  }
+  const schemaFile = findSchemaFile(folder);
 
   let source: string;
   try {
@@ -307,16 +371,21 @@ async function apply(): Promise<AppSchemaStatus> {
   //    table being dropped and abort half-done. Running first makes that
   //    unreachable. The full argument is on `applyUserRoleMigration`; the short
   //    version is that this line must not be moved below the loop.
-  const roles = isSqlServer ? false : await applyUserRoleMigration(store);
+  //
+  //    ★ IT IS SQLITE-ONLY, BECAUSE IT READS `sqlite_master`. MySQL and SQL Server
+  //      both get their role vocabulary from the DDL body, which they apply to a
+  //      fresh store — and neither has a store old enough to need the rebuild.
+  const isSqlite = store.dialect === 'sqlite';
+  const roles = isSqlite ? await applyUserRoleMigration(store) : false;
 
   for (const statement of statements) {
     await store.execute({ sql: statement, args: [] });
   }
 
-  // ★ THE TWO MIGRATIONS BELOW ARE SQLITE-ONLY AND ARE SKIPPED FOR SQL SERVER.
+  // ★ THE TWO MIGRATIONS BELOW ARE SQLITE-ONLY AND ARE SKIPPED FOR THE OTHER TWO.
   //   Both read `sqlite_master` and one rebuilds a table with `AUTOINCREMENT` —
-  //   neither can run in T-SQL. Skipping them is correct rather than a gap: a
-  //   freshly created SQL Server store carries the current shape already.
+  //   neither can run in T-SQL or MySQL. Skipping them is correct rather than a
+  //   gap: a freshly created store carries the current shape already.
   //
   // ★★ BUT "FRESHLY CREATED" WAS AN ASSUMPTION AND IT JUST STOPPED BEING TRUE.
   //   This note used to end by predicting that "the day a SQL Server app store
@@ -334,21 +403,120 @@ async function apply(): Promise<AppSchemaStatus> {
   //     (`DB_MODE=sqlserver`), the role vocabulary widened, and the DDL change can
   //     never reach a table that exists — see `applyUserRoleMigrationSqlServer`,
   //     which is this arm's counterpart to the SQLite rebuild above.
-  const added = isSqlServer
-    ? await applyColumnAdditionsSqlServer(store)
-    : await applyColumnAdditions(store);
-  const migrated = isSqlServer ? false : await applyPinCategoryMigration(store);
-  const roleConstraint = isSqlServer ? await applyUserRoleMigrationSqlServer(store) : false;
+  //
+  // ★★ MYSQL TAKES THE SQLITE COLUMN-ADDITION PATH, NOT THE SQL SERVER ONE, AND
+  //    THAT IS THE CORRECT PAIRING RATHER THAN A SHORTCUT. `applyColumnAdditions`
+  //    probes `pragma_table_info`, which MySQL does not have — so it cannot be
+  //    called here as-is. What MySQL needs is the same *shape*: an idempotent
+  //    `ALTER TABLE … ADD COLUMN` guarded by a column-existence check. That is
+  //    `applyColumnAdditionsMysql` below, and it exists so a MySQL store that
+  //    already holds rows is brought forward the same way the other two are,
+  //    rather than silently missing a column the DDL body declares.
+  const added =
+    store.dialect === 'sqlserver'
+      ? await applyColumnAdditionsSqlServer(store)
+      : store.dialect === 'mysql'
+        ? await applyColumnAdditionsMysql(store)
+        : await applyColumnAdditions(store);
+  const migrated = isSqlite ? await applyPinCategoryMigration(store) : false;
+  const roleConstraint =
+    store.dialect === 'sqlserver' ? await applyUserRoleMigrationSqlServer(store) : false;
+
+  // ★★ THE VIEWS ARE APPLIED AFTER THE TABLES, AND THE ORDER IS REQUIRED.
+  //    `V_ENCUMBRANCE_FROM_PO` joins `PO_DISTRIBUTIONS_ALL` and
+  //    `GL_CODE_COMBINATIONS`, and `V_CODE_COMBINATION_KEY` reads
+  //    `GL_CODE_COMBINATIONS`. MySQL resolves those at CREATE time, so a view
+  //    created before its tables exist fails with
+  //    `ER_NO_SUCH_TABLE` — and on a fresh store that is exactly the order the
+  //    file would be read in if this ran first.
+  //
+  // ★ IT IS OPTIONAL AND SILENT WHEN ABSENT. Only the MySQL arm ships this file;
+  //   on the other two the views come from the sample build or the mirror's own
+  //   copy script, so there is nothing to apply and no warning to emit.
+  const views = await applyViews(store);
 
   console.log(
     `[db] app schema ready (${statements.length} statements from ` +
       `${path.basename(schemaFile)} → ${config.appDb.label}` +
       `${added.length > 0 ? `, ${added.length} column${added.length === 1 ? '' : 's'} added: ${added.join(', ')}` : ''}` +
+      `${views > 0 ? `, ${views} view${views === 1 ? '' : 's'} applied` : ''}` +
       `${roles ? ', app_user role vocabulary widened' : ''}` +
       `${roleConstraint ? ', role constraint upgraded' : ''}` +
       `${migrated ? ', user_pin category constraint upgraded' : ''})`,
   );
   return { state: 'applied', statements: statements.length, error: null };
+}
+
+/**
+ * Apply `02-views.sql` if this dialect ships one. Returns how many ran.
+ *
+ * ★ A FAILURE HERE IS REPORTED, NOT SWALLOWED, UNLIKE THE COLUMN ADDITIONS.
+ *   A missing column degrades one endpoint; a missing view makes
+ *   `/api/spend/encumbrances` answer 500 with `ER_NO_SUCH_TABLE`, and the
+ *   difference between "the view is absent" and "the query is wrong" is exactly
+ *   what a swallowed error destroys. So a failure is a `console.warn` naming the
+ *   view — still not fatal, because the rest of the app is unaffected, but loud.
+ *
+ * ★ `CREATE OR REPLACE VIEW` IS THE MYSQL SPELLING OF IDEMPOTENCE. There is no
+ *   `IF NOT EXISTS` for views in MySQL 8, and the file is applied on EVERY boot,
+ *   so a bare `CREATE VIEW` would fail on the second start. `OR REPLACE` also
+ *   means a corrected view definition reaches an existing database, which a
+ *   guarded create would not.
+ */
+async function applyViews(store: SqlDriver): Promise<number> {
+  // ★ THE SAME DIALECT→FOLDER MAPPING AS `apply()`, READ FROM THE SAME MAP.
+  //   `store.dialect` is a `Dialect`; the file lives under the folder name, and
+  //   for the libSQL arm those differ (`sqlite` → `turso`). Passing the dialect
+  //   straight through would look for `ddl/sqlite/02-views.sql`, which does not
+  //   exist — and the `catch` below would turn that into a silent zero, which is
+  //   precisely the failure mode this function is written to avoid.
+  const folder = DIALECT_FOLDER[store.dialect];
+  if (folder === undefined) return 0;
+
+  let file: string;
+  try {
+    file = findSchemaFile(folder, VIEWS_SCHEMA_NAME);
+  } catch {
+    // No views file for this dialect — the normal case on two of the three arms.
+    return 0;
+  }
+
+  let source: string;
+  try {
+    source = readFileSync(file, 'utf8');
+  } catch (e) {
+    console.warn(`[db] could not read ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    return 0;
+  }
+
+  // ★ COMMENTS ARE STRIPPED BEFORE SPLITTING, AND THAT IS NOT COSMETIC. The file
+  //   is heavily commented, and `splitSql` splits on `;` — a semicolon inside a
+  //   comment would cut a statement in half. The comments here are line comments
+  //   only (`--`), so removing whole lines that start with one is sufficient and
+  //   cannot damage a statement body.
+  const body = source
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  const statements = body
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  let applied = 0;
+  for (const statement of statements) {
+    const name = /VIEW\s+(\w+)/i.exec(statement)?.[1] ?? '(unnamed view)';
+    try {
+      await store.execute({ sql: statement, args: [] });
+      applied += 1;
+    } catch (e) {
+      console.warn(
+        `[db] could not apply view ${name}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  return applied;
 }
 
 /**
@@ -1087,6 +1255,156 @@ const COLUMN_ADDITIONS_SQLSERVER: readonly { table: string; column: string; decl
     table: 'dbo.app_user',
     column: 'password_hash',
     declaration: 'NVARCHAR(200) NULL',
+  },
+];
+
+/**
+ * Bring a MySQL store that already exists forward to the current DDL.
+ *
+ * ★★ THIS EXISTS FOR THE SAME REASON ITS SQL SERVER SIBLING DOES, AND THE REASON
+ *    IS NOT HYPOTHETICAL. `CREATE TABLE IF NOT EXISTS` is a no-op on a table that
+ *    exists, so a column added only to the DDL body never reaches a database that
+ *    already holds rows. On this project that is not a future concern: the MySQL
+ *    store is being populated from the SQL Server mirror, so it will hold real
+ *    rows from the first day — and a `project` table created before
+ *    `background_strength` existed would keep answering
+ *    `Unknown column 'background_strength'` for ever.
+ *
+ * ★★ THE PROBE IS `information_schema.COLUMNS`, WHICH IS MYSQL'S `COL_LENGTH`.
+ *    The SQLite arm uses `pragma_table_info` and the SQL Server arm uses
+ *    `COL_LENGTH`; MySQL has neither, and `information_schema` is the portable
+ *    catalogue that answers the same question. It is scoped to `DATABASE()` so the
+ *    probe cannot match a same-named table in another schema on the same server —
+ *    a real hazard here, because a developer may well have more than one database.
+ *
+ * ★ `ALTER TABLE … ADD COLUMN` HAS NO `IF NOT EXISTS` IN MYSQL either, so the
+ *   probe is not merely for reporting — it is what makes the statement safe to
+ *   re-run. The SQL Server arm can use a guarded `IF COL_LENGTH(...) IS NULL`
+ *   one-liner; MySQL cannot, so it takes the same two-step shape as the SQLite arm.
+ *
+ * ★ A FAILURE IS NOT FATAL, MATCHING BOTH OTHER ARMS. Everything in the schema
+ *   file has already run by this point, and a column that could not be added
+ *   leaves one endpoint reporting a missing column — far better than refusing to
+ *   serve the application.
+ */
+async function applyColumnAdditionsMysql(store: SqlDriver): Promise<string[]> {
+  const added: string[] = [];
+
+  for (const change of COLUMN_ADDITIONS_MYSQL) {
+    try {
+      // Both names are literals in this file, never user input — the same reason
+      // the SQLite probe inlines its argument rather than binding it.
+      const probe = await store.execute({
+        sql:
+          `SELECT COUNT(*) AS n FROM information_schema.COLUMNS ` +
+          `WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${change.table}' ` +
+          `AND COLUMN_NAME = '${change.column}'`,
+        args: [],
+      });
+      const n = Number((probe.rows[0] as { n?: unknown } | undefined)?.n ?? 0);
+      if (n > 0) continue;
+
+      await store.execute({
+        sql: `ALTER TABLE ${change.table} ADD COLUMN ${change.column} ${change.declaration}`,
+        args: [],
+      });
+      added.push(`${change.table}.${change.column}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`[db] could not add ${change.table}.${change.column}: ${message}`);
+    }
+  }
+
+  return added;
+}
+
+/**
+ * The additions that apply to the MySQL store, declared once.
+ *
+ * ★ A THIRD LIST RATHER THAN A SHARED ONE WITH A DIALECT TAG. The declarations
+ *   differ per engine — `VARBINARY(MAX)` vs `LONGBLOB`, `NVARCHAR(n)` vs
+ *   `VARCHAR(n)` — so a shared list would have to carry three spellings of every
+ *   column, which is a dialect table pretending to be a schema. Three lists say
+ *   the same thing with less machinery.
+ *
+ * ★ THE DECLARATIONS MUST MATCH THE `CREATE TABLE` BODY IN `data/sql/mysql/01-app.sql`
+ *   EXACTLY. A store created from the DDL and an older store patched by this list
+ *   must end up with the same shape, or the schema depends on when the database
+ *   happened to be created — the failure this whole mechanism exists to prevent.
+ *   The `NULL` is deliberate and verbatim for the same reason.
+ */
+const COLUMN_ADDITIONS_MYSQL: readonly { table: string; column: string; declaration: string }[] = [
+  {
+    /**
+     * `project.background_image` — the project's background picture, as bytes.
+     *
+     * ★ `LONGBLOB`, NOT `BLOB`. MySQL's `BLOB` caps at 64 KB and **truncates
+     *   silently** in non-strict mode; the driver measured a real image at 700,000
+     *   bytes. `LONGBLOB` is the spelling that matches SQLite's unbounded `BLOB`
+     *   and SQL Server's `VARBINARY(MAX)`.
+     */
+    table: 'project',
+    column: 'background_image',
+    declaration: 'LONGBLOB NULL',
+  },
+  {
+    /** `project.background_image_mime` — the type the bytes are served back as. */
+    table: 'project',
+    column: 'background_image_mime',
+    declaration: 'VARCHAR(100) NULL',
+  },
+  {
+    /** `project.background_name` — the filename the image arrived with. */
+    table: 'project',
+    column: 'background_name',
+    declaration: 'VARCHAR(400) NULL',
+  },
+  {
+    /**
+     * `project.background_updated_at` — when the image was last replaced.
+     *
+     * No `DEFAULT`, on purpose: the route stamps it explicitly in the shape the
+     * stored rows carry. A default here would put two timestamp formats in one
+     * table. See `stampNow()`.
+     */
+    table: 'project',
+    column: 'background_updated_at',
+    declaration: 'VARCHAR(30) NULL',
+  },
+  {
+    /**
+     * `project.background_strength` — how strongly the header draws the picture,
+     * as a percent, or NULL for "never chosen".
+     *
+     * ★ `INT NULL` AND NOT `TINYINT`. The SQLite arm declares `INTEGER`, and a
+     *   one-byte column here would be a dialect detail inside a set whose whole
+     *   purpose is that the paths cannot drift into different shapes. The route
+     *   bounds the value to 0-100, and the column is nullable because zero is a
+     *   real choice a reader can make.
+     */
+    table: 'project',
+    column: 'background_strength',
+    declaration: 'INT NULL',
+  },
+  {
+    /**
+     * `app_user.password_hash` — a salted scrypt derivative, or NULL.
+     *
+     * ★ THE SAME COLUMN THAT MOTIVATED THE SQL SERVER ARM. `CREATE TABLE IF NOT
+     *   EXISTS` never revisits a table that exists, so a `password_hash` added only
+     *   to the DDL body would never reach a store created before it — and every
+     *   sign-in would fail with `Unknown column 'password_hash'` instead of with a
+     *   credential check.
+     *
+     * ★ `VARCHAR(200) NULL`, VERBATIM, INCLUDING THE `NULL`. The stored string
+     *   `scrypt$16384$8$1$<24-char salt>$<88-char key>` is about 130 characters; 200
+     *   leaves room for a wider salt or a longer key without a second migration. It
+     *   is nullable so a row carries "no credential set", and `authenticate()`
+     *   refuses such a row rather than accepting any password.
+     */
+    table: 'app_user',
+    column: 'password_hash',
+    declaration: 'VARCHAR(200) NULL',
   },
 ];
 

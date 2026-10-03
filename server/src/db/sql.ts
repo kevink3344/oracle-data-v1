@@ -1,6 +1,7 @@
 import type { Transaction } from '@libsql/client';
 import { db, storeDriver } from './client.js';
 import type { Args, Bind, Row } from './driver.js';
+import type { StoreId } from './store.js';
 import { AppError } from '../http/errors.js';
 
 export type { Args, Bind, Binds, Row } from './driver.js';
@@ -171,7 +172,69 @@ export function bindable(value: unknown): Bind {
 // Identifiers
 // ---------------------------------------------------------------------------
 
+/**
+ * Quote an identifier in the ledger's dialect.
+ *
+ * ★★ MYSQL USES BACKTICKS, AND THIS IS NOT COSMETIC — IT IS A SYNTAX ERROR.
+ *    SQLite, Oracle and SQL Server all accept `"name"` as an identifier quote.
+ *    **MySQL does not**: with the stock `sql_mode` (no `ANSI_QUOTES`), `"name"`
+ *    is a STRING LITERAL. So
+ *
+ *        SELECT * FROM "FND_FLEX_VALUES_TL" LIMIT 1
+ *
+ *    reads as "select from the string literal `FND_FLEX_VALUES_TL`", which is
+ *    not valid SQL — MySQL answers
+ *    `You have an error in your SQL syntax … near '"FND_FLEX_VALUES_TL" LIMIT 1'`.
+ *
+ *    Measured on 8.0.46 through the app's own seam: every object in the row-count
+ *    pass failed this way, so `/api/meta/ledger-summary` returned 200 with
+ *    `rowCount: null` on all 55 objects and the sign-in screen read
+ *    `55 objects, 0 rows`. **The failure was silent at the API level** — one
+ *    `console.warn` per object and a null count, which the client renders as
+ *    "not counted" rather than as an error.
+ *
+ * ★ THE DRIVER CANNOT FIX THIS, WHICH IS WHY IT LIVES HERE. A rewrite would have
+ *   to tell an identifier from a string literal, and `"FND_FLEX_VALUES_TL"` is
+ *   exactly the same token sequence in both roles. This is the same reasoning
+ *   `concatOp()` below records for `||` vs `+`: the dialect is chosen where the
+ *   intent is known, not guessed at in a scanner.
+ *
+ * ★ `ANSI_QUOTES` IS THE TEMPTING FIX AND IT IS NOT USED. Appending it to the
+ *   session `sql_mode` would make `"name"` an identifier — and would break every
+ *   query that legitimately uses a double-quoted string literal, turning a
+ *   correct value into a column reference. The driver already refuses to loosen
+ *   server modes for this class of reason; see `applySessionMode()` in `mysql.ts`.
+ *
+ * The escaping doubles the quote character, which is `""` for the standard arms
+ * and ` `` ` for MySQL.
+ *
+ * ★ THE STORE IS A SECOND ENTRY POINT, NOT A PARAMETER — AND `.map()` IS WHY. Which
+ *   quote character is correct is a property of the DIALECT OF THE STORE THE TABLE IS
+ *   IN, and `saved_view`, `ledger_read_cap` and `field_override` are app tables.
+ *   Quoting an app table for the ledger's dialect is right only while the two stores
+ *   happen to be the same engine, which is the shipped configuration (`APP_DB_URL`
+ *   unset) and not a property worth relying on. It is a second FUNCTION rather than an
+ *   optional second argument because five call sites pass this straight to `Array.map`,
+ *   where a second parameter silently receives the INDEX — `storeDriver(3)` — and only
+ *   `tsc` would have caught it. The single-argument form is unchanged for them.
+ */
 export function quoteIdent(name: string): string {
+  return quoteAs(storeDriver('ledger').dialect, name);
+}
+
+/**
+ * The same quoting, for a table that lives in the named store.
+ *
+ * `saved_view` is the caller that needed it: the column is called `sql`, which is a
+ * MySQL reserved word, and the table is in the app store.
+ */
+export function quoteIdentFor(store: StoreId, name: string): string {
+  return quoteAs(storeDriver(store).dialect, name);
+}
+
+/** The escaping doubles the quote character: a backtick for MySQL, a double quote for the rest. */
+function quoteAs(dialect: string, name: string): string {
+  if (dialect === 'mysql') return `\`${name.replace(/`/g, '``')}\``;
   return `"${name.replace(/"/g, '""')}"`;
 }
 
@@ -362,9 +425,25 @@ export function nowIso(): string {
  *    arm keeps the SQLite spelling on purpose, since the oracle driver's own date
  *    handling is a separate question and changing it here would be an unmeasured
  *    claim about a database this function has never been pointed at.
+ *
+ * ★★ MYSQL WAS ADDED AFTER A LIVE 500, AND THE SYMPTOM IS WORTH RECORDING. A MySQL
+ *    deployment saving a custom field value answered
+ *    `You have an error in your SQL syntax … near 'now')` — because this function had
+ *    no `mysql` arm and fell through to the SQLite spelling, which reached the server.
+ *    The MySQL spelling is `UTC_TIMESTAMP()`, chosen for the same two reasons the
+ *    T-SQL arm is style 120: it is UTC, and it is space-separated, so a row it writes
+ *    sorts and compares beside a row SQLite wrote.
  */
 export function stampNow(): string {
-  return storeDriver('app').dialect === 'sqlserver'
-    ? 'CONVERT(varchar(19), GETUTCDATE(), 120)'
-    : "datetime('now')";
+  const dialect = storeDriver('app').dialect;
+  if (dialect === 'sqlserver') return 'CONVERT(varchar(19), GETUTCDATE(), 120)';
+  // ★ MYSQL IS THE THIRD ARM, AND IT IS NOT A FALLTHROUGH. MySQL has no
+  //   `datetime('now')` at all and answers it with a parse error naming the
+  //   function — the same class of 500 the T-SQL arm produced above, and the one
+  //   that reached a user. `UTC_TIMESTAMP()` is the native spelling, and it is BOTH
+  //   UTC and space-separated (`2026-10-03 14:33:07`), which is exactly what
+  //   `data/sql/mysql/01-app.sql` declares as these columns' DEFAULT. `NOW()` is the
+  //   session's timezone and is deliberately not used.
+  if (dialect === 'mysql') return 'UTC_TIMESTAMP()';
+  return "datetime('now')";
 }

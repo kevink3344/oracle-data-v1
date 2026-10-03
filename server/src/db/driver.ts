@@ -30,6 +30,18 @@ import { config, type DbTarget } from '../config/env.js';
 
 export type Args = InArgs;
 
+/**
+ * The engines a driver can be.
+ *
+ * ★ A NAMED TYPE RATHER THAN FOUR COPIES OF THE UNION. The member list was
+ *   written out at ~10 call sites (the guards, the read cap, the extract source,
+ *   the activity register), so adding an engine meant finding every one of them
+ *   or having `tsc` point at each in turn. Naming it here means the next engine
+ *   is one edit, and the compiler still catches every branch that must decide
+ *   what the new engine does — which is the part that should NOT be automatic.
+ */
+export type Dialect = 'sqlite' | 'oracle' | 'sqlserver' | 'mysql';
+
 /** A single value either backend can bind. */
 export type Bind = string | number | bigint | Uint8Array | null;
 
@@ -79,8 +91,14 @@ export interface SqlDriver {
    *   about: T-SQL pages with `OFFSET/FETCH` and has no `DUAL`, Oracle pages with
    *   `FETCH FIRST` and requires one. Collapsing them would make every
    *   dialect-aware branch a coin flip.
+   *
+   * ★ `'mysql'` IS A FOURTH MEMBER AND IT LEANS THE OTHER WAY — TOWARDS SQLITE.
+   *   Measured against 8.0.46: `?` placeholders, `LIMIT n` and `IFNULL(x,y)` are
+   *   all native, so a branch that asks "is this SQLite?" usually wants MySQL on
+   *   the same side. The exception that must NOT be collapsed is `||`, which MySQL
+   *   reads as logical OR unless `PIPES_AS_CONCAT` is set — see `mysql.ts`.
    */
-  readonly dialect: 'sqlite' | 'oracle' | 'sqlserver';
+  readonly dialect: Dialect;
   /**
    * A one-row, one-column statement that proves the connection works.
    *

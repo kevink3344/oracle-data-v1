@@ -1,7 +1,8 @@
 import { z } from '../http/z.js';
 import type { Api } from '../http/api.js';
 import { AppError } from '../http/errors.js';
-import { execute, one, rows } from '../db/sql.js';
+import { execute, one, quoteIdent, rows } from '../db/sql.js';
+import { storeDriver } from '../db/client.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { requireSuperAdmin } from '../auth/guard.js';
 import {
@@ -10,6 +11,8 @@ import {
   forgetReadCap,
   ledgerDialect,
   orderByFragment,
+  readCapColumns,
+  tableNameMatches,
 } from '../db/read-cap.js';
 import { defaultReadFor } from '../db/ledger-defaults.js';
 
@@ -92,8 +95,16 @@ const ReadCapSchema = z
 const ReadCapListSchema = z
   .object({
     items: z.array(ReadCapSchema),
-    /** The dialect a cap will be applied in on this deployment. */
-    dialect: z.enum(['sqlite', 'oracle']),
+    /**
+     * The dialect a cap will be applied in on this deployment.
+     *
+     * ★ ALL FOUR, NOT TWO. This enum listed only `sqlite` and `oracle`, so a
+     *   `DB_MODE=mysql` or `sqlserver` deployment failed response validation on an
+     *   otherwise-correct payload — the route returned 500 for a value it had
+     *   produced itself. `SqlDriver['dialect']` is the authority for this union;
+     *   `routes/extract.ts` already spells all four for the same reason.
+     */
+    dialect: z.enum(['sqlite', 'oracle', 'sqlserver', 'mysql']),
     /** The ledger objects the registry knows about, whether or not they have a row. */
     knownTables: z.array(z.string()),
     counts: z.object({
@@ -108,7 +119,7 @@ const PreviewSchema = z
     tableName: z.string(),
     /** The statement that was executed, cap and ordering included. */
     statement: z.string(),
-    dialect: z.enum(['sqlite', 'oracle']),
+    dialect: z.enum(['sqlite', 'oracle', 'sqlserver', 'mysql']),
     /** The cap the draft asked for, or null when the draft is uncapped. */
     maxRows: z.number().int().nullable(),
     /** The ordering the window was taken in, or null when uncapped. */
@@ -198,10 +209,12 @@ export function registerReadCaps(api: Api): void {
     errors: [500, 503],
     handler: async () => {
       await requireAppSchema();
+      // ★ THE COLUMN LIST IS QUOTED PER DIALECT — `sql` is reserved in MySQL. See
+      //   `readCapColumns()` for why the bare form silently disabled every cap.
       const stored = await rows<CapDbRow>(
-        `SELECT table_name, sql, max_rows, order_by, note, set_by, set_at
-           FROM ledger_read_cap
-          ORDER BY table_name`,
+        `SELECT ${readCapColumns()}
+           FROM ${quoteIdent('ledger_read_cap')}
+          ORDER BY ${quoteIdent('table_name')}`,
       );
       const known = await knownLedgerTables();
 
@@ -265,9 +278,9 @@ export function registerReadCaps(api: Api): void {
     handler: async ({ params }) => {
       await requireAppSchema();
       const found = await one<CapDbRow>(
-        `SELECT table_name, sql, max_rows, order_by, note, set_by, set_at
-           FROM ledger_read_cap
-          WHERE table_name = :name COLLATE NOCASE
+        `SELECT ${readCapColumns()}
+           FROM ${quoteIdent('ledger_read_cap')}
+          WHERE ${tableNameMatches()}
           LIMIT 1`,
         { name: params.table },
       );
@@ -363,32 +376,87 @@ export function registerReadCaps(api: Api): void {
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-      await execute(
-        `INSERT INTO ledger_read_cap (table_name, sql, max_rows, order_by, note, set_by, set_at)
-              VALUES (:table, :sql, :maxRows, :orderBy, :note, :setBy, :setAt)
-         ON CONFLICT (table_name) DO UPDATE SET
-              sql = excluded.sql,
-              max_rows = excluded.max_rows,
-              order_by = excluded.order_by,
-              note = excluded.note,
-              set_by = excluded.set_by,
-              set_at = excluded.set_at`,
-        {
-          table,
-          sql,
-          maxRows,
-          // ★ THE EFFECTIVE ORDERING IS WHAT GETS STORED, NOT THE BLANK THAT WAS SENT.
-          //   A row holding a limit and no ordering is the one shape the read path
-          //   refuses, so storing the fallback keeps the row self-describing: whoever
-          //   reads it back sees the window it actually uses rather than a null that
-          //   only works because a default happens to exist today. Change the default
-          //   later and this row keeps its own answer.
-          orderBy: maxRows === null ? orderBy : effectiveOrder,
-          note,
-          setBy: actor.name,
-          setAt: now,
-        },
-      );
+      /*
+       * ★★ THE UPSERT IS SPELLED PER DIALECT, AND THE FIRST VERSION WAS NOT.
+       *
+       * `INSERT … ON CONFLICT (table_name) DO UPDATE` is SQLITE SYNTAX. SQL Server
+       * rejects it with `Incorrect syntax near the keyword 'ON'` and MySQL with
+       * `You have an error in your SQL syntax … near 'ON CONFLICT'`. The same trap
+       * is documented in `routes/meta.ts`, where it hid for a whole verification
+       * pass because the failure was caught and logged while an in-memory memo kept
+       * the screen correct.
+       *
+       * ★ MYSQL HAS A REAL UPSERT AND IT IS USED. `ON DUPLICATE KEY UPDATE` is the
+       *   native spelling and needs no separate read — unlike SQL Server, which has
+       *   no `ON CONFLICT` and is handled by an UPDATE-then-INSERT in `meta.ts`.
+       *   `VALUES(col)` is the MySQL 8 form for "the value that was proposed for
+       *   insertion"; the older `excluded.col` spelling is SQLite's and MySQL does
+       *   not accept it.
+       *
+       * ★ THE DIALECT IS READ, NOT GUESSED — the same rule the rest of this file now
+       *   follows for quoting and for the case-insensitive comparison.
+       */
+      const appDialect = storeDriver('app').dialect;
+      const columns = `(${readCapColumns()})`;
+      const values = `(:table, :sql, :maxRows, :orderBy, :note, :setBy, :setAt)`;
+      // ★ NAMED `binds`, NOT `params` — `params` is the route handler's own
+      //   path/body argument, and shadowing it here is a compile error.
+      const binds = {
+        table,
+        sql,
+        maxRows,
+        // ★ THE EFFECTIVE ORDERING IS WHAT GETS STORED, NOT THE BLANK THAT WAS SENT.
+        //   A row holding a limit and no ordering is the one shape the read path
+        //   refuses, so storing the fallback keeps the row self-describing: whoever
+        //   reads it back sees the window it actually uses rather than a null that
+        //   only works because a default happens to exist today. Change the default
+        //   later and this row keeps its own answer.
+        orderBy: maxRows === null ? orderBy : effectiveOrder,
+        note,
+        setBy: actor.name,
+        setAt: now,
+      };
+
+      if (appDialect === 'mysql') {
+        await execute(
+          `INSERT INTO ${quoteIdent('ledger_read_cap')} ${columns}
+                VALUES ${values}
+           ON DUPLICATE KEY UPDATE
+                ${quoteIdent('sql')} = VALUES(${quoteIdent('sql')}),
+                ${quoteIdent('max_rows')} = VALUES(${quoteIdent('max_rows')}),
+                ${quoteIdent('order_by')} = VALUES(${quoteIdent('order_by')}),
+                ${quoteIdent('note')} = VALUES(${quoteIdent('note')}),
+                ${quoteIdent('set_by')} = VALUES(${quoteIdent('set_by')}),
+                ${quoteIdent('set_at')} = VALUES(${quoteIdent('set_at')})`,
+          binds,
+        );
+      } else if (appDialect === 'sqlserver') {
+        // SQL Server has no `ON CONFLICT`; UPDATE-then-INSERT, as `meta.ts` does.
+        const updated = await execute(
+          `UPDATE ${quoteIdent('ledger_read_cap')} SET
+             ${quoteIdent('sql')} = :sql, ${quoteIdent('max_rows')} = :maxRows,
+             ${quoteIdent('order_by')} = :orderBy, ${quoteIdent('note')} = :note,
+             ${quoteIdent('set_by')} = :setBy, ${quoteIdent('set_at')} = :setAt
+           WHERE ${quoteIdent('table_name')} = :table`,
+          binds,
+        );
+        if (updated.rowsAffected === 0) {
+          await execute(`INSERT INTO ${quoteIdent('ledger_read_cap')} ${columns} VALUES ${values}`, binds);
+        }
+      } else {
+        await execute(
+          `INSERT INTO ${quoteIdent('ledger_read_cap')} ${columns}
+                VALUES ${values}
+           ON CONFLICT (${quoteIdent('table_name')}) DO UPDATE SET
+                ${quoteIdent('sql')} = excluded.${quoteIdent('sql')},
+                ${quoteIdent('max_rows')} = excluded.${quoteIdent('max_rows')},
+                ${quoteIdent('order_by')} = excluded.${quoteIdent('order_by')},
+                ${quoteIdent('note')} = excluded.${quoteIdent('note')},
+                ${quoteIdent('set_by')} = excluded.${quoteIdent('set_by')},
+                ${quoteIdent('set_at')} = excluded.${quoteIdent('set_at')}`,
+          binds,
+        );
+      }
 
       // ★ THE CACHE IS DROPPED SO THE SAVE TAKES EFFECT AT ONCE. Without this the
       //   next ledger read on this process would use the cap as it was when the
@@ -397,9 +465,9 @@ export function registerReadCaps(api: Api): void {
       forgetReadCap(table);
 
       const saved = await one<CapDbRow>(
-        `SELECT table_name, sql, max_rows, order_by, note, set_by, set_at
-           FROM ledger_read_cap
-          WHERE table_name = :name COLLATE NOCASE
+        `SELECT ${readCapColumns()}
+           FROM ${quoteIdent('ledger_read_cap')}
+          WHERE ${tableNameMatches()}
           LIMIT 1`,
         { name: table },
       );
@@ -435,9 +503,10 @@ export function registerReadCaps(api: Api): void {
       await requireSuperAdmin(req);
       await requireAppSchema();
       const table = params.table.trim();
-      const result = await execute(`DELETE FROM ledger_read_cap WHERE table_name = :name COLLATE NOCASE`, {
-        name: table,
-      });
+      const result = await execute(
+        `DELETE FROM ${quoteIdent('ledger_read_cap')} WHERE ${tableNameMatches()}`,
+        { name: table },
+      );
       forgetReadCap(table);
       return { tableName: table, removed: result.rowsAffected > 0 };
     },

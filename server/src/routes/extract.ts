@@ -144,7 +144,7 @@ const ExtractSourceSchema = z
     //   invisible to it — but this schema is what the route validates its own
     //   response against, and a value missing here fails the response, not the
     //   reader. Add a dialect to `SqlDriver` and it must be added here.
-    dialect: z.enum(['sqlite', 'oracle', 'sqlserver']),
+    dialect: z.enum(['sqlite', 'oracle', 'sqlserver', 'mysql']),
     /** The store's human label, as `/api/health` reports it. */
     label: z.string(),
     /** ISO instant the document was read. On a cache hit this is the build time. */
@@ -448,8 +448,30 @@ export function buildLiveSql(programs: readonly string[]): { sql: string; binds:
  * ★ `STATUS` COMES FROM `AUTHORIZATION_STATUS`, WHICH THE COPY ADDED to
  *   `PO_HEADERS_ALL` by joining the base table to the view. Without it every row
  *   would report a null status.
+ *
+ * ★★ THE DATE COLUMN IS THE ONE THING THAT DIFFERS BETWEEN THE TWO NON-ORACLE
+ *    ARMS, AND IT IS WHY THIS FUNCTION NOW TAKES A DIALECT.
+ *
+ *    Everything else here is portable: `ROUND(x, 2)`, `CASE`, `COALESCE`, the
+ *    two-key join and the plain `NULL` columns all run unchanged on both engines.
+ *    The date conversion does not — `CONVERT(varchar(10), d, 23)` is T-SQL's
+ *    spelling of "ISO date as a 10-char string" and MySQL has no `CONVERT` with a
+ *    style code, answering `You have an error in your SQL syntax … near
+ *    'varchar(10), h.APPROVED_DATE, 23)'`.
+ *
+ *    **This was a live bug under `DB_MODE=mysql`**: the dispatch below sent every
+ *    non-Oracle ledger here, so MySQL received T-SQL and `/api/extract/current`
+ *    fell back to the 2,782-row frozen file with a syntax error as the reason.
+ *    The fallback is what made it quiet — the endpoint still answered 200.
+ *
+ *    `%Y-%m-%d` and style code 23 both produce the same `YYYY-MM-DD`, which is
+ *    what the frontend's `isoDay()` slices to 10, so the wire format is identical
+ *    on both arms and no consumer can tell which engine answered.
  */
-export function buildLiveSqlServer(programs: readonly string[]): { sql: string; binds: Record<string, string> } {
+export function buildLiveSqlServer(
+  programs: readonly string[],
+  dialect: 'sqlserver' | 'mysql' = 'sqlserver',
+): { sql: string; binds: Record<string, string> } {
   const { where, binds } = scopeClause(programs);
 
   /**
@@ -462,8 +484,13 @@ export function buildLiveSqlServer(programs: readonly string[]): { sql: string; 
    *   should be able to see every column side by side. A shared prefix plus an
    *   override would hide exactly the two lines that need reading.
    */
+  const orderDate =
+    dialect === 'mysql'
+      ? "DATE_FORMAT(h.APPROVED_DATE, '%Y-%m-%d')"
+      : 'CONVERT(varchar(10), h.APPROVED_DATE, 23)';
+
   const columns = `
-         CONVERT(varchar(10), h.APPROVED_DATE, 23) AS ORDER_DATE,
+         ${orderDate} AS ORDER_DATE,
          h.SEGMENT1                             AS ORDER_NUMBER,
          NULL                                   AS BUYER_NAME,
          v.VENDOR_NAME                          AS VENDOR_NAME,
@@ -610,7 +637,7 @@ interface LiveDocument {
     //   `SqlDriver['dialect']` is already this union, so widening it in one interface
     //   was the only thing standing between the cached document and the type the
     //   route promises. Same reasoning as `kind` above, one field over.
-    dialect: 'oracle' | 'sqlite' | 'sqlserver';
+    dialect: 'oracle' | 'sqlite' | 'sqlserver' | 'mysql';
     label: string;
     generatedAt: string;
     cached: boolean;
@@ -983,10 +1010,16 @@ async function buildExtract(forced: boolean): Promise<{ source: ExtractSource; t
     //    Before this, a non-Oracle ledger never reached here at all — it returned the
     //    frozen file above — so the mirror could hold every real row and the app
     //    would still show the 2,782-row snapshot.
+    //
+    // ★ THE NON-ORACLE ARM IS NOW DIALECT-AWARE, AND THAT IS A FIX, NOT A REFINEMENT.
+    //   It used to be `buildLiveSqlServer(tenant.programs)` for every non-Oracle
+    //   ledger, which meant MySQL received T-SQL and failed on
+    //   `CONVERT(varchar(10), …, 23)` — falling back to the frozen file with a
+    //   syntax error as the reason, on an endpoint that still answered 200.
     const { sql, binds } =
       ledger.dialect === 'oracle'
         ? buildLiveSql(tenant.programs)
-        : buildLiveSqlServer(tenant.programs);
+        : buildLiveSqlServer(tenant.programs, ledger.dialect === 'mysql' ? 'mysql' : 'sqlserver');
     // ★ `storeDriver('ledger')` RATHER THAN `rows(...)`, AND THE CHOICE IS
     //   DELIBERATE. `rows()` routes the statement by the tables it names, and
     //   this one names `APPS.WCSEXP_*` views that the registry has never heard

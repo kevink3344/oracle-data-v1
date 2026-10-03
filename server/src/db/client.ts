@@ -3,6 +3,7 @@ import { createLibsqlDriver, type SqlDriver } from './driver.js';
 import { createRoutedDriver, type RoutedDriver, type StoreId } from './hybrid.js';
 import { createOracleDriver, oracleClientVersion } from './oracle.js';
 import { createSqlServerDriver } from './sqlserver.js';
+import { createMySqlDriver } from './mysql.js';
 import { storeForTable } from './store.js';
 import { noteStatement } from '../http/sql-trace.js';
 
@@ -49,7 +50,9 @@ const ledger: SqlDriver =
     ? createOracleDriver()
     : config.db.mode === 'sqlserver'
       ? createSqlServerDriver()
-      : createLibsqlDriver();
+      : config.db.mode === 'mysql'
+        ? createMySqlDriver()
+        : createLibsqlDriver();
 
 /**
  * The app store's driver. The same object as `ledger` when they are one database,
@@ -60,7 +63,9 @@ const app: SqlDriver =
     ? ledger
     : config.appDb.sqlserver !== undefined
       ? createSqlServerDriver()
-      : createLibsqlDriver(config.appDb);
+      : config.appDb.mysql !== undefined
+        ? createMySqlDriver()
+        : createLibsqlDriver(config.appDb);
 
 /**
  * ★ THE SQL TRACE IS RECORDED AT THE DRIVER, AND THAT IS THE ONLY PLACE THAT CATCHES EVERYTHING.

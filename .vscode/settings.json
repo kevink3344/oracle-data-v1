@@ -37,6 +37,10 @@
         "ConvertTo-Json": true,
         "Get-Command": true,
         "gh": true,
-        "az": true
+        "az": true,
+        "&": true,
+        "npm run sync:extract": true,
+        "npx eslint": true,
+        "npm run copy:ddl": true
     }
 }

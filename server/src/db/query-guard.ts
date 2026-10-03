@@ -352,6 +352,24 @@ const DENIED_REASON: ReadonlyMap<string, { why: string; fix: string | null }> = 
 ]);
 
 /**
+ * The engines this guard knows how to refuse for.
+ *
+ * ★ DECLARED HERE RATHER THAN IMPORTED FROM `driver.ts`, AND THAT IS THE FILE'S
+ *   OWN RULE. The header above says this module has no imports and every export is
+ *   a pure string function — that is what makes the refusals testable without a
+ *   database. Importing the shared `Dialect` would be a type-only import and
+ *   therefore erased at runtime, so it would not actually break the property…
+ *   but it would break the *statement* of the property, and the next reader would
+ *   have to check whether this one import is erased too.
+ *
+ *   The duplication is two lines and the compiler keeps the two in step: a member
+ *   added to `Dialect` in `driver.ts` and not here surfaces as a type error at
+ *   every call site that passes one, which is the same protection an import would
+ *   give.
+ */
+type Dialect = 'sqlite' | 'oracle' | 'sqlserver' | 'mysql';
+
+/**
  * Read a statement and decide whether it may run.
  *
  * Order matters, because the first refusal is the one the author reads:
@@ -363,7 +381,7 @@ const DENIED_REASON: ReadonlyMap<string, { why: string; fix: string | null }> = 
  *   5. first token SELECT/WITH  — so `EXPLAIN SELECT 1` is explained
  *   6. Oracle-only constructs   — so `FETCH FIRST` (V3) names `LIMIT n`
  */
-export function analyzeSql(sql: string, dialect: 'sqlite' | 'oracle' | 'sqlserver' = 'sqlite'): SqlAnalysis {
+export function analyzeSql(sql: string, dialect: Dialect = 'sqlite'): SqlAnalysis {
   const raw = typeof sql === 'string' ? sql : '';
 
   // Step 2. One trailing `;` is punctuation, not a second statement. Anything
@@ -893,10 +911,16 @@ function unaliasedDerivedTables(code: string): number[] {
  */
 export function dialectFindings(
   masked: string,
-  dialect: 'sqlite' | 'sqlserver' = 'sqlite',
+  dialect: 'sqlite' | 'sqlserver' | 'mysql' = 'sqlite',
   /** The statement *unmasked*, needed only by the double-quote check. */
   statement?: string,
 ): GuardFinding[] {
+  // ★ MYSQL TAKES THE SQLITE RULE TABLE, AND THAT IS A MEASURED CHOICE RATHER THAN A
+  //   DEFAULT. The tables below are "wrong for this engine" tables — they name the
+  //   constructs an author would reach for out of habit and that this engine rejects.
+  //   MySQL natively accepts `LIMIT`, `IFNULL` and `?`, which is exactly the set the
+  //   SQLite table does NOT flag — so falling through to it is right, and adding a
+  //   fourth table with nothing in it would be inventing rules to have a table.
   const rules = dialect === 'sqlserver' ? SQLSERVER_RULES : DIALECT_RULES;
 
   const out: GuardFinding[] = [];
@@ -1004,7 +1028,7 @@ export function dialectFindings(
 export function wrapForRowCap(
   statement: string,
   maxRows: number,
-  dialect: 'sqlite' | 'oracle' | 'sqlserver' = 'sqlite',
+  dialect: Dialect = 'sqlite',
 ): string {
   const n = Math.max(1, Math.trunc(maxRows));
   // The inner statement has already had its trailing `;` stripped by

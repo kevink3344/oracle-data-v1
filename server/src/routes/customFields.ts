@@ -79,7 +79,8 @@ import { AppError } from '../http/errors.js';
 import { requireActor } from '../auth/guard.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { text, textReq } from '../schemas/columns.js';
-import { execute, one, rows } from '../db/sql.js';
+import { storeDriver } from '../db/client.js';
+import { execute, one, rows, stampNow } from '../db/sql.js';
 import {
   OVERRIDABLE,
   overridable,
@@ -493,13 +494,31 @@ export function registerCustomFields(api: Api): void {
       // file is not it. `subject_kind` and `field` are written from the REGISTRY's
       // spelling rather than the caller's, so the table cannot end up with two rows
       // differing only in case.
+      //
+      // ★ THE UPSERT IS SPELLED PER DIALECT, BECAUSE `ON CONFLICT` IS SQLITE'S AND NOT
+      //   SQL. On a MySQL deployment this save answered 500 with `You have an error in
+      //   your SQL syntax … near 'ON CONFLICT'` — a parse error on the one write this
+      //   screen makes. MySQL has a real upsert: `ON DUPLICATE KEY UPDATE`, where
+      //   `VALUES(col)` is the value the INSERT proposed. `set_at` is `stampNow()` in
+      //   both arms, which is itself per-dialect (`db/sql.ts`), so the clock stays the
+      //   database's. The SQLite spelling is unchanged and remains the fallback — the
+      //   same per-dialect branch `routes/readCaps.ts` spells its own upsert with.
+      const insertRow =
+        'INSERT INTO field_override (subject_kind, subject_key, subject_written, field, value, set_by)\n' +
+        '         VALUES (:subject, :key, :written, :field, :value, :setBy)';
       await execute(
-        `INSERT INTO field_override (subject_kind, subject_key, subject_written, field, value, set_by)
-         VALUES (:subject, :key, :written, :field, :value, :setBy)
+        storeDriver('app').dialect === 'mysql'
+          ? `${insertRow}
+         ON DUPLICATE KEY UPDATE
+           value = VALUES(value),
+           set_by = VALUES(set_by),
+           set_at = ${stampNow()},
+           subject_written = VALUES(subject_written)`
+          : `${insertRow}
          ON CONFLICT (subject_kind, subject_key, field) DO UPDATE SET
            value = excluded.value,
            set_by = excluded.set_by,
-           set_at = datetime('now'),
+           set_at = ${stampNow()},
            subject_written = excluded.subject_written`,
         {
           subject: entry.subject,

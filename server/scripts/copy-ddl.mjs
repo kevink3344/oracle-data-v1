@@ -54,11 +54,19 @@ const dest = path.resolve(here, '..', 'ddl');
 //   So the copy is per-file and named, which also makes the failure mode obvious:
 //   the thing that must exist is the thing listed, not whatever a glob happened to
 //   match on the machine that ran the build.
-const DIALECTS = ['turso', 'sqlserver'];
+const DIALECTS = ['turso', 'sqlserver', 'mysql'];
 
 // The DDL file, and the only file copied. Its absence caused the outage, so it is
 // checked by name rather than inferred from a folder listing.
 const REQUIRED = '01-app.sql';
+
+// ★ A SECOND FILE, AND IT IS OPTIONAL PER DIALECT. `02-views.sql` holds the two
+//   ledger views read BY NAME (`V_CODE_COMBINATION_KEY`, `V_ENCUMBRANCE_FROM_PO`).
+//   Only the MySQL arm ships one — the libSQL store gets them from the sample
+//   build and the SQL Server mirror from its own copy script — so its absence is
+//   expected rather than a failure. It is copied when present, and the applier
+//   treats a missing file as "this dialect has none".
+const OPTIONAL = '02-views.sql';
 
 if (!fs.existsSync(src)) {
   console.error(`[copy-ddl] no DDL source found at ${src}`);
@@ -83,6 +91,12 @@ for (const dialect of DIALECTS) {
   fs.mkdirSync(to, { recursive: true });
   fs.copyFileSync(path.join(src, dialect, REQUIRED), path.join(to, REQUIRED));
   copied.push(`${dialect}/${REQUIRED}`);
+
+  const optionalFrom = path.join(src, dialect, OPTIONAL);
+  if (fs.existsSync(optionalFrom)) {
+    fs.copyFileSync(optionalFrom, path.join(to, OPTIONAL));
+    copied.push(`${dialect}/${OPTIONAL}`);
+  }
 }
 
 console.log(

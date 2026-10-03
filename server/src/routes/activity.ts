@@ -1,5 +1,6 @@
 import { z } from '../http/z.js';
 import type { Api } from '../http/api.js';
+import type { Dialect } from '../db/driver.js';
 import { execute, rows, type Binds } from '../db/sql.js';
 import { storeDriver } from '../db/client.js';
 import { config } from '../config/env.js';
@@ -160,7 +161,7 @@ interface ColumnRow {
 export interface ActivitySource {
   store: 'app';
   label: string;
-  dialect: 'sqlite' | 'oracle' | 'sqlserver';
+  dialect: Dialect;
   ledgerLabel: string;
   sharedWithLedger: boolean;
   countStore: StoreId;

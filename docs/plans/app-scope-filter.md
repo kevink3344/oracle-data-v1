@@ -51,7 +51,7 @@ The rest of the surfaces, measured the same way:
 |---|---|---|---|
 | `/`, `/projects`, `/projects/new`, `/objects/:object`, `/coa/combinations` | `output.json` | yes, per row — but constant | Filter correctly, **report 0 removed** |
 | `/spend/invoices` | `invoices.json` | yes — the rule lives in the extract SQL | Driven by the selector; reconciles against it |
-| `/spend/payments` | `checks.json` **+** `invoices.json` | **not on the check row** — the page joins through the invoices' account segments | Filters correctly; the page reports *"Showing 65 of 4,218 checks"* |
+| `/spend/payments` | `checks.json` | **no account column** (5 cols) | Scope note only |
 | `/activity` | `/api/activity` | **no account column** — counts are per *table* | Scope note only |
 | `/admin/views` | live SQL | only if the query selects the segments | Out of reach by construction |
 | `/funding/*` (6 leaves) | not built | — | — |

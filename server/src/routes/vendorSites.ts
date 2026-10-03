@@ -198,7 +198,7 @@ const SIGNAL_SOURCE: Record<string, string> = {
 };
 
 /**
- * ★ THE COLUMNS THE SQL SERVER MIRROR WAS NEVER GIVEN, MEASURED RATHER THAN ASSUMED.
+ * ★ THE COLUMNS THE MIRRORS WERE NEVER GIVEN, MEASURED RATHER THAN ASSUMED.
  *
  * `scripts/copy-oracle-to-sqlserver.ts` copies `PO_VENDOR_SITES_ALL` with an explicit nine-column
  * projection (`VENDOR_SITE_ID, VENDOR_ID, VENDOR_SITE_CODE, ADDRESS_LINE1, CITY, STATE, ZIP,
@@ -212,8 +212,13 @@ const SIGNAL_SOURCE: Record<string, string> = {
  *   this set is a measured statement about a mirror that is currently incomplete, and it is the
  *   one thing to delete when the six columns are copied — the code then discovers them by simply
  *   answering `true` for every signal, and nothing else has to change.
+ *
+ * ★ THE MYSQL MIRROR IS THE SAME SHAPE, PROBED WITH `SHOW COLUMNS` RATHER THAN ASSUMED. The local
+ *   `oracle-sync` copy of `po_vendor_sites_all` holds the identical nine columns, so the identical
+ *   six are absent and the identical two signals go unevaluated. One set therefore serves both
+ *   mirrors: the fact is a property of the *copy*, not of the engine it was loaded into.
  */
-const SQLSERVER_ABSENT_SITE_COLUMNS: ReadonlySet<string> = new Set([
+const MIRROR_ABSENT_SITE_COLUMNS: ReadonlySet<string> = new Set([
   'ADDRESS_LINE2',
   'ADDRESS_LINE3',
   'AREA_CODE',
@@ -230,9 +235,11 @@ const SQLSERVER_ABSENT_SITE_COLUMNS: ReadonlySet<string> = new Set([
  *   "no" after the columns were copied. Asking per column means the disclosure retires itself.
  */
 function signalsEvaluable(dialect: string): ReadonlySet<string> {
-  if (dialect !== 'sqlserver') return new Set(ALL_SIGNALS);
+  // ★ BOTH MIRRORS TAKE THE SAME ARM, BECAUSE BOTH LACK THE SAME COLUMNS — see the set above.
+  //   Oracle is the only ledger that carries all three signals.
+  if (dialect !== 'sqlserver' && dialect !== 'mysql') return new Set(ALL_SIGNALS);
   return new Set(
-    ALL_SIGNALS.filter((signal) => !SQLSERVER_ABSENT_SITE_COLUMNS.has(SIGNAL_SOURCE[signal] ?? '')),
+    ALL_SIGNALS.filter((signal) => !MIRROR_ABSENT_SITE_COLUMNS.has(SIGNAL_SOURCE[signal] ?? '')),
   );
 }
 
@@ -478,27 +485,62 @@ function orderPairSql(programs: readonly string[]): { sql: string; binds: Record
  *   the contract: a client selecting `ADDRESS_LINE2` gets null rather than `undefined`, and the
  *   row mapper stays byte-identical between the two arms. What the two genuinely missing columns
  *   cost is a separate matter, disclosed at `SIGNAL_SOURCE`.
+ *
+ * ★ AND IT NOW TAKES A DIALECT, BECAUSE THERE ARE TWO MIRRORS RATHER THAN ONE. The local MySQL
+ *   ledger (`oracle-sync`) holds the same copied tables, and this statement runs on it unchanged
+ *   except for the date conversion and the type of a projected null — see the arm's own note.
+ *   Measured against the live MySQL copy, the arm returns **800 sites · 715 vendors · 5,692 orders
+ *   · $2,797,825,956.73**, which is the register's documented Oracle figure to the cent.
  */
-function orderPairSqlSqlServer(programs: readonly string[]): {
+function orderPairSqlSqlServer(
+  programs: readonly string[],
+  dialect: 'sqlserver' | 'mysql' = 'sqlserver',
+): {
   sql: string;
   binds: Record<string, string>;
 } {
   const { where, binds } = scopeClause(programs);
+
+  /*
+   * ★ THE TWO MIRROR ENGINES, AND THE ONLY TWO LINES THAT DIFFER BETWEEN THEM.
+   *
+   * Everything else in this statement is portable: `ROUND(x, 2)`, `CASE`, `COALESCE`, the two-key
+   * join to `PO_LINE_LOCATIONS_ALL` and the plain `NULL` projections all run unchanged on both
+   * engines. What does not is the pair of spellings this arm already had to get right for T-SQL,
+   * and that MySQL spells differently again:
+   *
+   *   - THE DATE. `CONVERT(varchar(10), d, 23)` is T-SQL's "ISO date as a 10-char string"; MySQL
+   *     has no `CONVERT` with a style code and answers a syntax error, so it is
+   *     `DATE_FORMAT(d, '%Y-%m-%d')`. Both produce `YYYY-MM-DD` — what the frontend's `isoDay()`
+   *     slices to 10 — so no consumer can tell which engine answered.
+   *   - THE TYPE OF A PROJECTED NULL. `CAST(NULL AS varchar(1))` is T-SQL; MySQL's `CAST` has no
+   *     `varchar` and takes `CHAR`.
+   *
+   * ★ THIS IS THE SAME SPLIT `routes/extract.ts` ALREADY CARRIES, FOR THE SAME REASON:
+   *   `buildLiveSqlServer(programs, dialect)` takes this identical parameter and switches on
+   *   exactly one date expression. `TO_CHAR`/`TO_DATE` need no arm here at all — both drivers
+   *   rewrite them — which is why the shared `scopeClause` below is engine-independent.
+   */
+  const orderDate =
+    dialect === 'mysql'
+      ? "DATE_FORMAT(h.APPROVED_DATE, '%Y-%m-%d')"
+      : 'CONVERT(varchar(10), h.APPROVED_DATE, 23)';
+  const nullText = dialect === 'mysql' ? 'CAST(NULL AS CHAR)' : 'CAST(NULL AS varchar(1))';
 
   const sql = `
     SELECT s.VENDOR_SITE_ID,
            s.VENDOR_SITE_CODE,
            s.VENDOR_ID,
            s.ADDRESS_LINE1,
-           CAST(NULL AS varchar(1)) AS ADDRESS_LINE2,
-           CAST(NULL AS varchar(1)) AS ADDRESS_LINE3,
+           ${nullText} AS ADDRESS_LINE2,
+           ${nullText} AS ADDRESS_LINE3,
            s.CITY,
            s.STATE,
            s.ZIP,
-           CAST(NULL AS varchar(1)) AS AREA_CODE,
-           CAST(NULL AS varchar(1)) AS PHONE,
-           CAST(NULL AS varchar(1)) AS PURCHASING_SITE_FLAG,
-           CAST(NULL AS varchar(1)) AS INACTIVE_DATE,
+           ${nullText} AS AREA_CODE,
+           ${nullText} AS PHONE,
+           ${nullText} AS PURCHASING_SITE_FLAG,
+           ${nullText} AS INACTIVE_DATE,
            v.VENDOR_NAME,
            o.HEADER_VENDOR_ID,
            o.ORDER_NUMBER,
@@ -510,7 +552,7 @@ function orderPairSqlSqlServer(programs: readonly string[]): {
                h.VENDOR_ID AS HEADER_VENDOR_ID,
                h.PO_HEADER_ID,
                h.SEGMENT1 AS ORDER_NUMBER,
-               CONVERT(varchar(10), h.APPROVED_DATE, 23) AS APPROVED_DATE,
+               ${orderDate} AS APPROVED_DATE,
                COUNT(DISTINCT l.PO_LINE_ID) AS LINE_COUNT,
                SUM(ROUND(CASE WHEN pll.QUANTITY IS NULL
                               THEN (pll.AMOUNT - COALESCE(pll.AMOUNT_CANCELLED, 0))
@@ -526,7 +568,7 @@ function orderPairSqlSqlServer(programs: readonly string[]): {
           JOIN GL_CODE_COMBINATIONS g ON g.CODE_COMBINATION_ID = wd.CODE_COMBINATION_ID
           ${where}
          GROUP BY h.VENDOR_SITE_ID, h.VENDOR_ID, h.PO_HEADER_ID, h.SEGMENT1,
-                  CONVERT(varchar(10), h.APPROVED_DATE, 23)
+                  ${orderDate}
       ) o
       JOIN PO_VENDOR_SITES_ALL s ON s.VENDOR_SITE_ID = o.VENDOR_SITE_ID
  LEFT JOIN PO_VENDORS v ON v.VENDOR_ID = s.VENDOR_ID
@@ -1943,19 +1985,29 @@ export function vendorSitesRouter(): Router {
        * · 5,692 orders · $2,797,825,956.73). The 503 was a claim about the database that the
        * database does not support, and the page it blanked is this one.
        *
+       * ★ `mysql` JOINS THE ALLOWLIST FOR THE SAME REASON, AND IT IS NOT A LOOSENING. The local
+       *   MySQL ledger (`oracle-sync`) holds the same copied tables, and the same statement —
+       *   translated for `DATE_FORMAT` — reproduces the identical figures: measured, 800 sites ·
+       *   715 vendors · 5,692 orders · $2,797,825,956.73. The guard is meant to refuse a ledger
+       *   with no purchase order table, and this ledger has every one of them.
+       *
        * ★ `sqlite` MUST STILL 503, AND THAT IS NOT TIDINESS. The bundled sample is what
        *   `DB_MODE=local` and `turso` both resolve to, the smoke suite runs under `local`, and a
        *   503 from this screen is the documented behaviour that suite asserts. Widening the arm
        *   must not widen it that far — so the refusal is scoped to a ledger with no purchase
        *   order table at all, which now names the reason actually true of it.
        */
-      if (ledger.dialect !== 'oracle' && ledger.dialect !== 'sqlserver') {
+      if (
+        ledger.dialect !== 'oracle' &&
+        ledger.dialect !== 'sqlserver' &&
+        ledger.dialect !== 'mysql'
+      ) {
         throw AppError.dbUnavailable(
           'The vendor site register is built from purchase orders, and the ledger is ' +
             `${ledger.dialect} (DB_MODE=${ledger.dialect === 'sqlite' ? 'local' : ledger.dialect}) — ` +
             'the bundled sample has no purchase order table, so there is nothing to read. Point the ' +
-            'server at a ledger that holds them (`DB_MODE=sqlserver` for the copied mirror, or ' +
-            '`DB_MODE=oracle` with `ORACLE_THICK=1`).',
+            'server at a ledger that holds them (`DB_MODE=sqlserver` or `DB_MODE=mysql` for a ' +
+            'copied mirror, or `DB_MODE=oracle` with `ORACLE_THICK=1`).',
           { dialect: ledger.dialect, store: ledger.label },
         );
       }
@@ -1966,10 +2018,16 @@ export function vendorSitesRouter(): Router {
       // ★ ONE ARM PER LEDGER, AND THE ORACLE ARM IS BYTE-FOR-BYTE UNCHANGED. The mirror arm is a
       //   translation of it rather than a second query — the same `scopeClause()` supplies the
       //   WHERE to both, so "one definition of what is in scope" still holds for both.
-      const useSqlServer = ledger.dialect === 'sqlserver';
-      const { sql, binds } = useSqlServer
-        ? orderPairSqlSqlServer(tenant.programs)
-        : orderPairSql(tenant.programs);
+      // ★ ONE ARM PER LEDGER: Oracle reads the `WCSEXP_*` view; BOTH mirrors read the base tables
+      //   and differ from each other only in how they spell a date and a projected null — see
+      //   `orderPairSqlSqlServer`. A ledger that is none of the three was refused above.
+      const useOracle = ledger.dialect === 'oracle';
+      const { sql, binds } = useOracle
+        ? orderPairSql(tenant.programs)
+        : orderPairSqlSqlServer(
+            tenant.programs,
+            ledger.dialect === 'mysql' ? 'mysql' : 'sqlserver',
+          );
 
       // ★ DERIVED, NOT PASSED IN AS A CONSTANT — see `signalsEvaluable`. What the ledger can
       //   classify and what the response discloses are the same set read once, which is why the

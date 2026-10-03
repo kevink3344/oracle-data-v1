@@ -37,6 +37,7 @@
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "mssql": "^12.7.2",
+    "mysql2": "^3.24.5",
     "oracledb": "^7.0.1",
     "swagger-ui-express": "^5.0.1",
     "zod": "^3.25.76"

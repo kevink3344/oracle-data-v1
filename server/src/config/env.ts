@@ -94,7 +94,7 @@ const bool = (key: string, fallback: boolean): boolean => {
  * Order is the order the modes are offered in messages and in the generated enum:
  * the zero-config default first, then the remote option, then the extract.
  */
-export const DB_MODES = ['local', 'turso', 'oracle', 'sqlserver'] as const;
+export const DB_MODES = ['local', 'turso', 'oracle', 'sqlserver', 'mysql'] as const;
 
 export type DbMode = (typeof DB_MODES)[number];
 
@@ -166,11 +166,34 @@ export interface DbConfig {
    *   password, so nothing does.
    */
   sqlserver?: SqlServerConfig;
+  /**
+   * Present only in mysql mode.
+   *
+   * ★ SAME RULE AS `sqlserver`: the password is in here, so every log line and the
+   *   health payload use `label` (host/database) and never this object.
+   */
+  mysql?: MySqlConfig;
 }
 
 /** Connection settings for Azure SQL (`DB_MODE=sqlserver`). */
 export interface SqlServerConfig {
   server: string;
+  database: string;
+  user: string;
+  password: string;
+}
+
+/**
+ * Connection settings for MySQL (`DB_MODE=mysql`).
+ *
+ * ★ `host` IS `127.0.0.1` RATHER THAN `localhost` IN THE SHIPPED .env, AND THE
+ *   REASON IS WINDOWS. `localhost` may resolve to IPv6 `::1` first, and a MySQL
+ *   bound to IPv4 only would then refuse the connection with a message about the
+ *   host rather than about the bind. Naming the address removes the ambiguity.
+ */
+export interface MySqlConfig {
+  host: string;
+  port: number;
   database: string;
   user: string;
   password: string;
@@ -528,6 +551,7 @@ function resolveDb(): DbConfig {
 
   if (mode === 'oracle') return oracleConfig();
   if (mode === 'sqlserver') return sqlServerConfig();
+  if (mode === 'mysql') return mysqlConfig();
   if (mode === 'turso') {
     const remoteUrl = str('TURSO_DATABASE');
     if (!remoteUrl) {
@@ -706,6 +730,60 @@ function sqlServerConfig(): DbConfig {
   };
 }
 
+/**
+ * Connection settings for MySQL (`DB_MODE=mysql`).
+ *
+ * ★ THE DEFAULT PORT IS 3306, SO `MYSQL_PORT` IS OPTIONAL. Every other setting is
+ *   required, and they are named together for the same reason `sqlServerConfig`
+ *   names its own: one boot should explain the whole gap rather than the first
+ *   one the driver happens to need.
+ *
+ * ★ `label` IS `host:port/database` AND NEVER THE CREDENTIALS. It is echoed by the
+ *   unauthenticated `/api/health`, which is why the password is kept out of it —
+ *   the same rule `sqlServerConfig` and `oracleConfig` follow.
+ */
+function mysqlConfig(): DbConfig {
+  const host = str('MYSQL_HOST');
+  const database = str('MYSQL_DATABASE');
+  const user = str('MYSQL_USER');
+  const password = str('MYSQL_PASSWORD');
+  const portRaw = str('MYSQL_PORT');
+
+  if (host === undefined || database === undefined || user === undefined || password === undefined) {
+    const missing = [
+      host === undefined ? 'MYSQL_HOST' : null,
+      database === undefined ? 'MYSQL_DATABASE' : null,
+      user === undefined ? 'MYSQL_USER' : null,
+      password === undefined ? 'MYSQL_PASSWORD' : null,
+    ].filter((k): k is string => k !== null);
+
+    throw new Error(
+      `DB_MODE=mysql but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set. ` +
+        'Add them to the repo-root .env, or set DB_MODE=sqlserver to read the Azure SQL mirror.',
+    );
+  }
+
+  // A non-numeric or out-of-range port is a typo, not a default — refusing it here
+  // names the setting rather than letting the driver fail on a connect.
+  const port = portRaw === undefined ? 3306 : Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`MYSQL_PORT="${portRaw}" is not a valid TCP port. Leave it unset for 3306.`);
+  }
+
+  return {
+    mode: 'mysql',
+    url: '',
+    authToken: undefined,
+    filePath: undefined,
+    label: `${host}:${port}/${database}`,
+    // The local instance is owned by the login, so writes are permitted — the same
+    // reasoning as sqlserver. A read-only MySQL user would make this false, and the
+    // repository's write paths would then answer 409 rather than failing at the driver.
+    allowWrites: true,
+    mysql: { host, port, database, user, password },
+  };
+}
+
 /** Where a libSQL-backed store actually is. Enough to open a client against it. */
 export interface DbTarget {
   url: string;
@@ -724,6 +802,8 @@ export interface DbTarget {
    *   `client.ts` already expect from a non-libSQL target.
    */
   sqlserver?: SqlServerConfig;
+  /** Present only for a MySQL target. Same reasoning as `sqlserver` above. */
+  mysql?: MySqlConfig;
 }
 
 /**
@@ -825,6 +905,24 @@ function resolveAppDb(ledger: DbConfig): AppDbConfig {
       shared: true,
       allowWrites: true,
       sqlserver: ledger.sqlserver,
+    };
+  }
+
+  // ★ MYSQL SHARES ITSELF FOR THE SAME REASON, AND THE SAME WAY. It has no URL
+  //   either, so it cannot take the libSQL branch below; its settings live in
+  //   `ledger.mysql`. `shared: true` is what lets a statement naming both app and
+  //   ledger tables run as one query instead of being refused by `hybrid.ts` —
+  //   which is what makes a join between the app's own tables and the ledger
+  //   possible at all.
+  if (ledger.mode === 'mysql') {
+    return {
+      url: '',
+      authToken: undefined,
+      filePath: undefined,
+      label: ledger.label,
+      shared: true,
+      allowWrites: true,
+      mysql: ledger.mysql,
     };
   }
 

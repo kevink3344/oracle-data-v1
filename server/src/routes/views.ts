@@ -4,7 +4,7 @@ import { AppError } from '../http/errors.js';
 import { page } from '../http/respond.js';
 import { config } from '../config/env.js';
 import { storeDriver } from '../db/client.js';
-import { execute, one, pageMeta, rows, stampNow } from '../db/sql.js';
+import { execute, one, pageMeta, quoteIdentFor, rows, stampNow } from '../db/sql.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import {
   analyzeSql,
@@ -747,8 +747,26 @@ interface ViewDbRow {
   updated_at: string;
 }
 
-const VIEW_COLUMNS =
-  'id, slug, title, description, sql, params_json, display_json, created_by, status, created_at, updated_at';
+/**
+ * ★★ `sql` IS A RESERVED WORD IN MYSQL, AND THIS TABLE HAS A COLUMN CALLED `sql`.
+ *
+ * `SELECT id, slug, title, description, sql, params_json, … FROM saved_view` is a
+ * *syntax error* on MySQL — "You have an error in your SQL syntax … near 'sql,
+ * params_json, …'" — and that is what made the View Builder report "Saved views are
+ * unavailable" on a MySQL deployment. The reserved word is `SQL` itself (MySQL lists
+ * it beside `SQL_CALC_FOUND_ROWS` and `SQL_NO_CACHE`), so every place this file names
+ * the column has to quote it: the select lists below, the insert's column list, and
+ * the update's assignment target.
+ *
+ * SQLite and T-SQL take the bare name, and MySQL's quote character is the BACKTICK —
+ * a double-quoted name is a string literal there unless `ANSI_QUOTES` is set — so the
+ * spelling is asked of `quoteIdentFor()`, the one place in this codebase that answers
+ * it per dialect. It is asked for the **app** store, because `saved_view` is an app
+ * table.
+ */
+const SQL_COLUMN = quoteIdentFor('app', 'sql');
+
+const VIEW_COLUMNS = `id, slug, title, description, ${SQL_COLUMN}, params_json, display_json, created_by, status, created_at, updated_at`;
 
 /**
  * A stored row, as the API returns it.
@@ -1296,7 +1314,7 @@ export function registerViewBuilder(api: Api): void {
       await assertSlugFree(body.slug);
 
       const result = await execute(
-        `INSERT INTO saved_view (slug, title, description, sql, params_json, display_json, created_by, status)
+        `INSERT INTO saved_view (slug, title, description, ${SQL_COLUMN}, params_json, display_json, created_by, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           body.slug,
@@ -1357,7 +1375,9 @@ export function registerViewBuilder(api: Api): void {
       if (body.slug !== undefined) put('slug', body.slug);
       if (body.title !== undefined) put('title', body.title);
       if (body.description !== undefined) put('description', body.description);
-      if (body.sql !== undefined) put('sql', body.sql);
+      // ★ THE ASSIGNMENT TARGET IS THE SAME RESERVED WORD — `SET sql = ?` is the parse
+      //   error the select list above already met.
+      if (body.sql !== undefined) put(SQL_COLUMN, body.sql);
       if (body.params !== undefined) put('params_json', JSON.stringify(nextParams));
       if (body.display !== undefined) put('display_json', JSON.stringify(nextDisplay));
       if (body.created_by !== undefined) put('created_by', body.created_by);

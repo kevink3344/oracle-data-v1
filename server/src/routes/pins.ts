@@ -3,6 +3,7 @@ import type { Api } from '../http/api.js';
 import { requireActor } from '../auth/guard.js';
 import { requireAppSchema } from '../db/app-schema.js';
 import { AppError } from '../http/errors.js';
+import { storeDriver } from '../db/client.js';
 import { execute, rows } from '../db/sql.js';
 
 const categories = ['project', 'invoice', 'check', 'purchase-order'] as const;
@@ -84,9 +85,18 @@ export function registerPins(api: Api): void {
       const actor = await requireActor(ctx.req);
       await requireAppSchema('Pins');
       const body = ctx.body as z.infer<typeof BodySchema>;
+      // ★ `ON CONFLICT` IS SQLITE'S, NOT SQL — MySQL answers it with a parse error, so
+      //   the upsert is spelled per dialect exactly as `routes/readCaps.ts` and
+      //   `routes/customFields.ts` spell theirs. MySQL's `VALUES(col)` is the value the
+      //   INSERT proposed, which is SQLite's `excluded.col`.
+      const pinInsert =
+        'INSERT INTO user_pin (owner_email, category, entity_key, title, subtitle, href) VALUES (?, ?, ?, ?, ?, ?) ';
       await execute(
-        'INSERT INTO user_pin (owner_email, category, entity_key, title, subtitle, href) VALUES (?, ?, ?, ?, ?, ?) ' +
-          'ON CONFLICT(owner_email, category, entity_key) DO UPDATE SET title = excluded.title, subtitle = excluded.subtitle, href = excluded.href',
+        storeDriver('app').dialect === 'mysql'
+          ? pinInsert +
+              'ON DUPLICATE KEY UPDATE title = VALUES(title), subtitle = VALUES(subtitle), href = VALUES(href)'
+          : pinInsert +
+              'ON CONFLICT(owner_email, category, entity_key) DO UPDATE SET title = excluded.title, subtitle = excluded.subtitle, href = excluded.href',
         [actor.email, body.category, body.entityKey, body.title, body.subtitle, body.href],
       );
       const result = await rows<PinRow>(

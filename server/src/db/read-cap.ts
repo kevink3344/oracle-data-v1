@@ -56,10 +56,59 @@
  *   wraps rather than appends.
  */
 import { AppError } from '../http/errors.js';
+import type { Dialect } from './driver.js';
 import { quoteIdent, rows } from './sql.js';
 import { storeDriver } from './client.js';
 import { defaultReadFor } from './ledger-defaults.js';
 import { stripTrailingOrderBy } from './query-guard.js';
+
+/**
+ * The `ledger_read_cap` column list, quoted for the store that owns the table.
+ *
+ * ★ `sql` IS A RESERVED WORD IN MYSQL AND MUST BE QUOTED. It is not reserved in
+ *   SQLite, Oracle or SQL Server, so the bare form worked on all three — and then
+ *   MySQL rejected the statement outright:
+ *
+ *       You have an error in your SQL syntax … near 'sql, max_rows, order_by, …'
+ *
+ *   Because the failure was a syntax error rather than a missing column, the whole
+ *   `readCapFor` lookup threw, the `catch` below treated it as "the table does not
+ *   exist", and every object silently read as UNCAPPED. That is the dangerous
+ *   direction: a cap exists to stop a register reading 157 M rows, so losing the
+ *   cap does not produce a wrong number — it produces a request that never returns.
+ *
+ * ★ THIS IS A FUNCTION RATHER THAN A CONSTANT because the quoting is per-dialect
+ *   and the dialect is only known at call time. `quoteIdent` already encodes that
+ *   rule (`"x"` for three arms, `` `x` `` for MySQL), so this defers to it rather
+ *   than hard-coding either spelling.
+ */
+export function readCapColumns(): string {
+  return ['table_name', 'sql', 'max_rows', 'order_by', 'note', 'set_by', 'set_at']
+    .map(quoteIdent)
+    .join(', ');
+}
+
+/**
+ * A case-insensitive equality on `table_name`, spelled per dialect.
+ *
+ * ★ `COLLATE NOCASE` IS SQLITE-ONLY. Oracle, SQL Server and MySQL all reject it —
+ *   SQL Server with `Invalid collation 'NOCASE'`, which `query-guard.ts` already
+ *   blocks by name. The comparison exists because Oracle uppercases unquoted
+ *   identifiers, so the same object is `AP_INVOICES_ALL` in a query and may be
+ *   typed `ap_invoices_all` in the admin panel.
+ *
+ * ★ MYSQL NEEDS NO COLLATION CLAUSE AT ALL, AND ADDING ONE WOULD BE WRONG. Its
+ *   default collation (`utf8mb4_0900_ai_ci`) is already case-insensitive, so a
+ *   plain `=` gives the required behaviour. The other arms need `UPPER()` on both
+ *   sides, which is portable and costs nothing here — this is a lookup by primary
+ *   key on a table with a handful of rows.
+ */
+export function tableNameMatches(): string {
+  const dialect = storeDriver('app').dialect;
+  if (dialect === 'sqlite') return `${quoteIdent('table_name')} = :name COLLATE NOCASE`;
+  if (dialect === 'mysql') return `${quoteIdent('table_name')} = :name`;
+  return `UPPER(${quoteIdent('table_name')}) = UPPER(:name)`;
+}
 
 /**
  * One row of `ledger_read_cap`, as the resolver needs it.
@@ -181,7 +230,7 @@ export function applyReadCap(
   statement: string,
   maxRows: number,
   orderBy: string,
-  dialect: 'sqlite' | 'oracle' | 'sqlserver',
+  dialect: Dialect,
 ): string {
   const n = Math.max(1, Math.trunc(maxRows));
   const inner = statement.trim().replace(/;\s*$/, '');
@@ -241,9 +290,9 @@ export async function readCapFor(tableName: string): Promise<ReadCapRow | null> 
   let row: ReadCapRow | null = null;
   try {
     const found = await rows<ReadCapRow>(
-      `SELECT table_name, sql, max_rows, order_by, note, set_by, set_at
-         FROM ledger_read_cap
-        WHERE table_name = :name COLLATE NOCASE
+      `SELECT ${readCapColumns()}
+         FROM ${quoteIdent('ledger_read_cap')}
+        WHERE ${tableNameMatches()}
         LIMIT 1`,
       { name: tableName.trim() },
     );
@@ -290,7 +339,7 @@ export function forgetReadCap(tableName?: string): void {
 export async function resolveReadCap(
   tableName: string,
   statement: string,
-  dialect: 'sqlite' | 'oracle' | 'sqlserver',
+  dialect: Dialect,
 ): Promise<ResolvedReadCap> {
   const row = await readCapFor(tableName);
   const declared = defaultReadFor(tableName);
@@ -341,7 +390,7 @@ export async function resolveReadCap(
 }
 
 /** The dialect of the store a ledger read will run in. */
-export function ledgerDialect(): 'sqlite' | 'oracle' | 'sqlserver' {
+export function ledgerDialect(): Dialect {
   return storeDriver('ledger').dialect;
 }
 
