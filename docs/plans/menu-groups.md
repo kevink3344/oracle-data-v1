@@ -520,25 +520,35 @@ Accounts`) and `.brand__sub` (`Live data. Clear insight.`) and nothing else — 
 decoration, and the gear and the fold-all control that used to share the row are gone (§10.2). It is a
 plain block, not the three-column grid it was.
 
-**★ One known miss, at the narrow breakpoint.** `--rail-w` drops to 176px under
-`@media (max-width: 1080px)`, which leaves 102px of usable row, and that is no longer enough. Measured
-at 176px, **all groups shut** — the shipped default — the rail does **not** scroll sideways
-(`scrollWidth === clientWidth`) and nothing overflows, but the `Chart of Accounts` header is the one
-label that wraps to two lines.
+**★ One known miss, at the narrow breakpoint — now closed by deleting the narrowing rather than
+fitting into it.** `--rail-w` used to drop to 176px under `@media (max-width: 1080px)`, leaving 102px
+of usable row. Re-measured at a **908px** window — the real window here, and inside that breakpoint:
 
-Opening the groups makes it visible. With **all 8 open** at 176px:
-
-| Symptom | Rows |
+| At 176px, all 8 groups open (37 links) | |
 |---|---|
-| Overflows its row (rail gains 22px of sideways scroll) | `Allocations` +34px · `Unclaimed` +21 · `Combinations` +13 · `Companies` +9 · `Distributions` +7 · `Adjustments` +5 · `Encumbrances` +4 |
-| Wraps to two lines | `All projects` · `Journal entries` · `Budget setup` · `PO lines` · `Vendor spend` · `Extract runs` · and the `Chart of Accounts` header |
+| Sideways scroll the rail gains | **21px** |
+| Rows that overflow their box | `Allocations` +33 · `Unclaimed` +20 · `Combinations` +12 · `Companies` +8 · `Distributions` +6 · `Adjustments` +4 · `Encumbrances` +3 |
+| Headers that wrap | `Chart of Accounts` — and it wraps with every group **shut** as well, so it is visible on arrival rather than only after the tree is opened |
+
+At **208px** the same measurement is **0px** sideways, **0** overflowing rows and **no** wrapped
+heading, in both the shut and the open state.
 
 The overflowing rows are the ones whose text is a **single unbreakable word**, so a `min-width: auto`
 flex item cannot shrink below it and the row simply grows wider than its box. This predates the icons —
-before them the worst row overflowed by 3px, not 21 — but the icons took 24px out of the row and turned
-a marginal case into a visible one. Note also that **the real browser window here is 908px wide**, which
-is inside this breakpoint, so this is not a hypothetical narrow screen: it is the state the rail ships
-in for this reader. **This is the one thing in §10.5 still owed a decision** (§12-Q7).
+before them the worst row overflowed by 3px, not 33 — but the icons took 24px out of the row and turned
+a marginal case into a visible one. It is also why shortening labels was never going to be the fix:
+eight of the thirteen `short` values are already the head noun alone.
+
+So the narrowing is gone. The breakpoint now sets only `--drawer-w`, and `tokens.css` is the sole place
+the rail's width is written — there is no second copy left to keep in step. The 32px comes out of the
+content column on purpose: below 1080px the rail is a permanent visible column (below 720px it is a
+drawer), so it is the navigation, and a navigation that has to be scrolled sideways to read its own
+entries is the worse of the two costs.
+
+**A pin was drafted and dropped**, and the reason is worth recording: a per-browser switch that held
+208px regardless of width makes the width *two* facts to keep in step instead of one, and it asks a
+reader to repair a layout bug from `/settings`. Both are costs a one-line deletion does not have. If a
+narrower rail is ever wanted on purpose, the token is the thing to change.
 
 ### 10.6 One row rhythm for headers and leaves
 
@@ -569,8 +579,8 @@ the rail, so any change in the height of the content above it moves that boundar
 stays put. Like §10.5's label fix, this was measured in the live rail before and after rather than
 reasoned from the CSS, and the wrapper was checked for collateral damage by temporarily flattening it
 with `display: contents`, which reproduced the old direct-children layout exactly (`clientWidth 165 /
-scrollWidth 173`, identical with and without the wrapper) — the 22px of sideways scroll at 176px is
-§10.5's pre-existing overflow, not this change.
+scrollWidth 173`, identical with and without the wrapper) — the overflow measured there is §10.5's
+pre-existing narrow-rail overflow, not this change. That 176px width has since been removed; see §10.5.
 
 ---
 
@@ -603,11 +613,14 @@ Phase 0 is not optional and should not be deferred — see §9.
    empty by design, so they can be routed but not verified. (§8)
 6. **Is building the API layer (§9) approved?** Both `DB_MODE` and most of this menu are inert
    without it.
-7. **What happens to the rail at 1080px and below?** `--rail-w` falls to 176px there, which is now too
+7. ~~**What happens to the rail at 1080px and below?** `--rail-w` falls to 176px there, which is now too
    narrow: shut, only the `Chart of Accounts` header wraps; open, 7 rows overflow and the rail scrolls
    sideways by 22px. Your window is 908px, so you are *in* this case. Options: raise the breakpoint's
    width to 192px, let the rail's own text ellipsise and trust the tooltip, or accept the sideways
-   scroll. (§10.5)
+   scroll. (§10.5)~~ — **Answered: the narrowing is deleted.** `--rail-w` is 208px at every window size
+   and `tokens.css` is its only definition; the breakpoint sets just `--drawer-w` now. Re-measured at
+   the real 908px window: 176px gave 21px of sideways scroll and 7 overflowing rows, 208px gives 0 and
+   0. A per-browser *pin* was drafted and dropped as a second fact to keep in step — see §10.5.
 
 ---
 

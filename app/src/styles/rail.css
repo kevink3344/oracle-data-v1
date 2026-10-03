@@ -256,9 +256,9 @@
  *   side by side.
  *
  *   The rail is now an off-canvas drawer — `position: fixed`, `width: min(84vw,
- *   var(--rail-w))` — so it is *narrower* than the desktop rail, not wider, and the
- *   chip row would wrap 27 leaves into a dense grid inside a 176px panel. The drawer
- *   should look like the rail it is a narrow-screen form of, so the desktop tree
+ *   var(--rail-w))`, so 208px at every window this breakpoint covers — and the
+ *   chip row would wrap 27 leaves into a dense grid inside that panel. The drawer
+ *   should look like the rail it is another position of, so the desktop tree
  *   treatment (indent, guide line, one link per row) is what applies at every width.
  *
  *   ★ SO THIS BLOCK IS NOW EMPTY OF OVERRIDES, AND THAT IS THE POINT RATHER THAN AN

@@ -34,8 +34,10 @@
 
    ★ `min-width: 0` BECAUSE A GRID ITEM'S AUTOMATIC MINIMUM IS ITS LONGEST WORD.
    Without it the block used to be unable to narrow below "Accounts" and the rail
-   would scroll sideways on a window narrow enough to shrink `--rail-w`. As a flex
-   child of `.rail` the same applies, so it stays. */
+   would scroll sideways on a window narrow enough to shrink `--rail-w` — which no
+   window is any more, since `--rail-w` no longer shrinks at all; see the note in
+   the responsive block below. It stays because the automatic minimum still decides
+   the outcome the moment anything does squeeze this column, and it costs nothing. */
 .rail__brand {
   min-width: 0;
   padding: 4px 8px 0;
@@ -648,9 +650,38 @@
 
 @media (max-width: 1080px) {
   :root {
-    --rail-w: 176px;
     --drawer-w: 440px;
   }
+
+  /*
+   * ★ THE RAIL IS NOT NARROWED HERE, AND THAT IS THE CHANGE.
+   *
+   *   This block used to set `--rail-w: 176px` as well, on the reasoning that a
+   *   laptop window below 1080px should keep its 32px for the table it is showing.
+   *   The reasoning was fine and the arithmetic was not.
+   *
+   *   Measured at a 908px window with all eight groups open — 37 links — 176px
+   *   scrolls the rail **21px sideways** and leaves seven rows unable to fit:
+   *   `Allocations` +33, `Unclaimed` +20, `Combinations` +12, `Companies` +8,
+   *   `Distributions` +6, `Adjustments` +4, `Encumbrances` +3. `Chart of Accounts`
+   *   wraps as well, and it does so with every group *shut* — so that one is visible
+   *   on arrival rather than only after the tree is opened. Each of the seven is a
+   *   *single unbreakable word*, so `min-width: auto` buys them nothing: a flex item
+   *   cannot shrink below its longest word, which is why tightening the padding never
+   *   fixed this and why the fix is to stop narrowing at all.
+   *
+   *   At 208px the same measurement gives 0px sideways, 0 overflowing rows and no
+   *   wrapped heading — in both the shut and the open state.
+   *
+   * ★ THE 32px IS TAKEN FROM THE PAGE ON PURPOSE. Below 1080px the rail is a
+   *   permanent visible column — below 720px it is a drawer, handled further down —
+   *   so this is not a phone compromise, it is the navigation, and a navigation that
+   *   has to be scrolled sideways to read its own entries is the worse of the two
+   *   costs. `tokens.css` is now the only place the rail's width is written, so
+   *   there is no second copy left to keep in step.
+   *
+   *   See `docs/plans/menu-groups.md` §10.5 and Q7.
+   */
 }
 
 @media (min-width: 1500px) {
@@ -793,10 +824,11 @@
    *
    *   This block carried `.rail__group { flex-direction: row; flex-wrap: wrap }` and
    *   `.rail__title { flex-basis: 100% }`, written when the rail was a full-width
-   *   stacked block with horizontal room to spend. In the drawer — 176px wide, and
-   *   narrower than the desktop rail — those rules put a group's header and its panel
-   *   side by side and wrap 27 leaves into a dense grid. The drawer is a narrow form of
-   *   the rail, so the desktop tree treatment applies unchanged and nothing here needs
+   *   stacked block with horizontal room to spend. In the drawer — capped at
+   *   `min(84vw, var(--rail-w))`, so 208px at every window this breakpoint covers —
+   *   those rules put a group's header and its panel side by side and wrap 27 leaves
+   *   into a dense grid. The drawer is the rail in another position, not a wider form
+   *   of it, so the desktop tree treatment applies unchanged and nothing here needs
    *   to contradict it. `rail.css` carried the mirror-image overrides for the same dead
    *   layout and they are deleted there too.
    */
