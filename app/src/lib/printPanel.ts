@@ -106,7 +106,10 @@ body {
 .hbar__go,
 .vdproj__go,
 .objtable__none button,
-.po-more {
+.po-more,
+/* The fold caret. The print clone opens every <details>, so in this document there is
+   nothing left to turn — a chevron would point at a fold that cannot fold. */
+.dsec--fold > summary::after {
   display: none !important;
 }
 
@@ -313,6 +316,22 @@ export function printElement(source: HTMLElement, opts: PrintOptions): void {
   doc.body.appendChild(masthead(opts));
 
   const body = source.cloneNode(true) as HTMLElement;
+
+  // ★ A COLLAPSED `<details>` PRINTS CLOSED, SO EVERY FOLD IS OPENED IN THE CLONE.
+  //   The panel's sections are foldable, and a reader may well have folded one before
+  //   reaching for the export — but "Export to PDF" prints what the panel IS, not what
+  //   happens to be unfolded on it, and a document that silently drops a section because
+  //   of a click made earlier is the failure this whole path exists to avoid. Opening them
+  //   on the CLONE is what keeps the screen untouched: the reader's page still has the fold
+  //   exactly where they left it.
+  //   Scoped to the SECTION folds and the budget blocks — the two that hold content a reader
+  //   would expect to find in a document. `.line__more`, a cost code's PO lines, is
+  //   deliberately NOT opened: it is shut on screen by its own default, and opening it here
+  //   would turn a two-page export into one carrying every line of every order.
+  for (const fold of body.querySelectorAll('details.dsec--fold, details.bucket')) {
+    fold.setAttribute('open', '');
+  }
+
   if (opts.omit) {
     for (const el of body.querySelectorAll(opts.omit)) el.remove();
   }

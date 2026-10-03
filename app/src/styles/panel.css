@@ -209,6 +209,70 @@ body.is-resizing {
   text-align: right;
 }
 
+/* --- foldable sections ------------------------------------------------- */
+
+/* ★ A SECTION A READER MAY FOLD IS A `<details>`, AND ITS HEAD IS THE `<summary>`.
+   Same reason `Settings.tsx` records for the role doctrine: the native element carries its
+   own keyboard behaviour and its own collapsed/expanded announcement, and a hand-rolled one
+   would have to be taught both. `.bucket`, `.line__more`, `.signin__scale` and `.roledocs`
+   are the app's other folds and they all do it this way. `.dsec` and `.dsec__head` are
+   reused rather than restated — a foldable section and a plain one differ by the caret.
+
+   ★ WHICH WAY A SECTION DEFAULTS IS THE PAGE'S CALL, NOT THIS RULE'S. `open` is set in the
+   markup, so the project page opens its two money sections and leaves its four detail ones
+   shut. What this rule does owe the closed case is the HEAD: folded, it is the whole of what
+   a reader sees, so it has to carry a hint naming its own contents — otherwise a reader has
+   to open it to find out whether it was worth opening.
+
+   ★ AND NOTHING IS LOST BY CLOSING ONE: `lib/printPanel.ts` opens every fold in its own
+   clone, so "Export to PDF" still holds a section the reader left shut. */
+.dsec--fold > summary {
+  position: relative;
+  cursor: pointer;
+  list-style: none;
+  /* The caret's lane, so it can sit at the right edge without landing on the hint. */
+  padding-right: 18px;
+}
+
+.dsec--fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ★ THE HEAD'S OWN BOTTOM MARGIN IS THE GAP UNDER IT, SO IT GOES WHEN THERE IS NOTHING
+   UNDER IT. Left on, a closed section is followed by that 10px of nothing on top of the
+   24px `.dsec + .dsec` keeps — a gap nobody chose, for content nobody can see. */
+.dsec--fold:not([open]) > summary {
+  margin-bottom: 0;
+}
+
+/* ★ THE CARET IS TAKEN OUT OF THE FLEX ROW, AND THAT IS WHAT LETS A HEAD WITH NO HINT
+   BEHAVE. As a third flex item it fights `.dsec__head`'s `space-between` — three items put
+   the hint in the middle of the head — and the fix for that has to know whether a hint is
+   present, which is a `:has()` this codebase uses nowhere else. Positioned absolutely, the
+   title and the hint keep the head's own layout untouched and the caret still sits at the
+   right edge, whether the head holds one child or two.
+
+   The glyph is `.bucket > summary`'s, turn for turn, so both disclosures on this app move
+   the same way. The centring is composed INTO the rotation rather than left as its own
+   declaration, because `[open]` replaces the whole `transform` and a separate centring
+   rule would be silently dropped the moment the section opened. */
+.dsec--fold > summary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: translateY(-50%) rotate(45deg);
+  transition: transform var(--transition);
+}
+
+.dsec--fold[open] > summary::after {
+  transform: translateY(-50%) rotate(-135deg);
+}
+
 /* --- usage figure ----------------------------------------------------- */
 
 .usage-head {

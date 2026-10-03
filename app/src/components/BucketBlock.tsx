@@ -156,7 +156,13 @@ export default function BucketBlock({ bucket }: { bucket: Bucket }) {
     `${num(bucket.vendors)} vendor links · ${pluralise(cards, 'cost code')}`;
 
   return (
-    <details className="bucket" open>
+    // ★ CLOSED WHEN IT LOADS, LIKE EVERY OTHER SECTION ON THE PROJECT PAGE. A purpose group
+    //   is a screenful of its own — the cost-code cards, each with its own PO-line fold — so
+    //   three of them open at once bury everything below. The summary line is what a reader
+    //   chooses between them on: the label, the purpose code and the committed figure, all
+    //   three of which are still on screen when it is shut. `printPanel` opens these in its
+    //   clone, so the export is unchanged.
+    <details className="bucket">
       <summary>
         <span className={`bucket__dot ${bucket.meta.mark}`} aria-hidden="true" />
         <span className="bucket__name">{bucket.meta.label}</span>

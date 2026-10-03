@@ -296,8 +296,32 @@ export default function ProjectDetail({ project }: { project: Project }) {
 
   return (
     <>
-      <section className="dsec">
-        <div className="dsec__head">
+      {/* ★ THIS PAGE'S SECTIONS ARE FOLDS, AND THE SPLIT IS MONEY-OPEN, DETAIL-CLOSED.
+
+          The two that carry the figures open on load: `Budget usage` is the committed total
+          and the usage bar, and `Related budgets` is the purpose groups with their amounts.
+          They are what a reader came to the page for. The four below them — the spine, the
+          cost centre, what to watch, the note — are detail a reader already knows whether
+          they want, and they start closed, because the page runs a few screens and the Edit
+          control had to be moved into the head for exactly that reason. Either way it is one
+          click, and the reader's choice is the DOM's own state rather than this component's.
+
+          ★ A NATIVE `<details>`, NOT THE `.acc` ACCORDION THE PANELS USE, for the reason
+            `Settings.tsx` records: `.acc` is a panel header — count, button, whole body —
+            for panels that ARE the page, and these are sections *of* a page. The native
+            element brings its own keyboard behaviour and its own open/closed announcement,
+            which a hand-rolled one would have to be taught. Each head is the `.dsec__head`
+            it already was; `panel.css` adds the caret.
+
+          ★ THE HINTS MATTER MOST ON THE CLOSED FOUR. A closed head is the whole of what a
+            reader sees, so it has to name what is inside it — a head with no hint is a title
+            a reader has to open to evaluate.
+
+          ★ AND THE EXPORT IS UNCHANGED, whichever way a reader leaves the page.
+            `lib/printPanel.ts` opens every section fold and every budget block in its print
+            clone, so "Export to PDF" still holds the whole panel. */}
+      <details className="dsec dsec--fold" open>
+        <summary className="dsec__head">
           <h3 className="dsec__title">Budget usage</h3>
           <span className="dsec__hint">
             {oracleBudget === null
@@ -306,7 +330,7 @@ export default function ProjectDetail({ project }: { project: Project }) {
                   p.accounts.length,
                 )}`}
           </span>
-        </div>
+        </summary>
 
         <div className="usage-head">
           <span className="usage-fig">{money0(p.committed)}</span>
@@ -399,31 +423,31 @@ export default function ProjectDetail({ project }: { project: Project }) {
             side and never subtracted — a warning aimed at the card one line below it, which
             did exactly that subtraction and labelled the difference "Remaining".
         */}
-      </section>
+      </details>
 
-      <section className="dsec">
-        <div className="dsec__head">
+      <details className="dsec dsec--fold" open>
+        <summary className="dsec__head">
           <h3 className="dsec__title">Related budgets</h3>
           <span className="dsec__hint">one group per PURPOSE_ segment</span>
-        </div>
+        </summary>
         {p.buckets.map((b) => (
           <BucketBlock key={b.purpose} bucket={b} />
         ))}
-      </section>
+      </details>
 
-      <section className="dsec">
-        <div className="dsec__head">
+      <details className="dsec dsec--fold">
+        <summary className="dsec__head">
           <h3 className="dsec__title">Cost-code spine</h3>
           <span className="dsec__hint">the whole account combination</span>
-        </div>
+        </summary>
         <Spine project={p} />
-      </section>
+      </details>
 
-      <section className="dsec">
-        <div className="dsec__head">
+      <details className="dsec dsec--fold">
+        <summary className="dsec__head">
           <h3 className="dsec__title">Cost centre</h3>
           <span className="dsec__hint">the app’s record, not Oracle’s</span>
-        </div>
+        </summary>
         {/* ★ THE MATCH IS BY LEVEL, AND THAT IS THE ONLY KEY THAT WORKS. The page
             is opened from a row of the level table, so what it knows is the level;
             the registry row that holds it is what carries the slug the release is
@@ -450,23 +474,23 @@ export default function ProjectDetail({ project }: { project: Project }) {
             <p>{released}</p>
           </div>
         ) : null}
-      </section>
+      </details>
 
-      <section className="dsec">
-        <div className="dsec__head">
+      <details className="dsec dsec--fold">
+        <summary className="dsec__head">
           <h3 className="dsec__title">What to watch</h3>
           <span className="dsec__hint">derived, not stored</span>
-        </div>
+        </summary>
         <AttentionList project={p} />
-      </section>
+      </details>
 
       {p.note ? (
-        <section className="dsec">
-          <div className="dsec__head">
+        <details className="dsec dsec--fold">
+          <summary className="dsec__head">
             <h3 className="dsec__title">Note on this project</h3>
-          </div>
+          </summary>
           <p className="watch__d">{p.note}</p>
-        </section>
+        </details>
       ) : null}
     </>
   );
