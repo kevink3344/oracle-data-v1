@@ -55,6 +55,21 @@
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
+
+  /* ★ THE TWO CORNER CONTROLS ARE TOP-ALIGNED WITH THE ACTION ROW, WHICH IS A
+     STATEMENT ABOUT THE HEAD'S *CONTENT* BOX — AND THESE TWO PROPERTIES CARRY THE
+     ONE THING THAT SEPARATES IT FROM THEIR REAL CONTAINING BLOCK.
+
+     `.pin-control` and `.iconbtn` are `position: absolute`, so their containing
+     block is the head's PADDING box — but the buttons they must line up with sit
+     in the CONTENT box, and `.page-head--image` below adds 18px / 22px of padding
+     between the two. On a bare head the boxes coincide and these are zero; on a
+     picture head they are that padding, so the icons move in WITH the buttons
+     rather than sitting 18px above them and 22px to their right. Declared here and
+     re-pointed there, so where the corner is is said once per head instead of
+     once per icon. */
+  --head-inset-top: 0px;
+  --head-inset-right: 0px;
 }
 
 /* ★ THE IDENTITY YIELDS THE CORNER STRIP TO THE TWO CONTROLS THAT LIVE IN IT.
@@ -80,6 +95,21 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+
+  /* ★ THE ROW YIELDS THE CORNER STRIP TOO — THIS IS THE OTHER HALF OF
+     `.projpage__id` ABOVE, AND ITS ABSENCE WAS THE OVERLAP.
+
+     That rule keeps the identity's text out of the head's right 120px, which is
+     where the pencil (`right: 90px`) and the pin (`right: 52px`) are drawn. This
+     row is the head's OTHER flex child, and the head's
+     `justify-content: space-between` parks its trailing edge on that same 120px
+     — so the three labelled buttons ran to the head's right edge and the two
+     icons were painted straight over the last one.
+
+     The reserve is that same strip PLUS this row's own 8px gap, so the buttons
+     stop eight pixels left of the pencil — the gap they already keep from one
+     another — rather than sitting flush against it. */
+  padding-right: 128px;
 }
 
 /* ★ THE EDIT PENCIL SITS IN THE HEAD'S CORNER, 8px TO THE LEFT OF THE PIN — NOT
@@ -108,9 +138,23 @@
      project's own background. */
 .projpage__actions .iconbtn {
   position: absolute;
-  top: 14px;
-  right: 90px;
+  top: var(--head-inset-top, 0px);
+  right: calc(var(--head-inset-right, 0px) + 90px);
   z-index: 1;
+}
+
+/* ★ THE PIN TAKES THE SAME TWO INSETS, BECAUSE IT SHARES THE CORNER.
+   Its base rule (`components.css`) is a drawer-head number — `top: 14px` and
+   `right: 52px` measured from a frame the page's buttons do not sit in (the whole
+   of that arithmetic is recorded above `.pin-control` there) — so the page
+   re-points both. `top` follows the head's own inset to stay on the buttons;
+   `right` keeps the drawer value of 52px (a 30px close button + the 8px the pair
+   share, from the drawer's 14px edge) and adds the head's inset. The pin then
+   holds 8px to the right of the pencil, and top-aligned with the buttons, on both
+   heads. */
+.projpage .pin-control {
+  top: var(--head-inset-top, 0px);
+  right: calc(var(--head-inset-right, 0px) + 52px);
 }
 
 /* ★ THE BODY KEEPS NO MEASURE OF ITS OWN — IT IS AS WIDE AS `.projpage`.
@@ -191,6 +235,15 @@
   .projpage .page-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  /* ★ THE HEAD IS A COLUMN HERE, SO THIS ROW IS NO LONGER ON THE CORNER.
+     The actions fall to their own full-width row BENEATH the identity, and the
+     pencil and pin — still at `top: 14px` — are drawn over the identity's corner
+     instead. The strip reserve above would then only shorten a row that has no
+     strip beside it, so it is released. */
+  .projpage__actions {
+    padding-right: 0;
   }
 }
 
@@ -281,6 +334,12 @@
      giving it one would push this page's title out of line with the body
      sections below it, which keep the page's 20px gutter. */
   padding: 18px 22px;
+
+  /* The corner controls are pinned to this head's PADDING box, so they have to be
+     told this inset to stay on the buttons that sit inside it — see
+     `.projpage .page-head` for the pair's whole reason. */
+  --head-inset-top: 18px;
+  --head-inset-right: 22px;
 }
 
 .projpage .page-head--image::before,
