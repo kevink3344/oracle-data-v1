@@ -665,10 +665,16 @@
    *   `Allocations` +33, `Unclaimed` +20, `Combinations` +12, `Companies` +8,
    *   `Distributions` +6, `Adjustments` +4, `Encumbrances` +3. `Chart of Accounts`
    *   wraps as well, and it does so with every group *shut* — so that one is visible
-   *   on arrival rather than only after the tree is opened. Each of the seven is a
-   *   *single unbreakable word*, so `min-width: auto` buys them nothing: a flex item
-   *   cannot shrink below its longest word, which is why tightening the padding never
-   *   fixed this and why the fix is to stop narrowing at all.
+   *   on arrival rather than only after the tree is opened.
+   *
+   *   Each of the seven is a *single unbreakable word*, so `min-width: auto` buys
+   *   them nothing: a flex item cannot shrink below its longest word, which is why
+   *   tightening the padding never fixed this. Every one renders an unabbreviated
+   *   label — there is no `short` value left to substitute — and the three worst
+   *   also stack a second kind of width on top: `Allocations` carries the `calc`
+   *   tag, `Unclaimed` and `Companies` a per-row count. The icon column did not
+   *   create the problem but it did expose it: the worst row overflowed by 3px
+   *   before the icons and by 33 after them.
    *
    *   At 208px the same measurement gives 0px sideways, 0 overflowing rows and no
    *   wrapped heading — in both the shut and the open state.

@@ -534,10 +534,16 @@ At **208px** the same measurement is **0px** sideways, **0** overflowing rows an
 heading, in both the shut and the open state.
 
 The overflowing rows are the ones whose text is a **single unbreakable word**, so a `min-width: auto`
-flex item cannot shrink below it and the row simply grows wider than its box. This predates the icons —
-before them the worst row overflowed by 3px, not 33 — but the icons took 24px out of the row and turned
-a marginal case into a visible one. It is also why shortening labels was never going to be the fix:
-eight of the thirteen `short` values are already the head noun alone.
+flex item cannot shrink below it and the row simply grows wider than its box. Every one of the seven
+renders an unabbreviated label — `Combinations`, `Encumbrances`, `Distributions` and the rest are whole
+words at this width, and no `short` value is left to substitute. The three worst also stack a second
+kind of width on top of the word: `Allocations` carries the `calc` tag (+33 on its own) and `Unclaimed`
+and `Companies` carry a per-row count (+20 and +8).
+
+The icon column did not create this but it did expose it: before the icons the worst row overflowed by
+3px and now it is 33, so a defect that was invisible at 176px became the first thing a reader sees. That
+is why tightening the padding was never going to be the fix — it is word width plus icon plus badge
+against a box that is simply too small, not a spacing problem.
 
 So the narrowing is gone. The breakpoint now sets only `--drawer-w`, and `tokens.css` is the sole place
 the rail's width is written — there is no second copy left to keep in step. The 32px comes out of the
