@@ -434,6 +434,21 @@ it searches, and `/objects/:object` is the generic detail view that every leaf's
 | Keyboard | `↑`/`↓` between items, `→`/`←` to open/close a group, `Home`/`End`, and roving `tabindex`. A 40-item rail that is 40 tab stops is unusable. |
 | Counts | Keep the existing badge pattern — it is the rail's most useful feature. But **only show a count where the number is real**; today `Rail` renders `—` for unready data, which is the right instinct. Never render `0` for "not loaded" (see the always-zero trap in your own notes). |
 
+**★ Settled differently, and one row above was reversed.** The rail opened with *the current group*
+open, which is only a static version of "all of them": it spends 3 to 7 rows nobody asked for, and the
+rows it spends are the ones *below* the group. The rail now opens as **eight headers and nothing else**
+and shows where you are by brightening the header that owns the current route rather than by unfolding
+it. Two consequences worth recording:
+
+- **The route-change effect is gone.** It only ever re-opened what the default had already opened, so
+  under a shut default it would undo the default on every navigation and the rail would be back to one
+  group open at all times, differing only in *which* one.
+- **There is no fold-all control.** One used to sit in the brand row. A group opens from its own header
+  — a click, or `←`/`→` when the header has focus — and the remembered map wins over the default in
+  both directions, so a reader who opens Funding and comes back tomorrow gets Funding open.
+
+**Not an accordion is still true:** several groups may be open at once.
+
 ### 10.3 Size check — 8 blocks is probably too many
 
 At 8 blocks and up to 6 leaves each, the rail is ~40 rows. That is a lot of vertical space for a
@@ -443,12 +458,18 @@ list where most users touch 5 items. Two variants:
 |---|---|---|
 | Rail shows | all 8 blocks | 6 blocks: Overview, Projects, Funding, Spend, Procurement, Vendors |
 | Chart of Accounts | its own block | demoted: `Account combinations` moves under **Projects**; the rest into Administration |
-| Administration | its own block | a **gear / utility section pinned to the rail's footer**, visually separated |
+| Administration | its own block | a **utility section at the rail's foot**, visually separated, under a `Reference &amp; setup` label |
 | Rationale | mirrors the domains | the six blocks are the *questions*; CoA and Admin are *reference and setup* everyone visits rarely |
 
 **Recommendation: Variant B.** It keeps every question-shaped block visible and pushes the
 vocabulary/configuration into a utility area — which is the same distinction §2 drew, expressed as
 layout. If you prefer A, the plan still works; only the rail's arrangement changes.
+
+**★ Shipped as Variant B, minus the gear.** The utility section is the rail's foot, labelled
+`Reference & setup`, holding `Chart of Accounts` and `Administration` as two more collapsible groups
+rather than a single block. The settings **gear is gone**: it was a second way into a page that was
+already in the rail (`Administration › Settings`), and a control that only *some* readers saw — it
+rendered for super admins alone — is a poor use of the corner the wordmark now has to itself.
 
 ### 10.4 Migration from the current rail
 
@@ -464,6 +485,92 @@ That last row matters: the 8 items currently in `LATER` (*Portfolios, Unclaimed 
 explorer, Segment admin, Combination admin, Overrides, Extract runs, Users & roles*) correspond
 almost exactly to leaves in §4.2, so the rework is largely **promoting disabled placeholders into
 real groups** rather than inventing a new structure.
+
+### 10.5 Icons, shortened labels, and the brand row
+
+**The rail carries an icon on every one of its 45 rows** — 8 group headers and 37 leaves. They are
+hand-drawn inline SVG in `app/src/components/RailIcon.tsx`: no icon library, no sprite, no font. A
+leaf's mark is 16px, a header's 14px, and every one is `aria-hidden` because the label is already
+there. `menu.ts` owns the names: `MenuIcon` is a closed union of 45 names, and `RailIcon`'s path table
+is typed `Record<MenuIcon, string>`, so **a leaf without a drawing is a compile error** rather than a
+blank square. The names describe shapes, not subjects (`pie`, `scale`, `rows`), because the same
+subject is drawn twice — `Budgets` and `Budget setup` are not the same mark.
+
+**★ The labels did not survive contact with the icons, and the fix was in the data, not the CSS.**
+Measured on the real rail rather than reasoned about: at the shipped 208px the rail's content box is
+184px, a leaf row is 150px of it, and a leaf that carries both a `not built` dot and a count badge has
+**55px** left for its text — `Line items` needed 59 and wrapped. `Account combinations`, with a
+five-figure badge, had 74px and needed 84 for `Combinations`. Nothing here truncates: a leaf carries
+an optional **`short`** that the rail renders and the full **`label`** that everything else uses —
+`label` is the page's own `<h1>` (`routes/Pending.tsx` renders it), so shortening it would have
+renamed the page to fit the menu. The tooltip still **leads with the full `label`**. 13 rows carry a
+`short`, each with the measurement that forced it recorded next to it in `menu.ts`:
+
+| Full label | Rail text | Why |
+|---|---|---|
+| `Account combinations` | `Combos` | five-figure badge; 84px of name in a 74px slot |
+| `Line items` | `PO lines` | dot *and* badge; 59px of name in a 55px slot — the tightest row in the rail |
+| `Budget changes` | `Changes` | the only row where the arithmetic says it *fits* (+4px) and it wrapped anyway — flexbox lays the text out before it honours the trailing dot's gap |
+| `Purchase orders` | `Orders` | pairs with `PO lines` |
+| `Commitments & Spend` | `Commitments` | the header, not a leaf |
+| *(the other eight)* | `Unclaimed`, `Adjustments`, `Allocations`, `vs actuals`, `Line types`, `Companies`, `Segments`, `By period` | same rule: drop the qualifier, keep the head noun |
+
+**The brand row is the wordmark alone.** `.rail__brand` holds `.brand__name` (`Oracle Projects &
+Accounts`) and `.brand__sub` (`Live data. Clear insight.`) and nothing else — the 28×28 monogram was
+decoration, and the gear and the fold-all control that used to share the row are gone (§10.2). It is a
+plain block, not the three-column grid it was.
+
+**★ One known miss, at the narrow breakpoint.** `--rail-w` drops to 176px under
+`@media (max-width: 1080px)`, which leaves 102px of usable row, and that is no longer enough. Measured
+at 176px, **all groups shut** — the shipped default — the rail does **not** scroll sideways
+(`scrollWidth === clientWidth`) and nothing overflows, but the `Chart of Accounts` header is the one
+label that wraps to two lines.
+
+Opening the groups makes it visible. With **all 8 open** at 176px:
+
+| Symptom | Rows |
+|---|---|
+| Overflows its row (rail gains 22px of sideways scroll) | `Allocations` +34px · `Unclaimed` +21 · `Combinations` +13 · `Companies` +9 · `Distributions` +7 · `Adjustments` +5 · `Encumbrances` +4 |
+| Wraps to two lines | `All projects` · `Journal entries` · `Budget setup` · `PO lines` · `Vendor spend` · `Extract runs` · and the `Chart of Accounts` header |
+
+The overflowing rows are the ones whose text is a **single unbreakable word**, so a `min-width: auto`
+flex item cannot shrink below it and the row simply grows wider than its box. This predates the icons —
+before them the worst row overflowed by 3px, not 21 — but the icons took 24px out of the row and turned
+a marginal case into a visible one. Note also that **the real browser window here is 908px wide**, which
+is inside this breakpoint, so this is not a hypothetical narrow screen: it is the state the rail ships
+in for this reader. **This is the one thing in §10.5 still owed a decision** (§12-Q7).
+
+### 10.6 One row rhythm for headers and leaves
+
+**★ The six work groups were 20px apart and the leaves inside them 2px apart, and that 10× ratio was
+the whole of the "too airy" complaint.** 20px is `.rail`'s own section gap, and at the time it applied
+to every direct child of the rail. Between two group headers that reads as six separate sections rather
+than one list with headings in it — which is what §2's Axis-B structure actually is.
+
+The fix is a wrapper, not a smaller `.rail` gap. Measured, the rail's direct children were
+`brand`, then six `rail__group`s, then `rail__util`, then `rail__foot` — and **"between two work
+groups" and "between the last work group and Reference & setup" are the same adjacency**, so no
+selector can tighten one without tightening the other. The six work blocks therefore sit in a new
+`.rail__work`, which carries the row rhythm; `.rail`'s 20px keeps its job as the seam between brand /
+work / reference / footer.
+
+The rhythm itself is **one value read twice**: `.rail { --rail-row-gap: 2px }`, read by `.rail__work`
+and by `.rail__panel` (which already used 2px for its leaf rows). The header rhythm and the leaf rhythm
+can no longer drift apart, and the number is the panel's own measured one, not a new choice. A group
+header is 26px, so the pitch is 28px; **the six work blocks now occupy 166px instead of 256px**, and
+the two rhythms are identical — measured with Overview and Projects open, the between-header gaps are
+2px and the leaf pitches are 34/33/34 with 2px from a panel's last leaf to the next header.
+
+**Deliberately unchanged:** Reference & setup keeps its section break. That is a `20px` rail gap plus
+whatever `margin-top: auto` on `.rail__util` has left to absorb, and the two utility headers stay
+tight against each other inside their own block. Note that the measured work→reference distance is a
+*derived* number, not a rule: `margin-top: auto` pins the utility block and the footer to the bottom of
+the rail, so any change in the height of the content above it moves that boundary while the bottom
+stays put. Like §10.5's label fix, this was measured in the live rail before and after rather than
+reasoned from the CSS, and the wrapper was checked for collateral damage by temporarily flattening it
+with `display: contents`, which reproduced the old direct-children layout exactly (`clientWidth 165 /
+scrollWidth 173`, identical with and without the wrapper) — the 22px of sideways scroll at 176px is
+§10.5's pre-existing overflow, not this change.
 
 ---
 
@@ -496,6 +603,11 @@ Phase 0 is not optional and should not be deferred — see §9.
    empty by design, so they can be routed but not verified. (§8)
 6. **Is building the API layer (§9) approved?** Both `DB_MODE` and most of this menu are inert
    without it.
+7. **What happens to the rail at 1080px and below?** `--rail-w` falls to 176px there, which is now too
+   narrow: shut, only the `Chart of Accounts` header wraps; open, 7 rows overflow and the rail scrolls
+   sideways by 22px. Your window is 908px, so you are *in* this case. Options: raise the breakpoint's
+   width to 192px, let the rail's own text ellipsise and trust the tooltip, or accept the sideways
+   scroll. (§10.5)
 
 ---
 

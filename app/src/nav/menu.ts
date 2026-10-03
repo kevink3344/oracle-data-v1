@@ -80,9 +80,85 @@ export const COUNT_OF: Record<RailCount, string> = {
   activity: 'objects whose row count moved since the previous reading',
 };
 
+/**
+ * The marks the rail draws beside its names.
+ *
+ * The vocabulary lives here because *which* mark a leaf wears is part of what the
+ * leaf is, in the same sense `label` and `to` are — and because `RailIcon.tsx`
+ * keys its drawings off this union, so a name that has no drawing is a compile
+ * error rather than an empty square on screen.
+ *
+ * ★ THE NAMES ARE SHAPES, NOT SUBJECTS. `pie`, `mine`, `calendar`, `scale` — a
+ *   subject-shaped name ("allocations", "budgets") would have to be renamed the
+ *   first time two leaves honestly wanted the same drawing, which is why the
+ *   leaves and the group headers can share a shape without sharing a meaning.
+ */
+export type MenuIcon =
+  // Group headers.
+  | 'gauge'
+  | 'briefcase'
+  | 'banknote'
+  | 'receipt'
+  | 'cart'
+  | 'users'
+  | 'sitemap'
+  | 'sliders'
+  // Leaves.
+  | 'home'
+  | 'pulse'
+  | 'pin'
+  | 'eye'
+  | 'list'
+  | 'folder'
+  | 'tag-slash'
+  | 'grid'
+  | 'wallet'
+  | 'transfer'
+  | 'history'
+  | 'notebook'
+  | 'pie'
+  | 'table'
+  | 'lock'
+  | 'file'
+  | 'check-square'
+  | 'scale'
+  | 'clipboard'
+  | 'rows'
+  | 'truck'
+  | 'share'
+  | 'bookmark'
+  | 'building'
+  | 'map-pin'
+  | 'outbound'
+  | 'columns'
+  | 'calendar'
+  | 'clock'
+  | 'search'
+  | 'cog'
+  | 'layout'
+  | 'cap'
+  | 'tag'
+  | 'layers'
+  | 'toggle'
+  | 'database';
+
 export interface MenuLeaf {
   /** The name in the rail. */
   label: string;
+  /**
+   * The rail's own name for this leaf, where `label` does not fit the column.
+   *
+   * ★ `label` STAYS THE FULL NAME AND IS WHAT THE TOOLTIP AND THE PAGE TITLE USE.
+   *   Measured at the rail's 208px: a 16px icon plus the badge leaves a badged row
+   *   78px of label and an unbadged one 112px, which is roughly 17 and 12
+   *   characters. "Allocations & available funds" needs 173. Shortening `label`
+   *   instead would have renamed the page — `Pending` renders it as the `<h1>` —
+   *   so the abbreviation lives here, beside the name it abbreviates, and the
+   *   full one is still what `title` shows on hover.
+   */
+  short?: string;
+  /** The mark beside the name. See `MenuIcon`. */
+  icon: MenuIcon;
   /** Every leaf owns a real URL; **groups do not** (§10.1). */
   to: string;
   /** The Oracle object, view or SQL file this screen reads. */
@@ -113,6 +189,16 @@ export interface MenuLeaf {
 export interface MenuBlock {
   id: string;
   title: string;
+  /**
+   * The rail's own name for the header, where `title` does not fit.
+   *
+   * One header needed it: "Commitments & Spend" is 148px of uppercase at the
+   * rail's 208px against the 126px a header has once the chevron, the mark and
+   * the padding are paid for.
+   */
+  short?: string;
+  /** The mark beside the title. See `MenuIcon`. */
+  icon: MenuIcon;
   leaves: MenuLeaf[];
 }
 
@@ -123,9 +209,11 @@ export interface MenuBlock {
 const OVERVIEW: MenuBlock = {
   id: 'overview',
   title: 'Overview',
+  icon: 'gauge',
   leaves: [
     {
       label: 'Dashboard',
+      icon: 'home',
       to: '/',
       reads: 'derived from the extract',
       built: true,
@@ -134,6 +222,7 @@ const OVERVIEW: MenuBlock = {
     },
     {
       label: 'Activity',
+      icon: 'pulse',
       to: '/activity',
       reads: 'sqlite_master, pragma_table_info',
       built: true,
@@ -149,6 +238,7 @@ const OVERVIEW: MenuBlock = {
     },
     {
       label: 'Pinned',
+      icon: 'pin',
       to: '/pinned',
       reads: 'user_pin',
       built: true,
@@ -158,6 +248,7 @@ const OVERVIEW: MenuBlock = {
     },
     {
       label: 'Views',
+      icon: 'eye',
       to: '/views',
       reads: 'saved_view, saved_view_subscription, saved_view_run',
       built: true,
@@ -181,9 +272,11 @@ const OVERVIEW: MenuBlock = {
 const PROJECTS: MenuBlock = {
   id: 'projects',
   title: 'Projects',
+  icon: 'briefcase',
   leaves: [
     {
       label: 'All projects',
+      icon: 'list',
       to: '/projects',
       reads: 'ExtractLine[]',
       built: true,
@@ -193,6 +286,7 @@ const PROJECTS: MenuBlock = {
     },
     {
       label: 'Portfolios',
+      icon: 'folder',
       to: '/portfolios',
       reads: 'app-side',
       built: false,
@@ -204,6 +298,8 @@ const PROJECTS: MenuBlock = {
     },
     {
       label: 'Unclaimed combinations',
+      short: 'Unclaimed',
+      icon: 'tag-slash',
       to: '/projects/unclaimed',
       reads: 'combinationKey',
       built: false,
@@ -218,6 +314,13 @@ const PROJECTS: MenuBlock = {
       // Moved here by §12-Q2. A combination is what a project *binds*, so it reads
       // as part of this block even though the vocabulary it comes from is the CoA.
       label: 'Account combinations',
+      // ★ `Combos`, NOT `Combinations`, AND THE BADGE IS WHY. This leaf is the one row that
+      //   has both a long name and a count, and the count sits on the same line: at 208px the
+      //   row has 150px, the icon and its gaps take 32, a five-figure badge takes 28, which
+      //   leaves 74px for the name. `Combinations` measured 84. The full name leads the
+      //   tooltip and is the page's own `<h1>`, so nothing is lost by the shorter rail text.
+      short: 'Combos',
+      icon: 'grid',
       to: '/coa/combinations',
       reads: 'GL_CODE_COMBINATIONS',
       api: '/api/coa/combinations',
@@ -246,9 +349,11 @@ const PROJECTS: MenuBlock = {
 const FUNDING: MenuBlock = {
   id: 'funding',
   title: 'Funding',
+  icon: 'banknote',
   leaves: [
     {
       label: 'Budgets',
+      icon: 'wallet',
       to: '/funding/budgets',
       reads: "GL_BALANCES where ACTUAL_FLAG = 'B'",
       api: '/api/funding/budgets',
@@ -265,6 +370,8 @@ const FUNDING: MenuBlock = {
     },
     {
       label: 'Budget adjustments',
+      short: 'Adjustments',
+      icon: 'transfer',
       to: '/funding/adjustments',
       reads: 'GL_JE_HEADERS + GL_JE_LINES',
       api: '/api/funding/journals',
@@ -277,6 +384,12 @@ const FUNDING: MenuBlock = {
     },
     {
       label: 'Budget changes',
+      // ★ The name is 96px and the row gives it 97 — which wraps, because the flex row
+      //   lays the text out before it honours the trailing dot's gap. `Adjustments`
+      //   above drops the same leading "Budget", so this does too; the full name still
+      //   leads the tooltip and is still the page's own `<h1>`.
+      short: 'Changes',
+      icon: 'history',
       to: '/funding/changes',
       reads: 'GL_JE_LINES (trend)',
       api: '/api/funding/journal-lines',
@@ -288,6 +401,7 @@ const FUNDING: MenuBlock = {
     },
     {
       label: 'Journal entries',
+      icon: 'notebook',
       to: '/funding/journals',
       reads: 'GL_JE_HEADERS, GL_JE_LINES',
       api: '/api/funding/journals',
@@ -301,6 +415,8 @@ const FUNDING: MenuBlock = {
     },
     {
       label: 'Allocations & available funds',
+      short: 'Allocations',
+      icon: 'pie',
       to: '/funding/allocations',
       reads: 'GL_BUDGET_VERSIONS + GL_BALANCES',
       api: '/api/funding/positions',
@@ -315,6 +431,7 @@ const FUNDING: MenuBlock = {
     },
     {
       label: 'Budget setup',
+      icon: 'table',
       to: '/funding/setup',
       reads: 'GL_BUDGET_TYPES, _VERSIONS, _ENTITIES, _ASSIGNMENTS',
       api: '/api/funding/budget-versions',
@@ -349,9 +466,12 @@ const FUNDING: MenuBlock = {
 const SPEND: MenuBlock = {
   id: 'spend',
   title: 'Commitments & Spend',
+  short: 'Commitments',
+  icon: 'receipt',
   leaves: [
     {
       label: 'Encumbrances',
+      icon: 'lock',
       to: '/spend/encumbrances',
       reads: 'V_ENCUMBRANCE_FROM_PO',
       built: true,
@@ -371,6 +491,7 @@ const SPEND: MenuBlock = {
     },
     {
       label: 'Invoices',
+      icon: 'file',
       to: '/spend/invoices',
       reads: 'AP_INVOICES + AP_INVOICE_PAYMENTS',
       built: true,
@@ -384,6 +505,7 @@ const SPEND: MenuBlock = {
     },
     {
       label: 'Checks',
+      icon: 'check-square',
       to: '/spend/payments',
       reads: 'AP_CHECKS + AP_INVOICE_PAYMENTS',
       built: true,
@@ -396,6 +518,8 @@ const SPEND: MenuBlock = {
     },
     {
       label: 'Commitments vs actuals',
+      short: 'vs actuals',
+      icon: 'scale',
       to: '/spend/vs-budget',
       reads: '04-spend-and-actuals.sql',
       built: false,
@@ -415,9 +539,12 @@ const SPEND: MenuBlock = {
 const PROCUREMENT: MenuBlock = {
   id: 'procurement',
   title: 'Procurement',
+  icon: 'cart',
   leaves: [
     {
       label: 'Purchase orders',
+      short: 'Orders',
+      icon: 'clipboard',
       to: '/procurement/purchase-orders',
       reads: 'PO_HEADERS_ALL',
       api: '/api/purchase-orders',
@@ -435,6 +562,13 @@ const PROCUREMENT: MenuBlock = {
     },
     {
       label: 'Line items',
+      // ★ THE TIGHTEST ROW IN THE RAIL, AND IT IS THE BADGE THAT MAKES IT SO. This leaf has a
+      //   count *and* a "not built" dot, so at 208px its 134px of content is down to 55px of
+      //   text once the icon, three gaps, the dot and a four-figure badge are paid for.
+      //   `Line items` measured 59. `PO lines` is what the block already calls it — its
+      //   sibling is `Orders` for `Purchase orders`.
+      short: 'PO lines',
+      icon: 'rows',
       to: '/procurement/lines',
       reads: 'PO_LINES_ALL',
       api: '/api/purchase-order-lines',
@@ -447,6 +581,7 @@ const PROCUREMENT: MenuBlock = {
     },
     {
       label: 'Shipments',
+      icon: 'truck',
       to: '/procurement/shipments',
       reads: 'PO_LINE_LOCATIONS_ALL',
       api: '/api/purchase-order-shipments',
@@ -456,6 +591,7 @@ const PROCUREMENT: MenuBlock = {
     },
     {
       label: 'Distributions',
+      icon: 'share',
       to: '/procurement/distributions',
       reads: 'PO_DISTRIBUTIONS_ALL',
       api: '/api/purchase-order-distributions',
@@ -468,6 +604,8 @@ const PROCUREMENT: MenuBlock = {
     },
     {
       label: 'Line types & lookups',
+      short: 'Line types',
+      icon: 'bookmark',
       to: '/procurement/reference',
       reads: 'PO_LINE_TYPES, PO_LOOKUP_CODES',
       api: '/api/line-types',
@@ -495,9 +633,12 @@ const PROCUREMENT: MenuBlock = {
 const VENDORS: MenuBlock = {
   id: 'vendors',
   title: 'Vendors',
+  icon: 'users',
   leaves: [
     {
       label: 'Vendor companies',
+      short: 'Companies',
+      icon: 'building',
       to: '/vendors/companies',
       reads: 'PO_VENDORS',
       api: '/api/vendors',
@@ -530,6 +671,7 @@ const VENDORS: MenuBlock = {
     },
     {
       label: 'Vendor sites',
+      icon: 'map-pin',
       to: '/vendors/sites',
       reads: 'PO_VENDOR_SITES_ALL',
       api: '/api/vendor-site-register',
@@ -555,6 +697,7 @@ const VENDORS: MenuBlock = {
     },
     {
       label: 'Vendor spend',
+      icon: 'outbound',
       to: '/vendors/spend',
       reads: 'PO_HEADERS_ALL + AP_INVOICES',
       built: false,
@@ -610,9 +753,12 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
   {
     id: 'coa',
     title: 'Chart of Accounts',
+    icon: 'sitemap',
     leaves: [
       {
         label: 'Segments & values',
+        short: 'Segments',
+        icon: 'columns',
         to: '/coa/segments',
         reads: 'FND_ID_FLEX_*, FND_FLEX_VALUES',
         api: '/api/coa/segments',
@@ -625,6 +771,8 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Balances by period',
+        short: 'By period',
+        icon: 'calendar',
         to: '/coa/balances',
         reads: 'GL_BALANCES (all flags)',
         api: '/api/coa/balances',
@@ -637,6 +785,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Periods',
+        icon: 'clock',
         to: '/coa/periods',
         reads: 'GL_PERIODS',
         api: '/api/coa/periods',
@@ -649,6 +798,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Lookups',
+        icon: 'search',
         to: '/coa/lookups',
         reads: 'GL_LOOKUPS, PO_LOOKUP_CODES',
         api: '/api/coa/lookups',
@@ -661,6 +811,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
   {
     id: 'admin',
     title: 'Administration',
+    icon: 'sliders',
     leaves: [
       // ★ THE TWO BUILT LEAVES COME FIRST, BEFORE THE LEAVES THE DESIGN PLAN
       //   NUMBERS §9.7–§9.11. The other five are all `built: false`, so the rail
@@ -683,6 +834,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       //     one of those two jobs undone.
       {
         label: 'Settings',
+        icon: 'cog',
         to: '/settings',
         reads: 'app-side',
         api: '/api/organizations, /api/users',
@@ -698,6 +850,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'View builder',
+        icon: 'layout',
         to: '/admin/views',
         reads: 'app-side, plus whatever its queries read',
         built: true,
@@ -709,6 +862,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Read caps',
+        icon: 'cap',
         to: '/admin/read-caps',
         reads: 'app-side, plus a preview of whatever statement it is given',
         api: '/api/read-caps',
@@ -723,6 +877,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Segments',
+        icon: 'tag',
         to: '/admin/segments',
         reads: 'app-side',
         built: false,
@@ -733,6 +888,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Combinations',
+        icon: 'layers',
         to: '/admin/combinations',
         reads: 'app-side overlay',
         built: false,
@@ -745,6 +901,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Overrides',
+        icon: 'toggle',
         to: '/admin/overrides',
         reads: 'app-side',
         built: false,
@@ -753,6 +910,7 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
       },
       {
         label: 'Extract runs',
+        icon: 'database',
         to: '/admin/extract-runs',
         reads: 'app-side, plus 00-discover.sql',
         built: false,

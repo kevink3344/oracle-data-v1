@@ -1,7 +1,6 @@
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { type KeyboardEvent, useCallback, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '../state/store';
-import { isSuperAdmin, useSession } from '../data/session';
 import { num } from '../data/format';
 import { APP_NAME, APP_TAGLINE } from '../data/brand';
 import {
@@ -17,6 +16,7 @@ import {
   type MenuLeaf,
   type RailCount,
 } from '../nav/menu';
+import RailIcon from './RailIcon';
 
 /**
  * The rail.
@@ -25,17 +25,32 @@ import {
  * fixed the behaviour, and each of its five rows is a decision rather than a
  * default:
  *
- *   - **Expanded by default: only the group holding the current route.** Opening
- *     every group turns a 27-leaf rail back into the 40-row list §10.3 went to the
- *     trouble of avoiding. Opening *none* of them hides the page you are on, so
- *     exactly one group starts open and it is the one you are looking at.
+ *   - **Shut by default: every group starts closed.** Opening all of them turns a
+ *     27-leaf rail back into the 40-row list §10.3 went to the trouble of avoiding.
+ *     Opening *the current group* alone — which is what this did first — is only a
+ *     static version of that: it spends 3 to 7 rows nobody asked for, and the rows
+ *     it spends are the ones below it. The rail now opens as eight headers and
+ *     nothing else, and shows where you are by brightening the header that holds
+ *     the current route rather than by unfolding it. There is no control that opens
+ *     all eight at once any more: the brand row used to carry one, and the brand row
+ *     is the wordmark alone. A group opens from its own header — a click, or ← →
+ *     when the header has focus.
+ *
+ *     ★ WHICH IS WHY THE ROUTE-CHANGE EFFECT IS GONE. It was added when the default
+ *     was "the current group is open", where it cost nothing — it only ever
+ *     re-opened what the default had already opened, so a reader could shut the
+ *     group they were standing in and it would stay shut. Under a shut default the
+ *     same effect would undo the default on every navigation, and the rail would be
+ *     back to one group open at all times with the only difference being *which*
+ *     one. Nothing here opens a group on the reader's behalf: a group is open
+ *     because a reader opened it.
  *   - **Not an accordion.** Several groups may be open at once. Funding and Spend
  *     are the two a reader compares constantly, and making that two clicks is the
  *     part of an accordion nobody notices until they have used it.
  *   - **Expansion is remembered**, in `localStorage`, keyed per group — so a
- *     reader's own arrangement survives navigation. A remembered map wins over the
- *     default; a route change only ever *adds* the group it lands in, and never
- *     closes anything the reader opened.
+ *     reader's own arrangement survives navigation, and survives a reload. A
+ *     remembered map wins over the shut default, in both directions: a reader who
+ *     opens Funding and comes back tomorrow gets Funding open and the rest shut.
  *   - **The group header is a `<button>`, not a `div` with an `onClick`.** It
  *     carries `aria-expanded` and `aria-controls`, and the panel it controls is
  *     always in the DOM and merely `hidden` — which is what keeps that reference
@@ -43,6 +58,15 @@ import {
  *   - **One tab stop, arrows inside it.** Every item is `tabIndex={-1}` except the
  *     leaf you are on, so Tab steps past the rail instead of through 27 rows, and
  *     ↑ ↓ ← → Home End walk it.
+ *
+ * ★ SHORTER TEXT IN THE RAIL, AND ONLY IN THE RAIL. `MenuLeaf.short` and
+ *   `MenuBlock.short` exist because this column is the wrong place for the full
+ *   name: measured with an icon and a badge beside it, a row has room for about 12
+ *   characters of label, and `Allocations & available funds` needs 27. The full name
+ *   is what `Pending.tsx` prints as the page's `<h1>`, so the rail renders
+ *   `short ?? label` and puts the full name in the tooltip — the short one is a
+ *   label for a column, not a rename. Same for the group headers, where
+ *   `Commitments & Spend` is the one that had to give.
  */
 
 const OPEN_KEY = 'projects-rail-open';
@@ -105,38 +129,12 @@ function Badge({
 export default function Rail() {
   const { status, lines, projects, summary, activity } = useStore();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
-  // ★ SUBSCRIBED, NOT MERELY READ. `isSuperAdmin()` on its own would answer
-  //   correctly and never cause a re-render, because the session store notifies only
-  //   what subscribed to it — so a gear that appeared on a full page load would stay
-  //   hidden through a sign-in, which is exactly when it is wanted. `useSession()`
-  //   is the subscription; the role decision is still made in one place.
-  const mayOpenSettings = isSuperAdmin(useSession());
 
   const ready = status === 'ready';
   const active = activeLeaf(pathname);
   const activeBlock = active ? blockIdFor(active.to) : undefined;
 
-  const [open, setOpen] = useState<OpenMap>(() => {
-    const saved = readOpen();
-    if (Object.keys(saved).length > 0) return saved;
-    return { [activeBlock ?? 'overview']: true };
-  });
-
-  /**
-   * Landing on a leaf always reveals it, even if the reader had shut that group
-   * earlier. Nothing is ever closed here: a route change that silently collapsed a
-   * group the reader had opened would undo their arrangement on the way past.
-   */
-  useEffect(() => {
-    if (!activeBlock) return;
-    setOpen((prev) => {
-      if (prev[activeBlock] === true) return prev;
-      const next: OpenMap = { ...prev, [activeBlock]: true };
-      writeOpen(next);
-      return next;
-    });
-  }, [activeBlock]);
+  const [open, setOpen] = useState<OpenMap>(() => readOpen());
 
   const setGroup = useCallback((id: string, value?: boolean) => {
     setOpen((prev) => {
@@ -252,6 +250,18 @@ export default function Rail() {
      */
     const badgeReady = leaf.count === 'activity' ? activity !== null : ready;
 
+    /**
+     * ★ THE FULL NAME LEADS THE TOOLTIP WHENEVER THE ROW SHOWS AN ABBREVIATION.
+     *   A reader hovering "Combinations" is asking what it is short for, and the
+     *   long name is not otherwise reachable from this rail. Leaves without a
+     *   `short` keep exactly the title they had.
+     */
+    const title = leaf.built
+      ? `${leaf.label} — reads ${leaf.reads}`
+      : leaf.short
+        ? `${leaf.label} — ${leaf.note}`
+        : leaf.note;
+
     return (
       <Link
         key={leaf.to}
@@ -260,9 +270,10 @@ export default function Rail() {
         aria-current={current ? 'page' : undefined}
         data-rail-item="leaf"
         tabIndex={leaf.to === rovingTo ? 0 : -1}
-        title={leaf.built ? `${leaf.label} — reads ${leaf.reads}` : leaf.note}
+        title={title}
       >
-        {leaf.label}
+        <RailIcon name={leaf.icon} />
+        {leaf.short ?? leaf.label}
         {leaf.derived ? (
           <span className="rail__tag" title="Computed from other figures, not read from a column">
             calc
@@ -286,6 +297,19 @@ export default function Rail() {
 
     return (
       <div key={block.id} className={`rail__group${utility ? ' rail__group--util' : ''}`}>
+        {/*
+          ★ THE VISIBLE TEXT CAN BE SHORT; THE ACCESSIBLE NAME IS NEVER SHORT.
+            `aria-label` and `title` carry the full section name for the one header
+            that has to abbreviate, and they are deliberately the *same* string: the
+            tooltip is read by people who can see the abbreviation and are asking
+            what it stands for, and the accessible name is read by people who were
+            never shown the abbreviation at all. Two strings would answer one
+            question two ways.
+
+            There is no `aria-label` for the other seven headers, because the
+            default — the button's own text — is already the full name, and an
+            `aria-label` that repeats visible text is one more thing to keep in sync.
+        */}
         <button
           type="button"
           className={`rail__title${holds ? ' rail__title--here' : ''}`}
@@ -294,12 +318,15 @@ export default function Rail() {
           tabIndex={-1}
           aria-expanded={isOpen}
           aria-controls={panelId}
+          aria-label={block.short ? block.title : undefined}
+          title={block.short ? block.title : undefined}
           onClick={() => setGroup(block.id)}
         >
           <span className="rail__chev" aria-hidden="true">
             {isOpen ? '▾' : '▸'}
           </span>
-          {block.title}
+          <RailIcon name={block.icon} />
+          {block.short ?? block.title}
         </button>
         {/* Always mounted, only hidden: `aria-controls` has to name something that
             exists, and `hidden` is also what the arrow-key walk reads to know which
@@ -321,21 +348,22 @@ export default function Rail() {
      */
     <nav className="rail" id="app-rail" aria-label="Primary" onKeyDown={onKeyDown}>
       <div className="rail__brand">
-        <span className="brand__mark" aria-hidden="true">
-          WC
-        </span>
         {/*
-          ★ THE WORDS SIT ON THEIR OWN ROW UNDER THE MARK, WHICH IS A MEASUREMENT
-            AND NOT A PREFERENCE.
+          ★ THE BRAND ROW IS THE WORDMARK AND NOTHING ELSE, WHICH IT WAS NOT BEFORE.
+            It carried three things: a 32px monogram, the name over the tagline, and
+            — for a super admin — a settings gear, with a fold-all control beside the
+            gear once the rail gained one. All three are gone at the request that
+            asked for them. `/settings` did not lose an entrance with the gear: it is
+            a leaf in the Administration block, which is where a destination belongs
+            and where it can be found by reading rather than by knowing.
 
-          They used to share the row with the mark, and on a 208px rail that row is
-          151px of content box: the mark takes 32, the settings gear takes 22, and the
-          gaps take 20 — which leaves 77px for a name that needs about 210. "Oracle
-          Projects" survived that only by breaking over two lines, and when the name
-          became "Oracle Projects & Accounts" it broke over three, one word per line,
-          with the mark floating in the middle of a five-line block it no longer lined
-          up with. The row is a real constraint, so the fix is to stop putting the words
-          in it.
+          ★ WHICH IS WHY THE TWO-ROW GRID IS GONE WITH THEM. `.rail__brand` was a
+            grid of `auto 1fr auto` because the mark and the two controls shared a row
+            the name could not fit into — on a 208px rail that row is 151px of content
+            box, the mark took 32, the gear 22 and the gaps 20, leaving 77px for a
+            name that needs about 210. The words had a row of their own for that
+            reason alone; with no mark and no controls there is one item left, and a
+            grid of one is a block. `shell.css` lays it out as one.
 
           ★ THE PRODUCT IS NAMED FIRST AND THE REGISTER SECOND, WHICH IS THE
             OPPOSITE OF WHAT THIS SAID BEFORE.
@@ -354,55 +382,28 @@ export default function Rail() {
             definition and no copies. Change the name there and this rail follows.
 
           ★ THE RAIL KEEPS ITS OWN SCALE, WHICH IS NOT THE LOGIN CARD'S. The card
-            doubles its mark and its name (see `signin.css`); a 36px wordmark in a
-            208px column would stand three lines deep over the navigation, so here the
-            name stays 13px and the tagline 10px, and only the mark grows (28 → 32).
-
-            ★ AND THE BLOCK GETS SHORTER, NOT TALLER, BECAUSE THE WORDS STOP WRAPPING
-            SO HARD. Measured after the change: at the full 151px the name sets in two
-            lines and the tagline in one, so the block is three lines where the old one
-            was five and the mark has a row of its own to sit in.
+            doubles its name (see `signin.css`); a 36px wordmark in a 208px column
+            would stand three lines deep over the navigation, so here the name stays
+            13px and the tagline 10px. With the mark gone the block is exactly those
+            two lines.
         */}
-        <div className="brand__words">
-          <div className="brand__name">{APP_NAME}</div>
-          <div className="brand__sub">{APP_TAGLINE}</div>
-        </div>
-        {/**
-         * ★ THE GEAR IS LAST IN THE BRAND ROW, AND IT CARRIES NO `data-rail-item`.
-         *
-         * The arrow-key walk in `onKeyDown` collects every `[data-rail-item]` in the
-         * rail and moves focus through them. A settings button inside the brand is
-         * outside that tree — it is not a destination in the menu, and ↑↓ walking
-         * into the brand would let the walk leave the list it is a walk *of*, with no
-         * way to tell where it had gone. Omitting the attribute is what excludes it,
-         * and the omission is the whole mechanism, so it is written down here rather
-         * than left as an absence somebody would helpfully "fix".
-         *
-         * ★ RENDERED ONLY FOR A SUPER ADMIN, WHICH IS A CONVENIENCE AND NOT A
-         * CONTROL. The four endpoints behind `/settings` call `requireSuperAdmin`
-         * and answer 403 regardless of what is on screen, and the page itself says so
-         * when a member reaches it by typing the URL. A hidden button is not an
-         * access control; this file does not pretend otherwise.
-         *
-         * ★ A `button` AND NOT A `Link`. It is the same markup contract the rest of
-         * this component's interactive parts keep: a control that is *acting* on the
-         * app calls `navigate`, and a `<Link>` is for somewhere a person is being
-         * sent. This is the affordance the request describes, and it is a button.
-         */}
-        {mayOpenSettings ? (
-          <button
-            type="button"
-            className="rail__gear"
-            aria-label="Settings"
-            title="Settings — the organization register"
-            onClick={() => navigate('/settings')}
-          >
-            <span aria-hidden="true">⚙</span>
-          </button>
-        ) : null}
+        <div className="brand__name">{APP_NAME}</div>
+        <div className="brand__sub">{APP_TAGLINE}</div>
       </div>
 
-      {WORK_BLOCKS.map((block) => renderGroup(block, false))}
+      {/*
+        ★ THE SIX WORK BLOCKS ARE ONE LIST, SO THEY GET ONE PARENT.
+
+        They were direct children of `nav.rail` and therefore took the rail's 20px
+        gap, which is a section break — right for the brand, Reference & setup and
+        the provenance stamp, wrong between two group headers. The three other
+        boundaries keep that gap because they are still `.rail`'s own children;
+        only the six move into `.rail__work`, whose gap is the row rhythm the leaves
+        below them use. See `rail.css`.
+      */}
+      <div className="rail__work">
+        {WORK_BLOCKS.map((block) => renderGroup(block, false))}
+      </div>
 
       <div className="rail__util">
         <div className="rail__util-title">Reference &amp; setup</div>

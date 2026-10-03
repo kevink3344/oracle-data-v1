@@ -57,7 +57,7 @@
 .rail__panel {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--rail-row-gap);
   padding-bottom: 2px;
 
   /* ★ Nesting. Measured, not guessed: a group button is `padding-left: 8px` with
@@ -78,6 +78,42 @@
 /* The wrapper now holds a button and a panel rather than the rows themselves. */
 .rail__group { gap: 0; }
 
+/* --------------------------------------------------------------------------
+   ★ ONE RHYTHM FOR THE ROWS — AND A GROUP HEADER IS A ROW.
+
+   `nav.rail` is a flex column with a 20px gap (`shell.css`) and that 20px is a
+   *section* break: the brand, the work blocks, Reference & setup, the provenance
+   stamp. It is the right size for the three boundaries between those four things
+   and the wrong size for the five between the six work blocks. With every group
+   shut the rail *is* six headers, and 20px between each made it read as six
+   separate things rather than as one list that happens to have six headings in it.
+   Measured on the real render: six shut headers came to 256px of column, 100px of
+   which was nothing.
+
+   ★ A WRAPPER RATHER THAN A SMALLER GAP ON `.rail`, because the other three 20px
+     gaps are earning their keep and no selector separates "between two work blocks"
+     from "between the last work block and the utility block" — they are the same
+     adjacency. `.rail__work` gives the six a parent of their own to be tight inside
+     and leaves the 20px to do what it was written for. `Rail.tsx` renders it, and
+     nothing here depends on it otherwise: the 20px is still gap between the four
+     sections, so the brand, the utility rule and the stamp all sit where they did.
+
+   ★ AND THE RHYTHM IS THE PANEL'S, NOT A NUMBER THAT LOOKS ABOUT RIGHT. Two leaf
+     rows are `--rail-row-gap` apart — measured at 2px, a 34px pitch on a 32px row —
+     so two group headers are now spaced by exactly what two menu items are spaced
+     by, which is the only reading of "the same rhythm" that can be checked. The
+     variable is declared once, here, and both places read it, so the row gap and
+     the group gap cannot drift apart the next time one of them is tuned.
+   -------------------------------------------------------------------------- */
+
+.rail { --rail-row-gap: 2px; }
+
+.rail__work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rail-row-gap);
+}
+
 /* ★ The rail scrolls, and its scrollbar is not a detail on a 208px column.
    Measured with four groups open: `offsetWidth - clientWidth` was **32px**, so
    every row's label lost a sixth of the rail's width and "Unclaimed
@@ -86,6 +122,60 @@
    gutter is the scarce resource — reserving 32px permanently to avoid a one-off
    reflow is the worse trade. */
 .rail { scrollbar-width: thin; }
+
+/* --------------------------------------------------------------------------
+   Icons
+
+   ★ EVERY ROW HAS ONE, AND THAT IS WHAT MAKES THE COLUMN READABLE. With all
+     eight groups shut the rail is eight lines of 10px uppercase, and a wall of
+     caps with no shapes between them is harder to scan than the same eight words
+     with a mark on each — the mark is what the eye lands on when the reader
+     cannot remember whether it is "Commitments" or "Funding" that holds the screen
+     they want.
+
+   ★ THE DRAWN SIZE DIFFERS; THE DRAWING DOES NOT. `RailIcon` puts every mark on the
+     same 24-unit grid at the same stroke width, so a header's mark and a leaf's
+     mark are one artwork at two sizes rather than two artworks that have to be
+     kept looking alike.
+
+   ★ THE COLOURS ARE WHERE THEY PART, AND NEITHER IS A TOKEN OF ITS OWN. A group
+     header's mark inherits the header's `color`, so it is exactly as loud as the
+     word beside it and follows it to `--text-heading` when the group holds the
+     page you are on. A leaf's mark is a deliberate step quieter than its label:
+     there are 27 of them and they are not what is being read.
+   -------------------------------------------------------------------------- */
+
+.rail__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.rail__title .rail__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.rail__link .rail__icon {
+  color: var(--text-faint);
+}
+
+.rail__link:hover .rail__icon {
+  color: var(--text-muted);
+}
+
+/* ★ `inherit` RATHER THAN A TOKEN, BECAUSE THE CURRENT ROW IS AN INVERTED PILL. The
+   active row's own `color` is `--rail-active-fg` — near-white on the brand fill —
+   and a faint grey mark sitting on it would be the one dark speck in an otherwise
+   light row. Inheriting hands the decision back to whoever set the row's colour,
+   who is `shell.css` and only `shell.css`.
+
+   ★ THE ORDER OF THESE THREE RULES IS LOAD-BEARING. `:hover` and `[aria-current]`
+   have the same specificity, so the current-row rule has to be last to survive a
+   pointer resting on the row the reader is already on. */
+.rail__link[aria-current='page'] .rail__icon {
+  color: inherit;
+}
 
 /* --------------------------------------------------------------------------
    Reference & setup — the utility section (§10.3).
@@ -150,59 +240,6 @@
   border: 1px solid var(--text-faint);
   border-radius: 50%;
   opacity: 0.7;
-}
-
-/* --------------------------------------------------------------------------
-   The settings gear
-
-   ★ THE RULE LIVES HERE AND NOT IN `shell.css`, EVEN THOUGH THE ELEMENT IT
-   STYLES IS THE LAST CHILD OF `.rail__brand`. The file header above says
-   `shell.css` owns `.rail__brand`, and that is still true — but everything in
-   this file loads *after* `shell.css` for the specific reason that it has the
-   last word on the shell, and the gear's whole job is to sit in a row that
-   `shell.css` laid out without it. Its `margin-left: auto` claims free space
-   that a rule in `shell.css` would have to be re-read to predict.
-   -------------------------------------------------------------------------- */
-
-.rail__gear {
-  /* ★ IT IS PLACED BY THE GRID IN `shell.css` NOW, SO THE AUTO MARGIN IS GONE. It was
-     `margin-left: auto`, which claimed the free space at the right edge of a flex row —
-     and the free space it claimed was the wordmark's, which is why the product's name
-     used to break one word per line. The brand's header row is now a grid of
-     `auto 1fr` and this is `justify-self: end` in its second column: the same pixel,
-     arrived at without borrowing from the words. */
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text-faint);
-  font: inherit;
-  font-size: 0.8125rem;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color var(--transition), border-color var(--transition),
-    color var(--transition);
-}
-
-.rail__gear:hover {
-  background: var(--surface-hover);
-  border-color: var(--border);
-  color: var(--text-heading);
-}
-
-/* The same ring the group headers use, including the negative offset: at 22px
-   against a 208px rail an outward ring would touch the border-right. */
-.rail__gear:focus-visible {
-  outline: 2px solid var(--primary-color);
-  outline-offset: -2px;
 }
 
 /* --------------------------------------------------------------------------

@@ -25,50 +25,20 @@
   border-right: 1px solid var(--border);
 }
 
-/* ★ A TWO-ROW GRID, WHICH IS WHAT FIXES THE WRAPPING. The mark and the settings
-   gear take the first row and the product's name and tagline take the second, at the
-   rail's full inner width. As a flex row the words had 77px left after the mark and
-   the gear, so the name broke one word per line; as a grid they have 151px and set in
-   two.
+/* ★ THE BRAND ROW IS ONE ITEM, SO IT IS A BLOCK AND NOT A GRID ANY MORE. It was a
+   two-row grid of `auto 1fr auto` to fit a mark, the name and — for a super admin —
+   a settings gear, with a fold-all control added as a third column when the rail
+   gained one. All three are gone; what is left is the wordmark and the tagline, and
+   a grid of one is a block. The padding is the mark's old inset kept as the row's,
+   so the words sit where the block did rather than against the rail's edge.
 
-   ★ `align-items: center` ON THE FIRST ROW AND NOT THE SECOND IS NOT EXPRESSIBLE
-   HERE, so the words carry their own alignment — see `.brand__words`. The grid centres
-   the mark and the gear against each other, which is the only pair that has to line up. */
+   ★ `min-width: 0` BECAUSE A GRID ITEM'S AUTOMATIC MINIMUM IS ITS LONGEST WORD.
+   Without it the block used to be unable to narrow below "Accounts" and the rail
+   would scroll sideways on a window narrow enough to shrink `--rail-w`. As a flex
+   child of `.rail` the same applies, so it stays. */
 .rail__brand {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 8px 10px;
-  padding: 4px 8px 0;
-}
-
-/* The monogram, 28px until the rail's brand was reworked: the mark is the thing the
-   eye lands on first and it was the same size as the gear beside it, which read as two
-   controls rather than as a mark and a control. 32 is as far as it goes without
-   turning the first row into the tall half of the block. */
-.brand__mark {
-  grid-column: 1;
-  grid-row: 1;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: var(--radius);
-  background: var(--primary-color);
-  color: var(--on-brand);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-/* `min-width: 0` because a grid item's automatic minimum is its longest word: without
-   it the block cannot narrow below "Accounts" and the rail would scroll sideways on a
-   window narrow enough to shrink `--rail-w`. */
-.brand__words {
-  grid-column: 1 / -1;
-  grid-row: 2;
   min-width: 0;
+  padding: 4px 8px 0;
 }
 
 .brand__name {
