@@ -438,7 +438,7 @@ export function apRouter(): Router {
       // takes, and the reason `MIN(v.VENDOR_NAME)` is safe: a check's invoices
       // resolve to one vendor by construction, and the MIN is a tie-break for a
       // case the join cannot produce.
-      const checks = await db.execute({
+      const checksP = db.execute({
         sql: `SELECT c.CHECK_ID,
                 c.CHECK_NUMBER,
                 TO_CHAR(c.CHECK_DATE,'YYYY-MM-DD') AS CHECK_DATE,
@@ -471,7 +471,7 @@ export function apRouter(): Router {
       // ★ `ORDER BY` IS POSITIONAL because `SELECT DISTINCT` may not order by an
       //   expression it does not select — naming `i.INVOICE_DATE` raises ORA-01791,
       //   the selected column being the `TO_CHAR` of it.
-      const links = await db.execute({
+      const linksP = db.execute({
         sql: `SELECT DISTINCT p.CHECK_ID,
                          i.INVOICE_NUM,
                          i.INVOICE_AMOUNT,
@@ -490,6 +490,12 @@ export function apRouter(): Router {
           ORDER BY 1, 4, 2`,
         args: { since: from, until: to },
       });
+
+      // ★ AWAITED TOGETHER, FOR THE REASON THE INVOICES REGISTER'S ★★ BLOCK RECORDS: neither
+      //   statement reads the other's rows, so awaiting them in sequence made the reader pay
+      //   their *sum*. Measured on the MySQL mirror, warm: 235 ms + 367 ms of SQL behind a
+      //   653 ms request.
+      const [checks, links] = await Promise.all([checksP, linksP]);
 
       const envelope: ApEnvelope = {
         body: { ResultSets: { Table1: checks.rows, Table2: links.rows } },
@@ -554,8 +560,37 @@ export function apRouter(): Router {
       const to = win.to;
       const { where, binds } = apScope(tenant.programs);
 
+      /*
+        ★★ THE FOUR STATEMENTS RUN AT ONCE, NOT ONE AFTER THE OTHER, AND THAT IS WORTH ~3× HERE.
+
+        They are independent — none of them reads another's rows — so awaiting them in sequence
+        made the page pay their **sum**. Measured on the MySQL mirror, warm:
+
+            1,481 ms  Table1  the invoices
+            1,915 ms  Table2  the payment links
+            1,956 ms  Table3  the account rows
+            1,716 ms  the scope block's counts
+            ────────  7,068 ms of SQL behind a request the browser waited 7,107 ms on
+
+        `Promise.all` leaves the *widest* statement as the wall clock instead of the total. The
+        four are declared as promises in the order they were already written, so every comment
+        below still sits on the statement it describes.
+
+        ★ THE POOL WAS ALREADY SIZED FOR THIS, THOUGH IT WAS SIZED FOR ANOTHER PAGE. `mysql.ts`
+          carries `connectionLimit: 10` with the note "a page can fan out several statements at
+          once", and `oracle.ts` raised `poolMax` to 8 so `/funding/budgets`'s five-way fan-out
+          would fit. Four is inside every arm's limit, so this needs no pool change.
+
+        ★ NOTHING BUT THE `await`s MOVED. The statements, their binds, the `ResultSets` keys and
+          the scope block are byte-identical, and this is not a ceiling: every row of the window
+          is still returned. It also does not make any single statement cheaper — it removes the
+          *serialization*, so the page pays for its widest statement instead of for their sum.
+          What remains is the mirror's missing indexes, and the one place that is worth work is
+          the scope block's join, which is dealt with at the bottom of this handler.
+      */
+
       // ── Table1: the invoices, scoped through their distributions ──────────
-      const invoices = await db.execute({
+      const invoicesP = db.execute({
         sql: `SELECT i.INVOICE_ID,
                 i.INVOICE_NUM,
                 TO_CHAR(i.INVOICE_DATE,'YYYY-MM-DD') AS INVOICE_DATE,
@@ -616,7 +651,7 @@ export function apRouter(): Router {
       //     one are equal by construction rather than by agreement.
       //
       //   ★ FOUR BINDS, WHATEVER THE RANGE. That is the property that makes a wide window safe.
-      const links = await db.execute({
+      const linksP = db.execute({
         sql: `SELECT p.CHECK_ID,
                          p.INVOICE_ID,
                          i.INVOICE_NUM,
@@ -699,7 +734,7 @@ export function apRouter(): Router {
       //     makes a wide window safe, and it is why this is a join rather than a longer IN-list
       //     split into chunks: chunking would keep the parameter count proportional to the result
       //     set, which is the thing that must not happen.
-      const accounts = await db.execute({
+      const accountsP = db.execute({
         sql: `SELECT d.INVOICE_ID,
                 d.DIST_CODE_COMBINATION_ID AS CODE_COMBINATION_ID,
                 g.SEGMENT1, g.SEGMENT2, g.SEGMENT3, g.SEGMENT4,
@@ -755,7 +790,46 @@ export function apRouter(): Router {
       //   calling it excluded would be inventing a reason. Measured on the frozen file, that
       //   distinction is 26 invoices worth $28,565.26, and collapsing the two buckets would have
       //   reported them as excluded.
-      const scopeCounts = await db.execute({
+      // ★ THE LEFT JOIN IS BOUND TO THE WINDOW FIRST. IT IS 3.2× FASTER ON THE PAGE THAT OPENS BY
+      //   DEFAULT AND **SLOWER ONCE THE WINDOW IS WIDENED TO EVERY YEAR THE LEDGER CARRIES** —
+      //   1,251 → 390 ms on the fiscal year the register opens on, 2,009 → 2,535 ms at full width.
+      //   Both are measured on the same request further down; the second one is the price of the
+      //   first and is argued there rather than buried here.
+      //
+      //   This statement is the *most expensive* one on the page, which is not where a reader would
+      //   look for it: it returns one row of six numbers against `Table1`'s 126 rows. The reason is
+      //   the join's grain. As written below-minus-the-`iw`-join, the derived table built an
+      //   `IN_SCOPE` flag for **every invoice that has a distribution — the whole ledger, 55,608 of
+      //   them** — and `MAX(...)` over that had to collapse to one row each; 94.7% of it (52,659
+      //   rows) was then discarded by the `WHERE` on the *outer* table, because nothing pushed the
+      //   window through the `LEFT JOIN`. Measured on the mirror: **1,212 ms to produce six numbers**,
+      //   and `EXPLAIN` showed `DERIVED dd … rows=174244 Using temporary`.
+      //
+      //   `iw` makes the derived table's grain the window's own invoices, so the flags are built for
+      //   126 rows instead of 55,608 and the join is a primary-key `ref` on `IX_WAI_DATE` rather than
+      //   a scan. Measured over four windows, all sharing the same request so the difference is the
+      //   statement and not the server:
+      //
+      //       2026-07-01..2027-06-30    1,251 ms →   390 ms   (126 window invoices)
+      //       2025-07-01..2026-06-30    1,514 ms →   687 ms   (3,980)
+      //       2024-07-01..2027-06-30    1,489 ms →   614 ms   (8,378)
+      //       2019-07-01..2027-06-30    2,009 ms → 2,535 ms   (30,799)
+      //
+      //   ★ THE FOURTH WINDOW IS WHY THE OLD FORM IS NOT SIMPLY "SLOWER" — IT IS UNBOUNDED IN THE
+      //     PART THAT COSTS. Widen the window to every year the ledger carries and the derived table
+      //     *is* the whole ledger, so there is nothing left to avoid building, the two forms
+      //     converge, and the new one finishes about a quarter behind. The new form's cost tracks
+      //     the window; the old form's cost did not, which is exactly why the default page paid
+      //     full price to count 126 invoices.
+      //
+      //   ★★ AND THE NUMBERS ARE IDENTICAL, WHICH IS THE ONLY REASON THIS IS ALLOWED TO BE A
+      //     PERFORMANCE CHANGE. It is not: `WINDOW_INVOICES`, `UNANSWERABLE`(+`_VALUE`),
+      //     `EXCLUDED`(+`_VALUE`) were compared byte for byte against the old statement on all four
+      //     windows and matched on every one. The `iw` row is the `i` row — same table, same
+      //     `INVOICE_DATE` predicate — so an invoice joins to itself and to nothing else, and the
+      //     fan-out that would inflate `COUNT(*)` cannot occur. `IW.INVOICE_ID` therefore agrees with
+      //     `I.INVOICE_ID` by construction, which is what lets the join be written the obvious way.
+      const scopeCountsP = db.execute({
         sql: `SELECT
                 COUNT(*) AS WINDOW_INVOICES,
                 SUM(CASE WHEN d.INVOICE_ID IS NULL THEN 1 ELSE 0 END) AS UNANSWERABLE,
@@ -770,12 +844,26 @@ export function apRouter(): Router {
                       FROM APPS.AP_INVOICE_DISTRIBUTIONS_ALL dd
                       JOIN APPS.GL_CODE_COMBINATIONS g
                         ON g.CODE_COMBINATION_ID = dd.DIST_CODE_COMBINATION_ID
+                      JOIN APPS.WCSEXP_AP_INVOICES iw
+                        ON iw.INVOICE_ID = dd.INVOICE_ID
+                       AND iw.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
+                       AND iw.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')
                      GROUP BY dd.INVOICE_ID
               ) d ON d.INVOICE_ID = i.INVOICE_ID
              WHERE i.INVOICE_DATE >= TO_DATE(:since,'YYYY-MM-DD')
                AND i.INVOICE_DATE <= TO_DATE(:until,'YYYY-MM-DD')`,
         args: { since: from, until: to, fund: tenant.fund, ...binds },
       });
+      // ★ AWAITED TOGETHER — see the ★★ block above. Named `…P` above so that all four are
+      //   visibly outstanding before this line, and destructured here so that everything below
+      //   reads a result rather than a promise.
+      const [invoices, links, accounts, scopeCounts] = await Promise.all([
+        invoicesP,
+        linksP,
+        accountsP,
+        scopeCountsP,
+      ]);
+
       const counts = (scopeCounts.rows[0] ?? {}) as Record<string, unknown>;
       const num = (v: unknown): number => {
         const n = Number(v);
