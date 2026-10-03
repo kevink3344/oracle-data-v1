@@ -434,6 +434,9 @@ repo already has a gate for.
 
 ### 3. The Settings icon and the Settings page
 
+> **Status: the page shipped; the icon did not survive.** The design below is kept as written, and the
+> ⚠️ note flags where the shipped rail has since diverged.
+
 **The icon goes in `.rail__brand`, which is the actual upper-left corner.** The app's chrome is a
 sticky left rail plus a sticky topbar **to the right of it** — so "upper left hand corner" is
 `.rail__brand` (the 28×28 `span.brand__mark` and the wordmark), not `.topbar`.
@@ -444,6 +447,30 @@ sticky left rail plus a sticky topbar **to the right of it** — so "upper left 
 - **It renders only when `isSuperAdmin()`.** A settings page that refuses you is worse than no gear.
 - It carries `aria-label="Settings"`, and a visible focus ring — it is the only icon-only control in a
   rail made of text.
+
+> **⚠️ Overtaken — the gear was built as specified, then removed.** `menu-groups.md` §10.5 records the
+> removal. The paragraph above still explains the *reasoning* and is kept as the plan's record, but the
+> shipped rail no longer matches it, so read it as history:
+>
+> - **`.rail__brand` is now the wordmark alone.** `.brand__name` (`Oracle Projects & Accounts`) and
+>   `.brand__sub` (`Live data. Clear insight.`) and nothing else. The 28×28 monogram went with the
+>   gear — it was decoration, and once the buttons were gone the row read better as plain text. The
+>   `.brand__mark` / `.brand__words` grid is gone from `shell.css`; `.rail__brand` is a plain block.
+> - **No gear, and no `isSuperAdmin()` check in the rail.** `Rail.tsx` no longer imports `useSession`;
+>   the whole gear branch and its gate were deleted, so the rail has **no icon-only control at all**
+>   and the `aria-label`/focus-ring point above no longer has a subject.
+> - **The "reachable only from an icon" risk never materialised, which is why the icon could go.**
+>   That argument in the paragraph below was the reason to *keep* the gear once built; but the leaf it
+>   was a shortcut to also shipped, so the shortcut was redundant rather than load-bearing. Removing it
+>   re-opened exactly the failure it warned about for one release — which is what the sentence below
+>   was there to prevent, and the leaf is what actually prevents it.
+> - **A fold-all ("expand groups") control shared the row and was removed in the same edit.** It set
+>   every panel open at once. The panels now start shut and each opens from its own header (§10.2 of
+>   `menu-groups.md`); `RailIcon`'s `fold` / `unfold` drawings went with it.
+>
+> **Re-entry path, unchanged and verified live:** `Administration › Settings → /settings`. The route in
+> `App.tsx` and the `built: true` leaf in `menu.ts` are both still there, so the gear's removal cost no
+> reachability.
 
 **The page is a new leaf, `Administration › Settings`, at `/settings`,** added as the **first** leaf of
 the `admin` block in `app/src/nav/menu.ts` (`built: true`) with a `SCREENS['/settings']` entry in
