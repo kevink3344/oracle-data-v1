@@ -392,21 +392,56 @@
   max-width: 420px;
 }
 
-/* ★ DRAWN AT FULL OPACITY, ON PURPOSE, AND THAT IS THE POINT OF THIS RULE.
-   The header draws the picture at the reader's chosen strength — 0.50 opacity
-   under a 0.34 wash at the default, and more of both as the slider rises — so a
-   preview that imitated it would be a preview of a grey rectangle: the reader is
-   here to recognise which file is stored, not to re-live the header. The fixed
-   height plus `object-fit: cover` keeps the panel the same size whatever is
-   chosen, so picking a 4000×4000 image does not push the controls below the fold. */
-.bgfield__preview {
+/* ★ THE PREVIEW DRAWS WHAT THE HEADER DRAWS, FROM THE SAME TWO NUMBERS.
+   `EditProject` computes the pair with `backgroundDraw(strength)` — the identical function
+   `.projpage .page-head--image` is fed — and hands it down as these two properties. So the
+   reader answers "how strong is it?" with their eyes, at the control that asks the
+   question, instead of having to leave the page and open the project to find out.
+
+   ★ THE PICTURE AND THE WASH ARE TWO LAYERS, WHICH IS WHY THE PICTURE HAS A WRAPPER.
+     A pseudo-element cannot be drawn on a replaced element, so the `<img>` cannot carry
+     the wash; `.bgfield__shot` is the box that can. The arrangement is the header's own —
+     a picture layer, then a wash layer over it — so the two cannot drift apart.
+
+   ★ THE BOX MOVED FROM THE PICTURE TO THE WRAPPER, AND ONLY THAT MOVED. The 140px fixed
+     height, the border, the radius and the sunken background were the `<img>`'s and are
+     now the wrapper's, so the panel is still the same size whatever is chosen and a
+     4000×4000 image still cannot push the controls below the fold. `overflow: hidden` is
+     what keeps the wash inside the rounded corner. */
+.bgfield__shot {
   display: block;
+  position: relative;
   width: 100%;
   height: 140px;
-  object-fit: cover;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.bgfield__preview {
+  display: block;
+  /* `100%`, not the wrapper's 140px repeated: the picture fills whatever box the wrapper
+     resolves to, so the two can never disagree about the height. */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* The header's own opacity for this strength — see `backgroundDraw`. */
+  opacity: var(--bg-preview-op, 1);
+}
+
+/* The wash, over the picture and under nothing. The two surface colours are
+   `.projpage .page-head--image::after`'s, so the light and the dark treatments cannot
+   disagree with the header's either. */
+.bgfield__shot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgb(255 255 255 / var(--bg-preview-wash, 0));
+}
+
+[data-theme='dark'] .bgfield__shot::after {
+  background: rgb(19 30 51 / var(--bg-preview-wash, 0));
 }
 
 .bgfield__facts {

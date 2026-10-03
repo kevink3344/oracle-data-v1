@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useStore } from '../state/store';
 import {
+  backgroundDraw,
   clampBackgroundStrength,
   clearProjectBackground,
   deleteProject,
@@ -550,6 +551,19 @@ export default function EditProject() {
    *   page — see the note on `clampBackgroundStrength`.
    */
   const strengthShown = clampBackgroundStrength(strength);
+
+  /**
+   * ★ THE PREVIEW DRAWS THE HEADER'S OWN PAIR, FROM THE DRAFT.
+   *
+   * `backgroundDraw` is the one function that turns a strength into the picture's opacity
+   * and the wash laid over it — the project header is fed it, and so is this — so the
+   * preview cannot describe a header the reader will not get. It follows the DRAFT
+   * (`strength`) rather than the stored value, because the whole point of it is to answer
+   * the slider while the slider is moving; the write still happens once, on release, in
+   * `commitStrength`.
+   */
+  const previewDraw = backgroundDraw(strengthShown);
+
   const strengthOverCeiling =
     row !== null && row.backgroundStrength !== null && row.backgroundStrength > strengthShown;
 
@@ -1144,12 +1158,20 @@ export default function EditProject() {
           is not worth the inconsistency. It stays in the DOM rather than being
           created on demand so that its `change` handler is the one React bound.
 
-        ★ A READER WHO CAN SEE THE PICTURE IS A READER WHO CAN JUDGE IT. The
-          preview is drawn at full opacity, not at the strength the header is set
-          to — its job is to show which file is stored, and a preview that imitated
-          the header's wash would be a preview of nothing. The strength slider below
-          changes the header, so a preview that followed it would also make the
-          control look like a filter applied to this image rather than to the page.
+        ★ THE PREVIEW IS THE HEADER, AT THE STRENGTH THE SLIDER IS SHOWING.
+
+          It used to be drawn at full opacity, on the argument that its job is to show
+          which file is stored and that a preview imitating the header's wash would be a
+          preview of nothing. What that missed is the reader standing at the slider: they
+          moved a control labelled "Picture strength", the picture above it did not move,
+          and the only way to see what they had done was to leave the page and open the
+          project. A control and the thing it controls have to be in the same eyeful.
+
+          So the figure is handed the pair `backgroundDraw` produces for the draft
+          strength — the same two numbers the header is handed — and `.bgfield__shot`
+          draws them exactly as `.projpage .page-head--image` does. The file is still
+          identified by the caption beside it, and at 0% the panel is the plain surface
+          the header would be, which is the truthful preview of "not shown".
       */}
       <section className="panel" aria-labelledby="edit-background-title">
         <div className="panel__head">
@@ -1179,12 +1201,27 @@ export default function EditProject() {
           ) : null}
 
           {background.status === 'ready' ? (
-            <figure className="bgfield__figure">
-              <img
-                className="bgfield__preview"
-                src={background.image.url}
-                alt={`The picture stored against ${row.name}`}
-              />
+            <figure
+              className="bgfield__figure"
+              style={
+                {
+                  '--bg-preview-op': String(previewDraw.opacity),
+                  '--bg-preview-wash': String(previewDraw.wash),
+                } as CSSProperties
+              }
+            >
+              {/* ★ THE PICTURE HAS A WRAPPER BECAUSE THE WASH IS A LAYER OVER IT, and a
+                  pseudo-element cannot be drawn on a replaced element — so `<img>` cannot
+                  carry the wash itself. `.bgfield__shot` is the box that can, and this is
+                  the same picture-plus-wash arrangement `.projpage .page-head--image`
+                  uses, which is what keeps the two from describing different pictures. */}
+              <span className="bgfield__shot">
+                <img
+                  className="bgfield__preview"
+                  src={background.image.url}
+                  alt={`The picture stored against ${row.name}`}
+                />
+              </span>
               <figcaption className="bgfield__facts">
                 <b>{background.image.name ?? 'picture'}</b> ·{' '}
                 <b>{num(background.image.bytes)}</b> bytes ·{' '}
