@@ -289,10 +289,8 @@ export default function Integrations() {
               <thead>
                 <tr>
                   <th scope="col">Title</th>
-                  <th scope="col">Description</th>
                   <th scope="col">Integration URL</th>
                   <th scope="col">Active</th>
-                  <th scope="col">Set by</th>
                   <th scope="col">
                     <span className="sr">Actions</span>
                   </th>
@@ -310,12 +308,6 @@ export default function Integrations() {
                       <th scope="row" className="introw__title">
                         {row.title}
                       </th>
-                      {/* `title` carries the whole value: the cell truncates, and a
-                          truncated description with no way to read it is a row that
-                          cannot be reviewed from the register. */}
-                      <td className="introw__desc" title={row.description}>
-                        {row.description}
-                      </td>
                       {/* ★ TEXT, NEVER AN `<a href>`. A link invites a click that goes
                           somewhere the reader did not intend, and an `href` assigned
                           from a database column is the shape of a stored-XSS bug. The
@@ -340,21 +332,6 @@ export default function Integrations() {
                           </span>
                         )}
                       </td>
-                      <td className="introw__by">
-                        {row.setBy ? (
-                          <>
-                            {row.setBy}
-                            {/* ★ SLICED, NOT PARSED. `new Date(...)` on an ISO string
-                                reads it as UTC and renders it in the browser's zone,
-                                moving every timestamp before 05:00 to the day before.
-                                The first ten characters of ISO 8601 are the day and
-                                nothing has to be interpreted to get them. */}
-                            <span className="introw__date"> · {row.updatedAt.slice(0, 10)}</span>
-                          </>
-                        ) : (
-                          <span className="introw__none">—</span>
-                        )}
-                      </td>
                       <td className="introw__act">
                         <button
                           type="button"
@@ -375,7 +352,7 @@ export default function Integrations() {
                 })}
                 {shown.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="introw__empty">
+                    <td colSpan={4} className="introw__empty">
                       {rows.length === 0
                         ? 'No integrations yet. Add the first one.'
                         : `No integration matches “${filter}”.`}
@@ -650,7 +627,19 @@ function IntegrationPanel({
             <>
               {activeWord(subject.row.active)} · set by {subject.row.setBy || '—'}
               {' · added '}
+              {/* ★ SLICED, NOT PARSED. `new Date(...)` on an ISO string reads it as UTC
+                  and renders it in the browser's zone, moving every timestamp before
+                  05:00 to the day before. The first ten characters of ISO 8601 are the
+                  day and nothing has to be interpreted to get them. */}
               {subject.row.createdAt.slice(0, 10)}
+              {/* ★ ONLY WHEN IT DIFFERS. `set_by` names whoever last *changed* the row, so
+                  pairing it with the created date alone describes a revision using the date
+                  of the original. On a row nobody has edited the two are the same day, and
+                  "added X · changed X" is noise. §5.2 moved this provenance off the table,
+                  so this line is the only place it appears now. */}
+              {subject.row.updatedAt.slice(0, 10) !== subject.row.createdAt.slice(0, 10) && (
+                <> · changed {subject.row.updatedAt.slice(0, 10)}</>
+              )}
             </>
           ) : (
             <>

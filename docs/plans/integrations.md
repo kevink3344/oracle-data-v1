@@ -83,6 +83,7 @@ reading as "things that work, then things that do not yet":
 ```ts
 {
   label: 'Integrations',
+  icon: 'outbound',
   to: '/admin/integrations',
   reads: 'app-side',
   api: '/api/integrations',
@@ -94,6 +95,14 @@ reading as "things that work, then things that do not yet":
   plan: 'docs/plans/integrations.md',
 },
 ```
+
+**`icon` is not optional, and this plan's first draft of the literal above omitted it.** `MenuLeaf`
+declares `icon: MenuIcon` (not `icon?:`), so the literal as originally written does not compile.
+`'outbound'` is the mark that already means *away from here* — `RailIcon.tsx` draws it with the
+comment "Out of the register and away: the direction money takes when it leaves" — which is what an
+outbound endpoint is. It is shared with the not-yet-built `Vendor spend` leaf in the Vendors block;
+reuse is harmless because every `RailIcon` renders `aria-hidden="true"` and the label carries the
+name, and inventing a 46th drawing for one leaf is the larger change for the smaller gain.
 
 **`built: true` and the `SCREENS` entry are one edit.** The block's own ★ comment is explicit: a
 leaf marked built with no screen falls through to `Pending` (quiet — reads as "not written yet"),
@@ -384,7 +393,9 @@ If a future change wants a clickable link, it must re-validate the scheme at ren
 A list of rows, a slide-in editor, save/delete. That is `ReadCaps.tsx` exactly, so the plan reuses
 its structure rather than inventing one:
 
-- **Page head** — `.page-head`, title, a one-line description, and the counts.
+- **Page head** — `.page-head`, title, a one-line description, and the counts. Of the two screens
+  this head is shared with, `ReadCaps.tsx` has no description line, so the one-liner here is a
+  `.page-head__sub` (§5.1 asks for it; the extension is this screen's, not a reused rule).
 - **Panel** — `.section.panel` containing a `.table-wrap > table.data`.
 - **Editor** — a `role="dialog" aria-modal="true"` drawer (`.drawer`), with focus hand-back, scroll
   lock, Escape-to-close and Tab trapping, and the shared `ResizeGrip` with its width persisted in
@@ -394,12 +405,23 @@ its structure rather than inventing one:
 
 | Column | Content |
 |---|---|
-| Title | The name, as the row header. |
-| Description | One line, truncated, full text in `title`. |
-| URL | `<code>`, truncated, full value in `title`. Not a link (§4.6). |
+| Title | The name, as the row header. It **wraps** rather than truncating — it is what names the row. |
+| URL | `<code>`, truncated, full value in `title`. Not a link (§4.6). It takes whatever width the other two columns leave. |
 | Active | A **word** — `Active` / `Inactive` — not a coloured dot. |
-| Set by | The account and the date, or `—`. |
 | (actions) | `Edit ›` button, `aria-haspopup="dialog"`. |
+
+**Description and Set by are panel fields, not columns.** Both were columns in the first build, and
+the register had to be measured in a browser to see how wrong that was: six columns came to 1086px
+inside a 639px panel, so the table scrolled sideways *and* the Title column — the only one allowed
+to wrap, and therefore with no minimum width — was squeezed to 55px and every row grew to 92px
+tall. The editor holds both values in full, and the panel's eyebrow states the provenance the
+Set by column used to carry, so dropping them loses nothing a reader needs from the list.
+
+**The table is `table-layout: fixed`.** Under `auto` a `max-width` on a cell does not cap what the
+column asks for, so the prose columns took all the width they wanted and the title took none.
+Fixed layout gives Title 30%, pins Active (96px) and Actions (98px) to the width their fixed
+content needs, and lets URL absorb the remainder — which makes URL the only column that moves when
+the window does, and means a narrower window can never clip the `Edit ›` button.
 
 **Active is a word, not a dot.** A coloured dot is a status indicator, and §1 says this page must
 not render status. `Active`/`Inactive` reads as the value of a field, which is what it is.
@@ -422,7 +444,10 @@ description and URL, case-insensitively, and the empty state names the term:
 touches `updated_at` and `set_by` for no reason, which corrupts the only audit trail this table has.
 
 **The URL field carries the honesty hint inline** (§4.3), because that is where a reader forms the
-belief the page must not create.
+belief the page must not create. It uses `.field__hint` — **not `.field__note`, which is not a rule
+in any stylesheet.** `readcaps.css:143` mentions `.field__note` inside a prose comment and
+`ReadCaps.tsx` renders it at two field sites, so it looks real; nothing styles it. The rule that
+does exist is `.field__hint` (`newproject.css:94`).
 
 ### 5.4 States
 
@@ -558,3 +583,53 @@ These do not block the build; each has a stated default the plan proceeds with.
 4. **Should deleting an integration be soft (a `deleted_at`) rather than a hard `DELETE`?** Default:
    **hard delete**, matching every other admin register. If an integration ever carries history
    worth keeping, this changes.
+
+**All four were answered "ship with the default as written."**
+
+---
+
+## 10. What the build corrected in this plan
+
+Three places where the plan was wrong or incomplete, found while implementing it, plus a fourth the
+browser found after it shipped. Each is fixed inline above; they are listed here so a reader of §2
+or §5 knows the text was amended.
+
+1. **§2.1's leaf literal omitted the required `icon`.** `MenuLeaf` has `icon: MenuIcon` — required,
+   not optional — so the literal as written does not compile. `icon: 'outbound'` was added; the
+   reasoning is under the literal.
+2. **§5.1 asks for a description line that `ReadCaps.tsx` does not have.** The head is `.page-head`
+   with a `.page-head__sub` extension. `ReadCaps` has only the title and the panel; the one-liner
+   and the counts are this screen's.
+3. **§5.3's `.field__note` is not a rule.** It is named in a `readcaps.css` comment and rendered by
+   `ReadCaps.tsx`, but no stylesheet defines it, so those two call sites are unstyled. This screen
+   uses the rule that exists, `.field__hint`.
+4. **§5.2's six-column table does not fit the page.** The column set was built as designed and was
+   not questioned until the register was measured in a browser at the panel's real width: 1086px of
+   table inside a 639px panel, so it scrolled sideways, and the Title column — the one column
+   allowed to wrap, and therefore the only one with no minimum width — was squeezed to 55px while
+   every row grew to 92px tall. Description and Set by are now panel fields, and what remains is
+   laid out with `table-layout: fixed` (§5.2). Removing Set by alone was not enough: a `max-width`
+   on a cell does not cap what the column asks for under `auto` layout, so the table stayed 843px.
+
+Two smaller notes, neither a correction to the plan:
+
+- The drawer footer's trailing buttons are wrapped in `.intfoot__end { margin-left: auto }`. The
+  template renders `.drawer__spacer` (`ReadCaps.tsx:837`), which no stylesheet defines either — it
+  is a zero-width no-op, so the template's footer buttons are not in fact spread.
+- §7's build order was followed as written. Step 6 (the leaf and the `SCREENS` entry) was the last
+  edit, for the reason §7 gives.
+
+### One defect this build introduced, and the browser caught
+
+`pluralise(n, 'endpoint')` returns the **whole phrase** — `format.ts:103` is
+`` `${num(n)} ${n === 1 ? one : many}` `` — it does not return the bare noun. Both count strings
+were first written as `<strong>{n}</strong> {pluralise(n, …)}`, which therefore rendered
+"2 2 integrations" and "2 2 endpoints". No gate sees this: it type-checks, lints and builds, and the
+only way to catch it is to look at the page.
+
+The head now writes the number out and chooses the noun beside it, which is what `Settings.tsx` does
+for its own counts (`{n} {n === 1 ? 'organization' : 'organizations'}`); the panel count is
+`pluralise` alone, because there it *is* the whole phrase.
+
+The same shape pre-exists in four lines of `LineageSunburst.tsx` (417-420), where `num(n)` is
+interpolated in front of `pluralise(n, …)`. That is outside this plan and was left alone.

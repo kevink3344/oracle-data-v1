@@ -15,12 +15,17 @@
      - `.intform*`    the panel's form, including the URL box
      - `.intpanel`    the panel's own default width
 
-   ★ THE ABSENCE OF A `--drawer-w` OVERRIDE ON `.inttable` IS THE POINT. The URL
-   column holds a 2000-character string and the register does not try to show it:
-   the cell truncates and the panel shows the whole value. Stretching the table to
-   fit a URL would push the Active column and the Edit button off the right edge,
-   which is how a register stops being readable to protect a value nobody reads in
-   full from a list.
+   ★ THE COLUMN SET IS THREE VALUES AND A BUTTON, AND THE TABLE DOES NOT STRETCH FOR A
+   URL. The URL column holds a 2000-character string and the register does not try to
+   show it: the cell truncates and the panel shows the whole value. What the table
+   does instead is fit the panel exactly, and let the URL column — the only value here
+   with no natural length — absorb whatever the other three leave.
+
+   ★ DESCRIPTION AND «SET BY» ARE PANEL FIELDS, NOT COLUMNS. Both were columns until
+   the register was measured in a browser: six columns did not fit the panel, and the
+   two carrying prose (`description`) and a long email address (`set_by`) were what
+   forced the table to scroll. The editor holds both in full, and the three columns
+   that remain are the ones that identify a row — title, URL, active.
 
    ========================================================================== */
 
@@ -55,36 +60,57 @@
   max-width: 420px;
 }
 
+/* ★ `table-layout: fixed`, AND THE REASON IS THE MEASUREMENT. Under `auto` the
+   browser sizes every column to its content, and a `max-width` on a cell does not cap
+   what the column asks for — so the Title column, the only one allowed to wrap, was
+   squeezed to its narrowest word (55px, in a 92px row) while the description, the URL
+   and the old Set by column took what they wanted. The table came out 1086px wide
+   inside a 639px panel, and scrolled. Fixed layout makes the shares below the layout,
+   instead of a negotiation the widest cell wins. */
 .inttable {
   width: 100%;
+  table-layout: fixed;
 }
 
-/* ★ THE TITLE WRAPS AND THE DESCRIPTION TRUNCATES, AND THE ASYMMETRY IS DELIBERATE.
-   The title is what identifies the row to everybody reading it, so a title that
-   has been cut in half is a row that cannot be named; it is allowed to take a
-   second line. The description is the long free-text column — truncating it costs
-   the reader nothing, because the panel and the cell's `title` attribute both hold
-   the whole sentence. Capping both the same way would trade a readable register for
-   a uniform row height, which is the wrong trade. */
+/* The title takes a share of the panel rather than a number of pixels, so it grows
+   with the window. */
+.inttable th:nth-child(1),
+.inttable td:nth-child(1) {
+  width: 30%;
+}
+
+/* ★ ACTIVE AND ACTIONS ARE SIZED TO THEIR CONTENT, IN PIXELS, AND THAT IS THE POINT.
+   Both hold a fixed amount of content — one word, and one button — so neither has any
+   business growing, and neither may be squeezed: a percentage would shrink with the
+   panel until `Edit ›` was clipped by a cell that had run out of room, with no
+   scrollbar to reveal it. Pinned, they hold their size at every width, and the URL
+   (nth-child(2), which has no width of its own) is the only column left to move. */
+.inttable th:nth-child(3),
+.inttable td:nth-child(3) {
+  width: 96px;
+}
+
+.inttable th:nth-child(4),
+.inttable td:nth-child(4) {
+  width: 98px;
+}
+
+/* ★ THE TITLE WRAPS AND EVERYTHING ELSE TRUNCATES. The title is what identifies the
+   row to everybody reading it, so a title cut in half is a row that cannot be named;
+   it is the one column allowed to take a second line. Its width is the share the
+   layout above gives it, not a cap — under `table-layout: fixed` the share is the
+   width, which is why the cramped 55px title the register first shipped with is not
+   reachable from here any more. */
 .introw__title {
-  max-width: 240px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.introw__desc {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
-}
-
 /* The URL is an identifier, so it is monospaced, and it is never wrapped — a
    wrapped URL reads as two URLs. The cell truncates with an ellipsis and keeps the
-   whole string in `title`. */
+   whole string in `title`. It has no width of its own: it takes whatever the other
+   three columns leave, so widening the window widens the URL and nothing else. */
 .introw__url {
-  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -122,21 +148,6 @@
 .introw__warn {
   color: var(--warn-fg);
   cursor: help;
-}
-
-.introw__by {
-  white-space: nowrap;
-  color: var(--text-muted);
-}
-
-.introw__date {
-  font-variant-numeric: tabular-nums;
-}
-
-/* An em-dash is an absence, and it should not read as a value. Muted, never bold. */
-.introw__none {
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 .introw__act {
