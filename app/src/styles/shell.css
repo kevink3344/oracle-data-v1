@@ -353,17 +353,37 @@
 }
 
 /* --- account scope ----------------------------------------------------
-   The control beside the global search. Three ideas are encoded in the CSS:
+   The control beside the global search. Four ideas are encoded in the CSS:
 
-   1. `04` and the chips are one object. The fund label is deliberately
-      unstyled as a button — no border, no hover, no pointer — so it cannot be
-      mistaken for something a click would change. All the chrome goes on the
-      part that actually moves.
-   2. An off chip is *quiet, not absent*. It keeps its border and its code
+   1. `04` and the chips are one object, and they are built to the same recipe
+      — identical padding, border width, radius, size and weight, and every one
+      of them a tinted fill under a saturated same-family border — so the row
+      sits on one baseline and reads at one rhythm. What separates them is hue:
+      the chips carry the blue accent the focused search input uses, and the
+      fund carries green, so the fixed boundary and the chips that move are
+      told apart at a glance without either growing or shouting. The green
+      lives in `--fund-*`; see the note on it in `tokens.css` for why it is not
+      just `--ok-*`. ★ Hue is doing real work here, so it has to be the *right*
+      green: the brand lime the rest of the palette is built on sits at hue 67,
+      and a fill borrowed from it reads as a yellow chip beside the blue ones.
+      The badge's green is hue 137–148 — off the brand-lime axis on purpose.
+   2. The fund is a *status*, not a control, and what says so is the behaviour
+      rather than the absence of a border. It is a `span`, not a `button`; it has
+      no `:hover` rule and no `:focus-visible` rule, so it reacts to neither; and
+      it keeps `cursor: default` while the chips keep `cursor: pointer`. The
+      pointer is the cue that survives a glance, and `title` says it in words.
+      ★ An earlier revision made that point with absence instead — the label was
+      left chromeless on the theory that any chrome would suggest a click. That
+      held until the chips, `04`, the search box and the caret were all sitting
+      in one row: bare numerals between two framed things read as a leftover, not
+      as the fund the chips belong to. The badge is worth more than the theory,
+      but only because the non-interactive signals above are real. If one of them
+      is ever dropped, this becomes a lie — reach for a lock glyph, not a hover.
+   3. An off chip is *quiet, not absent*. It keeps its border and its code
       readable; it loses only the accent. A chip that vanished when switched
       off would leave the reader unable to switch it back on, and a chip greyed
       to the point of illegibility reads as disabled data rather than a choice.
-   3. The popover is positioned off `.scope`, which is `position: relative`, and
+   4. The popover is positioned off `.scope`, which is `position: relative`, and
       is the only absolutely-positioned thing in the topbar. It has to escape
       the bar's 56px height without being clipped, so no ancestor between it and
       `.scope` carries `overflow: hidden`. */
@@ -382,13 +402,20 @@
   gap: 4px;
 }
 
+/* The fund code. Deliberately the chips' own geometry — same padding, border
+   width, radius, size and weight — and the same tinted-fill-under-saturated-
+   border recipe, differing only in hue. See points 1 and 2 of the block above
+   for why a status may wear the chrome a control has to earn. */
 .scope__fund {
-  padding: 0 4px 0 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--fund-border);
+  border-radius: var(--radius);
+  background: var(--fund-bg);
+  color: var(--fund-fg);
   font-variant-numeric: tabular-nums;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-heading);
+  line-height: 1;
   cursor: default;
   user-select: none;
 }

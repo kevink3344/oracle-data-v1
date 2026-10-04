@@ -106,6 +106,38 @@
      3.99:1 light, 10.9:1 dark. */
   --newmark-dot: #6b8a00;
 
+  /* --- the fund badge: the scope row's green chip -----------------------
+     ★ THE CHIPS' IDIOM, IN GREEN. The badge is deliberately built the way
+     every other chip in the app is built — a pale tinted fill, a saturated
+     same-family border, and the label in the dark end of that family — so it
+     reads as one of the row rather than as a new kind of thing. What makes it
+     the fund is the *hue*: the program chips beside it are `--info-*` blue, so
+     green marks the fixed boundary and blue marks the chips that move.
+
+     ★ AND NOT THE `--ok-*` HUE EITHER. `--ok-*` is built on the brand lime
+     (`#bed600`), so the whole family sits at hue 67–97 — chartreuse. Borrowing
+     `--ok-bg` for the fill made the badge read as *lime*, not green: at hue 76
+     it is the same yellow-green as the brand mark, and against the pale
+     `--info-*` blue beside it the two tints looked like a yellow chip and a
+     blue chip. Nor is `--ok-border` (`rgba(190,214,0,.45)`) or `--ok-fg`
+     (an olive) reusable here — the one is a low-contrast edge meant to sit on
+     `--ok-bg` alone, the other leans yellow.
+
+     The fix is hue, not value: these three sit at 137–148° — the green band —
+     while keeping the same luminance relationships as before. Same weights,
+     rotated off the lime axis. `--newmark-dot` (`#6b8a00`, hue 75) shows what
+     the palette's greens normally do; this badge is the one place the app has
+     to read as unambiguously *green* rather than brand-lime, so it steps
+     outside that family deliberately.
+
+     Measured: 8.02:1 for `--fund-fg` on `--fund-bg`, 6.82:1 for
+     `--fund-border` on `--surface`, and the fill 1.14:1 on `--surface` —
+     the same near-flush relationship `--info-bg` has, since the border is
+     what draws the shape. */
+  --fund-bg: #e6f4ea;
+  --fund-fg: #14532d;
+  --fund-border: #15683c;
+
   /* --- data series ----------------------------------------------------- */
   /* #df6d1c on its own 12% tint is only 2.9:1, so the operating *mark* uses
      the series colour and operating *text* uses the darker --series-ope-text. */
@@ -199,6 +231,19 @@
   /* The same lime, lightened for this surface — here it can be the bright
      green it cannot be on white. */
   --newmark-dot: #b6e04a;
+
+  /* The fund badge, lifted for this surface. Same three-part relationship as
+     the light pair — and the same rotation off the lime axis (hue 139–144
+     against the old 90–93): a green fill that sits just clear of `--surface`
+     (1.32:1, against the 1.01:1 `--info-bg` manages here — the blue chips are
+     read by their border alone in this theme), a `--fund-border` at 3.29:1,
+     just over the 3:1 WCAG 1.4.11 bar for a non-text boundary, and `--fund-fg`
+     at 7.50:1 on the fill. The label is a mint here rather than the light
+     family's forest green: on a dark fill the green has to be *light* to carry
+     the same weight the dark green carries on white. */
+  --fund-bg: #173a22;
+  --fund-fg: #7ddb9c;
+  --fund-border: #2c7d4d;
 
   --series-capital: #4d9fe0;
   --series-operating: #f08a3c;
