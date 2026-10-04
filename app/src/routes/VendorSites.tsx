@@ -1349,8 +1349,9 @@ export default function VendorSites() {
                               ancestor. Nothing here is editable — the row opens the
                               panel, which is one click and has room to explain itself.
 
-                            `display: block` on `.vs-link` is what puts the mark on the
-                            line below the name rather than beside it.
+                            `display: block` on `.vs-link` no longer decides where the
+                            mark goes: the flex row in `customfields.css` puts it beside
+                            the name, on the name’s own first line.
                           */}
                           <EditableField
                             read={overrides}

@@ -991,8 +991,9 @@ export default function VendorCompanies() {
                                 panel is a `transform`ed ancestor. So the cell keeps the
                                 name and the mark, and the controls live in the panel
                                 head — one row up, where there is room to explain them.
-                                `display: block` on `.vc-link` is what puts the mark on
-                                the line below the name rather than beside it.
+                                `display: block` on `.vc-link` no longer decides where
+                                the mark goes: the flex row in `customfields.css` puts
+                                it beside the name, on the name’s own first line.
                             */}
                             <button
                               type="button"

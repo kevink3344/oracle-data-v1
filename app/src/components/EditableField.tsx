@@ -157,11 +157,13 @@ export interface EditableFieldProps {
    * The value as the page renders it — the register's row opener, a span with its
    * own class. Omitted, the display value is printed as bare text.
    *
-   * ★ IN A REGISTER CELL, KEEP THE CALLER'S ELEMENT BLOCK-LEVEL. The mark is
-   *   rendered after whatever is passed here, so a `display: block` opener puts the
-   *   mark on the line below the name — which is where there is room for it. An
-   *   inline opener would put the mark beside the name and push it out to the
-   *   column's edge.
+   * ★ IN A REGISTER CELL THE MARK RIDES THE NAME’S OWN LINE, AND THAT PLACEMENT IS
+   *   ARRANGED FOR THE CALLER. The wrapper these land in becomes a two-item flex row
+   *   (see `.cf--register .cf__value` in `customfields.css`), and `display` on a flex
+   *   item is settled by the container rather than by the item — so whether the opener
+   *   is block-level or inline no longer decides where the mark sits. It is beside the
+   *   name either way, including on a name long enough to fill the column, and no
+   *   reservation of column width is needed to get it there.
    */
   children?: ReactNode;
 }
@@ -498,10 +500,11 @@ export function EditableField({
 
   return (
     <span className={className} data-tip={tip ?? undefined}>
-      {/* The mark is inside `.cf__value`, after the caller's element. With a
-          block-level opener that puts it on the next line — the one place in a
-          register cell with room for it — and in a panel it follows the name on the
-          same line, which is where a reader expects it. */}
+      {/* The mark is inside `.cf__value`, after the caller's element, so it follows
+          the name on the same line — which is where a reader expects it. A register
+          makes that wrapper a flex row to guarantee it even where the name already
+          fills the column: see the note on `.cf--register .cf__value` in the
+          stylesheet. */}
       <span className="cf__value">
         {children ?? shown}
         {override ? (

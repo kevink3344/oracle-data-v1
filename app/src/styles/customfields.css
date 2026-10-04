@@ -41,18 +41,55 @@
   max-width: 100%;
 }
 
-/* In the register the cell’s own `overflow-wrap: anywhere` still governs, so a
-   company name wraps exactly as it does without this wrapper. The mark is the one
-   thing added, and it lands under the name — beside it would need `position:
-   absolute` and a `padding-right` reservation on the column that holds the names,
-   which is the widest and the only unwrappable-by-width one. A renamed row is
-   still one short line taller, but the line is now 12px of icon rather than a
-   19px-tall pill, and the mark no longer competes with the name for the eye. */
+/* In the register nothing about the name itself changes: the cell wraps it exactly as
+   it did without this wrapper, and the mark is the one thing added. The mark rides the
+   name’s own line, and the note on the `flex` row below is where that is arranged and
+   where the two placements tried before it are recorded. */
 .cf--register {
   display: block;
 }
 
 .cf__value {
+  min-width: 0;
+}
+
+/* ★ THE MARK RIDES THE NAME’S OWN LINE, AND THE NAME IS WHAT MAKES ROOM FOR IT.
+
+   Placing the mark beside a block-level opener is not free, and both other ways of
+   buying it were worked out before this one was taken. `position: absolute` needs an
+   anchor: `.cf` is the containing block, but `left: 100%` of a *block* opener is the
+   cell’s right edge rather than the end of the name, so the mark would land at the
+   far side of the column instead of beside the word. Following the word instead means
+   reserving `padding-right` on the names column for every row — and that column is
+   `col.c-vendor`, the one column in both vendor tables with no declared width, whose
+   whole job is to be the leftover that the longest name fits in (`vendors.css`).
+   Spending 17px of it so that an icon on three rows in fifty can sit beside a name is
+   the trade the revision before this one refused, and refusing it was right.
+
+   A flex row spends that width only where the mark is drawn, because the mark is the
+   only reason the row needs it. A row with no mark is a flex container with one child,
+   which lays out as the block that child already was, so the 47 rows without a mark on
+   the sites register render exactly as they did. A row with a mark gives up the line the
+   gear had to itself, and that is the whole of the change: measured there, a one-line
+   name with a mark went from 76px to 56px, and a two-line name from 95px to 76px — the
+   height of an unmarked two-line row, so a marked row is now no taller than the row
+   beside it and the gear sits on the line the name starts on.
+
+   `baseline` AND NOT `center`, WHICH ONLY SHOWS ON A WRAPPED NAME. `align-items`
+   aligns within the flex line, whose cross size is the opener’s full height — so on a
+   two-line name `center` centres the gear between the two lines, away from the word it
+   annotates. Baseline pins it to the first line, which is the line the name starts on
+   and the line a reader reads. */
+.cf--register .cf__value {
+  display: flex;
+  align-items: baseline;
+}
+
+/* The other half of making room. A flex item will not shrink past its own content
+   until `min-width` says it may, so without this the name’s widest unbreakable word is
+   a floor the mark cannot get under, and the pair overflows the column instead of the
+   name wrapping inside it. */
+.cf--register .cf__value > :first-child {
   min-width: 0;
 }
 
@@ -93,12 +130,12 @@
   color: var(--text-muted);
 }
 
-/* ★ ON ITS OWN LINE, THE SIDE MARGIN IS AN INDENT THAT MEANS NOTHING. In a
-   register the caller’s opener is block-level, so the mark starts a fresh line at
-   the cell’s left edge — where the 5px that separates it from a name would read as
-   a mistake rather than as spacing. */
+/* The 12px mark is the one thing in the row that must not give: with the opener
+   allowed to shrink, a share of the shortfall would come off the gear as well. The
+   5px `margin-left` above is kept here rather than zeroed — the mark is beside a name
+   again, and that margin is what separates the two. */
 .cf--register .cf__mark {
-  margin-left: 0;
+  flex: none;
 }
 
 .cf__mark svg {
