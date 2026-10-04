@@ -9,6 +9,7 @@ import { registerAuth } from './auth.js';
 import { registerChartOfAccounts } from './coa.js';
 import { registerCustomFields } from './customFields.js';
 import { registerFunding } from './funding.js';
+import { registerIntegrations } from './integrations.js';
 import { registerOrganizations } from './organizations.js';
 import { registerProcurement } from './procurement.js';
 import { registerProjectRegistry } from './projectRegistry.js';
@@ -136,6 +137,13 @@ export function apiRouter(): Router {
   // It is also the only admin surface whose subject is *how much the app reads*
   // rather than what is in the data.
   registerReadCaps(api);
+
+  // The integrations register — the external endpoints this deployment is wired
+  // to, and whether each is meant to be live. Table-shaped, so it takes the
+  // `registerXxx(api)` form. Nothing in the app calls any of them: see the file
+  // header for why a reachability check is deliberately absent rather than
+  // unimplemented.
+  registerIntegrations(api);
 
   // The vendor-site register is a logic domain, not a table: it is an aggregate
   // over purchase orders with a scope imported from the extract, so it declares

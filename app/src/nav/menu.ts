@@ -813,9 +813,9 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
     title: 'Administration',
     icon: 'sliders',
     leaves: [
-      // ★ THE TWO BUILT LEAVES COME FIRST, BEFORE THE LEAVES THE DESIGN PLAN
-      //   NUMBERS §9.7–§9.11. The other five are all `built: false`, so the rail
-      //   would otherwise open on a list of five Pending rows and bury the entries
+      // ★ THE BUILT LEAVES COME FIRST, BEFORE THE LEAVES THE DESIGN PLAN
+      //   NUMBERS §9.7–§9.11. The rest are all `built: false`, so the rail
+      //   would otherwise open on a list of Pending rows and bury the entries
       //   in this block that actually go somewhere. Order here is the rail's order,
       //   and the useful thing to lead with is the thing that works.
       //
@@ -874,6 +874,28 @@ export const UTILITY_BLOCKS: MenuBlock[] = [
           'The panel runs the statement before saving it, so a cap is something that was looked ' +
           'at rather than a number in a box.',
         plan: 'docs/plans/read-caps.md',
+      },
+      {
+        // ★ `icon` IS TAKEN FROM AN EXISTING MARK RATHER THAN INVENTED, AND IT IS
+        //   THE ONE `docs/plans/integrations.md` §2.1 DOES NOT SUPPLY. That literal
+        //   omits `icon`, which `MenuLeaf` makes **required**, so it cannot be pasted
+        //   as written. `'outbound'` is the mark that already means *away from here*
+        //   (`RailIcon.tsx`: "Out of the register and away"), which is what an
+        //   outbound endpoint is — and it is shared with the not-yet-built
+        //   `Vendor spend` leaf in the Vendors block, which the two blocks' headers
+        //   keep apart. Adding a 46th drawing to a curated set to avoid that share
+        //   would be the larger change for the smaller gain.
+        label: 'Integrations',
+        icon: 'outbound',
+        to: '/admin/integrations',
+        reads: 'app-side',
+        api: '/api/integrations',
+        built: true,
+        note:
+          'The endpoints this deployment intends to call — a title, what it is for, and a URL. ' +
+          'Stored and shown; nothing here is called yet, so Active records an intention rather than ' +
+          'a working connection, and the page says so rather than implying a status it cannot know.',
+        plan: 'docs/plans/integrations.md',
       },
       {
         label: 'Segments',

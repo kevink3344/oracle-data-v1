@@ -271,6 +271,11 @@ export const ROUTING_APP_TABLES = [
   // cache of figures *about* the ledger, so it lives in the app store while the
   // rows it counts do not — the same split `table_count_snapshot` makes.
   'ledger_summary_cache',
+  // The outbound endpoints this deployment intends to call. Listed here in the
+  // same change that added it to the DDL and to `app-schema.ts`. It describes
+  // endpoints in the outside world and is owned entirely by this app — no ledger
+  // object backs it — so every statement about it routes to the app store.
+  'integration',
 ] as const;
 
 /**

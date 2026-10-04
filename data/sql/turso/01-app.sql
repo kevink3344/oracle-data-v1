@@ -1639,3 +1639,76 @@ CREATE TABLE IF NOT EXISTS ledger_summary_cache (
 
 -- No index beyond the primary key. One row per distinct scope, which is a
 -- handful at most, and every read is a point lookup by `scope_key`.
+
+
+-- ============================================================================
+--  integration — the outbound endpoints this deployment INTENDS to call.
+--
+--  ---------------------------------------------------------------------------
+--  ★ NOTHING IN THIS APP CALLS A ROW IN THIS TABLE
+--  ---------------------------------------------------------------------------
+--  There is no outbound HTTP client in this server, and this table does not add
+--  one. A row here records that somebody decided this deployment talks to an
+--  endpoint; whether the endpoint answers is a fact this application has no way
+--  to know, so no column records it. That is why there is no `status`,
+--  `last_used_at` or `healthy` column: an always-empty column invites a reader
+--  to think it is broken, and one that somebody eventually fills from a guess is
+--  worse than not having it.
+--
+--  ---------------------------------------------------------------------------
+--  ★ title IS UNIQUE, AND THE COLLATION IS THE TRAP
+--  ---------------------------------------------------------------------------
+--  A register whose two rows are both called "Payroll webhook" is a register you
+--  cannot refer to, so the name is unique. The dialect difference is the part
+--  that has to be stated: MySQL's `utf8mb4_0900_ai_ci` and SQL Server's
+--  `SQL_Latin1_General_CP1_CI_AS` both treat `Payroll` and `payroll` as one
+--  title, while SQLite's default `BINARY` collation treats them as two. Left
+--  alone the three arms would disagree about which pairs are legal.
+--
+--  So the RULE is the application's: `routes/integrations.ts` compares
+--  `LOWER(title)` against `LOWER(?)` before writing, which makes all three arms
+--  agree that a title is case-insensitive. This index is the backstop for the
+--  race that pre-check cannot close, not the rule — the same division the
+--  organization register makes between `slug` and its `UNIQUE` constraint.
+--
+--  ---------------------------------------------------------------------------
+--  ★ active DEFAULTS TO OFF, AND THAT IS THE WHOLE POINT OF THE COLUMN
+--  ---------------------------------------------------------------------------
+--  A gate that opens by default is not a gate. If a new row arrived active, the
+--  flag would record nothing — it would become a field you have to remember to
+--  clear rather than one you deliberately set — so a row is created inactive and
+--  an administrator turns it on.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS integration (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  -- The name a person calls it by. Unique, case-insensitively, by the rule in
+  -- the header note rather than by this index alone.
+  title       TEXT    NOT NULL UNIQUE,
+
+  -- What the integration is for. Free text, and required: an endpoint with no
+  -- stated purpose is a URL nobody can safely remove.
+  description TEXT    NOT NULL,
+
+  -- The API or webhook endpoint. Stored as text and never followed: the write
+  -- path checks only that it parses as an absolute `http://` or `https://` URL,
+  -- which is also the allowlist that keeps a stored `javascript:` or `data:`
+  -- payload out of the table. Nothing here verifies the host answers.
+  url         TEXT    NOT NULL,
+
+  -- See the header note. INTEGER 0/1 with a CHECK, not a boolean type SQLite
+  -- does not have — the same shape `project` and `organization` use.
+  active      INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0,1)),
+
+  -- The account that last changed the row. "Who turned this on" is the first
+  -- question asked when something is off that should be on.
+  set_by      TEXT    NOT NULL DEFAULT '',
+
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- No index beyond the primary key and the `title` uniqueness. The register is
+-- read whole — one row per endpoint is tens of rows at most — so an index on
+-- `active` would be maintained for a filter that never scans.

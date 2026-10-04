@@ -713,3 +713,53 @@ CREATE TABLE dbo.ledger_summary_cache (
   object_count   INT NOT NULL
 );
 GO
+
+
+-- ----------------------------------------------------------------------------
+--  integration — the outbound endpoints this deployment INTENDS to call.
+--
+--  ★ NOTHING IN THIS APP CALLS A ROW IN THIS TABLE. There is no outbound HTTP
+--    client in this server, and this table does not add one. A row records that
+--    somebody decided this deployment talks to an endpoint; whether it answers
+--    is not knowable here, which is why there is no `status`, `last_used_at` or
+--    `healthy` column. See the long note in 01-app.sql (turso).
+--
+--  ★ `title` IS UNIQUE, AND THE COLLATION IS THE TRAP. This arm's
+--    `SQL_Latin1_General_CP1_CI_AS` already treats `Payroll` and `payroll` as
+--    one title where SQLite's `BINARY` treats them as two, so the three arms
+--    would disagree about which pairs are legal. The RULE is therefore the
+--    application's — `routes/integrations.ts` compares `LOWER(title)` against
+--    `LOWER(?)` before writing — and this constraint is the backstop for the
+--    race that pre-check cannot close, not the rule.
+--
+--  ★ `active` DEFAULTS TO OFF. A gate that opens by default is not a gate.
+--
+--  ★ `url` IS `NVARCHAR(2000)` AND NOT `NVARCHAR(MAX)`, because a UNIQUE
+--    constraint cannot be placed on `MAX` -- and the width is chosen for the
+--    data rather than for the limit. `title` is the only indexed column here.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.integration', 'U') IS NULL
+CREATE TABLE dbo.integration (
+  id          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+
+  -- The name a person calls it by. Unique case-insensitively by the rule above.
+  title       NVARCHAR(200) NOT NULL UNIQUE,
+
+  -- What the integration is for. A sentence or two, so it is not `MAX`: an
+  -- off-row column for a short string costs a read for no gain.
+  description NVARCHAR(1000) NOT NULL,
+
+  -- The API or webhook endpoint, stored as text and never followed. The write
+  -- path checks that it parses as an absolute `http://` or `https://` URL.
+  url         NVARCHAR(2000) NOT NULL,
+
+  active      INT NOT NULL DEFAULT (0),
+
+  set_by      NVARCHAR(400) NOT NULL DEFAULT (N''),
+
+  -- Timestamps as `YYYY-MM-DD HH:MM:SS` text, matching every other app table --
+  -- see the note on the two formats beside `stampNow()` in server/src/db/sql.ts.
+  created_at  NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126)),
+  updated_at  NVARCHAR(30) NOT NULL DEFAULT (CONVERT(varchar(19), GETUTCDATE(), 126))
+);
+GO

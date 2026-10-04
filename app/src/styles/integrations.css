@@ -1,0 +1,248 @@
+/* ==========================================================================
+   Integrations — the register of outbound endpoints, and the panel that
+   edits one.
+
+   ★ IT EXTENDS RATHER THAN REDECLARES. The page is a `.stack` of `.panel`s with a
+   `.page-head` above them, like every other screen; the fields are `.field` /
+   `.input` / `.field__hint`, the buttons are `.btn`, the table is `table.data`
+   inside the shared `.table-wrap`, and the panel is the shared `.drawer` with its
+   `.drawer__head` / `__body` / `__foot`. Nothing here re-implements any of that.
+   What is here is the part with no ancestor to inherit from:
+
+     - `.intcounts`   the totals beside the page title
+     - `.inttable` / `.introw*` / `.intstate`   the register
+     - `.intfilter`   the filter above it
+     - `.intform*`    the panel's form, including the URL box
+     - `.intpanel`    the panel's own default width
+
+   ★ THE ABSENCE OF A `--drawer-w` OVERRIDE ON `.inttable` IS THE POINT. The URL
+   column holds a 2000-character string and the register does not try to show it:
+   the cell truncates and the panel shows the whole value. Stretching the table to
+   fit a URL would push the Active column and the Edit button off the right edge,
+   which is how a register stops being readable to protect a value nobody reads in
+   full from a list.
+
+   ========================================================================== */
+
+/* --- the page head ------------------------------------------------------ */
+
+/* The totals, as a sentence rather than two stat tiles. §4.2 derives both from the
+   same rows the table is showing, so they are stated beside the title the table
+   belongs to rather than presented as figures in their own right. */
+.intcounts {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.intcounts strong {
+  color: var(--text-heading);
+}
+
+/* --- the register ------------------------------------------------------- */
+
+.intfilter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.intfilter__input {
+  flex: 1 1 auto;
+  max-width: 420px;
+}
+
+.inttable {
+  width: 100%;
+}
+
+/* ★ THE TITLE WRAPS AND THE DESCRIPTION TRUNCATES, AND THE ASYMMETRY IS DELIBERATE.
+   The title is what identifies the row to everybody reading it, so a title that
+   has been cut in half is a row that cannot be named; it is allowed to take a
+   second line. The description is the long free-text column — truncating it costs
+   the reader nothing, because the panel and the cell's `title` attribute both hold
+   the whole sentence. Capping both the same way would trade a readable register for
+   a uniform row height, which is the wrong trade. */
+.introw__title {
+  max-width: 240px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.introw__desc {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* The URL is an identifier, so it is monospaced, and it is never wrapped — a
+   wrapped URL reads as two URLs. The cell truncates with an ellipsis and keeps the
+   whole string in `title`. */
+.introw__url {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.introw__url code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-heading);
+}
+
+/* The word and its warning share a cell and must not break between — "Active" and
+   the marker that qualifies it read as one statement. */
+.introw__state {
+  white-space: nowrap;
+}
+
+/* ★ THE WORD IS THE STATUS; THE COLOUR ONLY REPEATS IT. §5.2 asks for a word rather
+   than a dot, because a dot reads as a status light and this page has no status to
+   report — nothing here has ever contacted any of these endpoints. The tint is
+   reinforcement that survives being stripped out, in a screenshot, or unread; the
+   word is the whole message. */
+.intstate {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.intstate--on {
+  font-weight: 600;
+  color: var(--ok-fg);
+}
+
+/* A stored row whose URL no longer parses. The register cannot fix it and should not
+   hide it — this is the one thing the page can honestly say about the string. */
+.introw__warn {
+  color: var(--warn-fg);
+  cursor: help;
+}
+
+.introw__by {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.introw__date {
+  font-variant-numeric: tabular-nums;
+}
+
+/* An em-dash is an absence, and it should not read as a value. Muted, never bold. */
+.introw__none {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.introw__act {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The row is the trigger, so it takes the pointer; the button inside is the
+   keyboard-reachable path (a `<tr onClick>` is never focusable). */
+.introw {
+  cursor: pointer;
+}
+
+/* The keyboard path is the tab stop, so it is visible whenever it has focus even
+   though it is unobtrusive at rest. */
+.introw__open:focus-visible {
+  outline: 2px solid var(--secondary-color);
+  outline-offset: 2px;
+}
+
+.introw__empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* --- the panel form ---------------------------------------------------- */
+
+.intform {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The description box. Vertically resizable, but it does not grow with content — a
+   long description scrolls inside it rather than pushing the URL field and the
+   checkbox off the panel, which would leave Save unreachable. */
+.intform__desc {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 76px;
+}
+
+/* The URL box. Monospaced so a reader can see the scheme and the host as distinct
+   parts, and `white-space: pre` so a long URL scrolls sideways rather than wrapping
+   at a character that looks like a break in the address. */
+.intform__url {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+/* The character counter. Right-aligned inside the hint paragraph so it does not
+   reflow the sentence it follows as the count grows. */
+.intcount {
+  float: right;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* The Active checkbox. The label wraps the input so the whole row including the word
+   is the hit target, which matters for a control whose meaning is entirely in its
+   label. */
+.intform__active {
+  padding-top: 4px;
+}
+
+.intactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.intactive input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--secondary-color);
+}
+
+.intactive__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* --- the panel's footer ------------------------------------------------ */
+
+/* ★ THIS IS WHAT PUSHES THE CONFIRMING PAIR RIGHT, AND WHY THERE IS NO SPACER ELEMENT
+   HERE. `.drawer__foot` is `display: flex` with no `justify-content`, so the buttons
+   would all sit left; every other drawer renders a `<span class="drawer__spacer" />`
+   to fill the gap, but no stylesheet in this app defines `.drawer__spacer`, so those
+   spans are zero-width no-ops and the buttons sit left anyway. A margin on the button
+   that should move does the job without depending on a class that does not exist, and
+   it is scoped to this panel rather than changing how the other drawers lay out. */
+.intfoot__end {
+  margin-left: auto;
+}
+
+/* --- the panel's own width --------------------------------------------- */
+
+/* 620px, matching the other detail panels. The URL field scrolls sideways inside it
+   rather than widening the panel, so a long endpoint does not make the form
+   unreadable. */
+.intpanel {
+  --drawer-w: 620px;
+}

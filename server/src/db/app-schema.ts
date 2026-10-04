@@ -255,6 +255,10 @@ export const APP_TABLES = [
   // reads a stored estimate instead of re-counting on every load. A cache: every
   // row may be deleted without losing a fact. See the DDL header.
   'ledger_summary_cache',
+  // The outbound endpoints this deployment intends to call. An *intention*
+  // register: nothing in this app calls a row, and no column records whether the
+  // endpoint answers. See the DDL header.
+  'integration',
 ] as const;
 
 const APP_TABLE_SET: ReadonlySet<string> = new Set<string>(APP_TABLES);

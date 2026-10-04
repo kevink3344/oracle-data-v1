@@ -20,6 +20,7 @@ import ViewBuilder from './routes/ViewBuilder';
 import ViewResultWindow from './routes/ViewResultWindow';
 import Settings from './routes/Settings';
 import ReadCaps from './routes/ReadCaps';
+import Integrations from './routes/Integrations';
 import SignIn from './routes/SignIn';
 import Budgets from './routes/Budgets';
 import PurchaseOrders from './routes/PurchaseOrders';
@@ -102,6 +103,13 @@ const SCREENS: Record<string, ReactElement> = {
   // object here, and the panel runs the statement before saving it so a cap is
   // something that was looked at rather than a number in a box.
   '/admin/read-caps': <ReadCaps />,
+  // The outbound endpoints this deployment intends to call. ★ The only screen in
+  // the app that stores a URL, and the first whose subject is a claim the app
+  // cannot check: it has no outbound HTTP client, so `Active` records an intention
+  // and never a working connection. The page says that on the field where a reader
+  // would otherwise assume it — and the URL is rendered as text, never as a link,
+  // so a stored string can never become a destination nobody chose.
+  '/admin/integrations': <Integrations />,
   // The budgeted accounts. ★ The only screen in the app that reads **no extract
   // at all** — the eight files in `public/oracle/` are every one of them
   // commitments or spend, and not one carries a budget position. `V_BUDGET_BY_ACCOUNT_PERIOD`

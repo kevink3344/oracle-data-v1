@@ -639,3 +639,58 @@ CREATE TABLE IF NOT EXISTS ledger_summary_cache (
   uncounted      INT NULL,
   object_count   INT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- ----------------------------------------------------------------------------
+--  integration — the outbound endpoints this deployment INTENDS to call.
+--
+--  ★ NOTHING IN THIS APP CALLS A ROW IN THIS TABLE. There is no outbound HTTP
+--    client in this server, and this table does not add one. A row records that
+--    somebody decided this deployment talks to an endpoint; whether it answers
+--    is not knowable here, which is why there is no `status`, `last_used_at` or
+--    `healthy` column. See the long note in 01-app.sql (turso).
+--
+--  ★ `title` IS UNIQUE, AND THE COLLATION IS THE TRAP. This arm's
+--    `utf8mb4_0900_ai_ci` already treats `Payroll` and `payroll` as one title
+--    where SQLite's `BINARY` treats them as two, so the three arms would
+--    disagree about which pairs are legal. The RULE is therefore the
+--    application's — `routes/integrations.ts` compares `LOWER(title)` against
+--    `LOWER(?)` before writing — and this key is the backstop for the race that
+--    pre-check cannot close, not the rule.
+--
+--  ★ THE UNIQUE KEY IS DECLARED INSIDE `CREATE TABLE`, AND THAT IS NOT STYLE.
+--    MySQL has no `CREATE UNIQUE INDEX IF NOT EXISTS`, so a bare
+--    `CREATE UNIQUE INDEX` after the table fails with error 1061 on the second
+--    boot -- the same fix the tables above already use.
+--
+--  ★ `active` DEFAULTS TO OFF. A gate that opens by default is not a gate.
+--
+--  ★ `url` IS `VARCHAR(2000)` AND NOT `TEXT`: MySQL cannot index a `TEXT` column
+--    without a prefix length. The width is chosen for the data, not for the
+--    limit -- only `title` is indexed here. `description` is `VARCHAR(1000)`
+--    rather than `TEXT` because `TEXT` cannot carry a `DEFAULT`.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS integration (
+  id          INT NOT NULL AUTO_INCREMENT,
+
+  -- The name a person calls it by. Unique case-insensitively by the rule above.
+  title       VARCHAR(200) NOT NULL,
+
+  -- What the integration is for. A sentence or two.
+  description VARCHAR(1000) NOT NULL,
+
+  -- The API or webhook endpoint, stored as text and never followed. The write
+  -- path checks that it parses as an absolute `http://` or `https://` URL.
+  url         VARCHAR(2000) NOT NULL,
+
+  active      TINYINT(1) NOT NULL DEFAULT 0,
+
+  set_by      VARCHAR(400) NOT NULL DEFAULT '',
+
+  -- Timestamps as `YYYY-MM-DD HH:MM:SS` text, matching every other app table.
+  created_at  VARCHAR(30) NOT NULL DEFAULT (UTC_TIMESTAMP()),
+  updated_at  VARCHAR(30) NOT NULL DEFAULT (UTC_TIMESTAMP()),
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_integration_title (title)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
