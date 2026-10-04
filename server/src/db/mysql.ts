@@ -304,6 +304,53 @@ async function ensureMode(conn: PoolConnection): Promise<void> {
 }
 
 /**
+ * ★★ THE MIRROR'S INDEXES ARE PART OF THE SCHEMA, AND TWO OF THEM ARE NOT OBVIOUS.
+ *
+ *    `DB_MODE=mysql` reads a MySQL copy of the Oracle tables (`oracle-sync`) that this
+ *    repository does not own and cannot migrate — the ETL that fills it lives outside
+ *    these sources, so no source file can enforce its indexes and nothing in the boot
+ *    path can notice when one is dropped. The nearest thing to a declaration is
+ *    `_perf-index.mjs` at the root of this package — it lists every index the ledger
+ *    statements want and reports which are missing, and it is run by hand, not by the
+ *    app. That is the whole reason this note exists: the live extract is the app's most
+ *    expensive statement, its cost is decided entirely by indexes that no *schema* file
+ *    mentions, and a missing one is invisible — the query still returns the right rows,
+ *    it just takes a minute.
+ *
+ *    Measured on this tenant (23,224 rows in scope, `oracle-sync`):
+ *
+ *      no index                 51.0 s   plan starts `po_line_locations_all` ALL, 1,146,800 rows
+ *      + idx_pll_header_line     7.0 s   plan starts `po_headers_all` ALL
+ *      + idx_po_dist_ccid        6.6 s   plan starts `gl_code_combinations` range
+ *
+ *    and end to end through `GET /api/extract/current?refresh=1`: 48 s before, 10.5 s
+ *    after. The indexes are
+ *
+ *      po_line_locations_all  (PO_HEADER_ID, PO_LINE_ID)
+ *      po_distributions_all   (CODE_COMBINATION_ID)
+ *
+ *    and they exist because `buildLiveSql` joins `PO_LINE_LOCATIONS_ALL` on
+ *    `(PO_HEADER_ID, PO_LINE_ID)` and reaches `PO_DISTRIBUTIONS_ALL` by
+ *    `CODE_COMBINATION_ID`, while the table as replicated carried a primary key on
+ *    `LINE_LOCATION_ID` alone and an index on `(PO_LINE_ID, PO_HEADER_ID)` — the same
+ *    two columns in the opposite order, which the join's `ON` clause cannot use as a
+ *    prefix. MySQL answered by leading the join with a full scan of the largest table
+ *    in the statement and nested every other table underneath it, one row at a time.
+ *
+ *    ★ THE SECOND INDEX IS NOT REDUNDANT AND THE FIRST IS NOT OPTIONAL. With only the
+ *      first, the plan still opens on a full scan of `PO_HEADERS_ALL`; with only the
+ *      second, `pll` is scanned. Together, the optimizer finally starts from the
+ *      selective side — `IX_GCC_SCOPE (SEGMENT1, SEGMENT3)`, which is the fund and the
+ *      programs, and which the replicated `GL_CODE_COMBINATIONS` already had — and the
+ *      rest of the join is `eq_ref` lookups on primary keys.
+ *
+ *    ★ VERIFY WITH `EXPLAIN`, NOT WITH A CLOCK. The good plan is the one that lists
+ *      `gl_code_combinations` first with `type=range`; if `po_line_locations_all` or
+ *      `po_headers_all` appears as `type=ALL`, an index is gone and the extract is
+ *      back to being a minute.
+ */
+
+/**
  * The MySQL backend.
  *
  * ★ `ping` IS `SELECT 1` WITH NO `FROM`, WHICH MYSQL ACCEPTS — unlike Oracle, which
