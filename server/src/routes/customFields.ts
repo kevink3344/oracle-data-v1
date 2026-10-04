@@ -500,38 +500,72 @@ export function registerCustomFields(api: Api): void {
       //   your SQL syntax … near 'ON CONFLICT'` — a parse error on the one write this
       //   screen makes. MySQL has a real upsert: `ON DUPLICATE KEY UPDATE`, where
       //   `VALUES(col)` is the value the INSERT proposed. `set_at` is `stampNow()` in
-      //   both arms, which is itself per-dialect (`db/sql.ts`), so the clock stays the
+      //   every arm, which is itself per-dialect (`db/sql.ts`), so the clock stays the
       //   database's. The SQLite spelling is unchanged and remains the fallback — the
       //   same per-dialect branch `routes/readCaps.ts` spells its own upsert with.
+      //
+      // ★ SQL SERVER IS THE THIRD ARM AND IT WAS MISSING, WHICH IS THE SAME DEFECT A
+      //   SECOND TIME. T-SQL has no `ON CONFLICT` either, so a save on a SQL Server app
+      //   store reached that arm and answered 500 with `Incorrect syntax near the
+      //   keyword 'ON'` — indistinguishable to the reader from the server being broken,
+      //   on the one write this screen makes. `meta.ts` and `readCaps.ts` both spell
+      //   this with an UPDATE and then an INSERT when nothing was updated; it is done
+      //   the same way here rather than with `MERGE`, which needs a `HOLDLOCK` to be
+      //   safe under concurrency and cannot silently do nothing.
       const insertRow =
         'INSERT INTO field_override (subject_kind, subject_key, subject_written, field, value, set_by)\n' +
         '         VALUES (:subject, :key, :written, :field, :value, :setBy)';
-      await execute(
-        storeDriver('app').dialect === 'mysql'
-          ? `${insertRow}
+      const binds = {
+        subject: entry.subject,
+        key,
+        written: body.key,
+        field: entry.field,
+        value: body.value,
+        // From the session, and the actor is resolved ONCE: a body field
+        // claiming an author is not read, because an override that could name
+        // its own author would carry no attribution worth having.
+        setBy: actor.email,
+      };
+      const appDialect = storeDriver('app').dialect;
+      if (appDialect === 'mysql') {
+        await execute(
+          `${insertRow}
          ON DUPLICATE KEY UPDATE
            value = VALUES(value),
            set_by = VALUES(set_by),
            set_at = ${stampNow()},
-           subject_written = VALUES(subject_written)`
-          : `${insertRow}
+           subject_written = VALUES(subject_written)`,
+          binds,
+        );
+      } else if (appDialect === 'sqlserver') {
+        const updated = await execute(
+          `UPDATE field_override
+              SET value = :value,
+                  set_by = :setBy,
+                  set_at = ${stampNow()},
+                  subject_written = :written
+            WHERE subject_kind = :subject AND subject_key = :key AND field = :field`,
+          binds,
+        );
+        // ★ `rowsAffected` IS THE BRANCH, NOT A SECOND SELECT. A read-then-write
+        //   would be two round trips and a race; the driver already reports whether
+        //   the UPDATE matched anything. SQL Server counts rows *matched*, not rows
+        //   changed, so a re-save of an unchanged value still matches and no
+        //   duplicate is inserted.
+        if (updated.rowsAffected === 0) {
+          await execute(insertRow, binds);
+        }
+      } else {
+        await execute(
+          `${insertRow}
          ON CONFLICT (subject_kind, subject_key, field) DO UPDATE SET
            value = excluded.value,
            set_by = excluded.set_by,
            set_at = ${stampNow()},
            subject_written = excluded.subject_written`,
-        {
-          subject: entry.subject,
-          key,
-          written: body.key,
-          field: entry.field,
-          value: body.value,
-          // From the session, and the actor is resolved ONCE: a body field
-          // claiming an author is not read, because an override that could name
-          // its own author would carry no attribution worth having.
-          setBy: actor.email,
-        },
-      );
+          binds,
+        );
+      }
 
       return readBack(entry, key);
     },

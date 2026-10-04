@@ -89,16 +89,40 @@ export function registerPins(api: Api): void {
       //   the upsert is spelled per dialect exactly as `routes/readCaps.ts` and
       //   `routes/customFields.ts` spell theirs. MySQL's `VALUES(col)` is the value the
       //   INSERT proposed, which is SQLite's `excluded.col`.
+      //
+      // ★ AND T-SQL HAS NO `ON CONFLICT` EITHER, SO THE TWO-ARM VERSION FAILED THE SAME
+      //   WAY ON SQL SERVER. A pin on a SQL Server app store reached the SQLite arm and
+      //   answered 500 with `Incorrect syntax near the keyword 'ON'` — the identical
+      //   defect `routes/customFields.ts` carried, on the same kind of write. The third
+      //   arm is an UPDATE and then an INSERT when nothing was updated, as `meta.ts`
+      //   and `readCaps.ts` do; `MERGE` is avoided there for needing a `HOLDLOCK` to be
+      //   safe under concurrency.
       const pinInsert =
         'INSERT INTO user_pin (owner_email, category, entity_key, title, subtitle, href) VALUES (?, ?, ?, ?, ?, ?) ';
-      await execute(
-        storeDriver('app').dialect === 'mysql'
-          ? pinInsert +
-              'ON DUPLICATE KEY UPDATE title = VALUES(title), subtitle = VALUES(subtitle), href = VALUES(href)'
-          : pinInsert +
-              'ON CONFLICT(owner_email, category, entity_key) DO UPDATE SET title = excluded.title, subtitle = excluded.subtitle, href = excluded.href',
-        [actor.email, body.category, body.entityKey, body.title, body.subtitle, body.href],
-      );
+      const pinBinds = [actor.email, body.category, body.entityKey, body.title, body.subtitle, body.href];
+      const appDialect = storeDriver('app').dialect;
+      if (appDialect === 'mysql') {
+        await execute(
+          pinInsert +
+            'ON DUPLICATE KEY UPDATE title = VALUES(title), subtitle = VALUES(subtitle), href = VALUES(href)',
+          pinBinds,
+        );
+      } else if (appDialect === 'sqlserver') {
+        // SQL Server counts rows *matched*, so re-pinning an unchanged pin still
+        // reports > 0 and no duplicate row is attempted.
+        const updated = await execute(
+          'UPDATE user_pin SET title = ?, subtitle = ?, href = ? ' +
+            'WHERE owner_email = ? AND category = ? AND entity_key = ?',
+          [body.title, body.subtitle, body.href, actor.email, body.category, body.entityKey],
+        );
+        if (updated.rowsAffected === 0) await execute(pinInsert, pinBinds);
+      } else {
+        await execute(
+          pinInsert +
+            'ON CONFLICT(owner_email, category, entity_key) DO UPDATE SET title = excluded.title, subtitle = excluded.subtitle, href = excluded.href',
+          pinBinds,
+        );
+      }
       const result = await rows<PinRow>(
         'SELECT id, category, entity_key, title, subtitle, href, created_at FROM user_pin ' +
           'WHERE owner_email = ? AND category = ? AND entity_key = ?',
