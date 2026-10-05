@@ -104,11 +104,12 @@ import { useSession } from '../data/session';
  *   in viewport coordinates inside a `transform`ed `.drawer`, which is what the
  *   panel head is. See the head of `app/src/styles/customfields.css`.
  *
- *   So the cell shows the value, the changed-value mark (a small gear) and the
- *   whole disclosure to assistive technology in a visually hidden element — and the
- *   pencil, the trash and the tooltip are in the panel head, which is not a scroller
- *   and is where a reader goes to find out about the row they are looking at. The
- *   row is already a button, so this costs one click on the surface built for it.
+ *   So the cell shows the value, the changed-value mark (a small pencil over a
+ *   field) and the whole disclosure to assistive technology in a visually hidden
+ *   element — and the pencil, the trash and the tooltip are in the panel head, which
+ *   is not a scroller and is where a reader goes to find out about the row they are
+ *   looking at. The row is already a button, so this costs one click on the surface
+ *   built for it.
  */
 export type EditableFieldVariant =
   /** A panel heading: `.drawer__name`. Full controls; the tooltip opens below. */
@@ -263,7 +264,7 @@ function TrashIcon() {
 }
 
 /**
- * The gear — what the mark means: *this value has been changed*.
+ * The mark — what it means: *this value was written here, not read from Oracle*.
  *
  * ★ IT REPLACED THE WORD "custom", WHICH WAS THE PROBLEM RATHER THAN THE FIX.
  *   The mark is a footnote to the value and not a status of the row, so the moment
@@ -277,34 +278,44 @@ function TrashIcon() {
  *   who needed none of it — the one who only has to recognise "this is not the
  *   ledger's name", and for whom a mark alone is exactly the right amount.
  *
- * ★ DRAWN AND NOT TYPED (`⚙`, as the rail's settings button uses): a text glyph
- *   has whichever weight and optical size the reader's font supplies, and can
- *   arrive as a colour emoji that ignores `color` — which for a mark whose whole
- *   point is to be quiet is the one failure that matters.
+ * ★ A PENCIL OVER A FIELD, AND NOT THE BARE PENCIL THE EDIT BUTTON USES. Both are
+ *   on screen at once in a panel: `heading` and `meta` put this mark in `.cf__value`
+ *   and the edit button in `.cf__actions`, for the same field, so two bare pencils
+ *   side by side would read as two of the same control. The box is what separates
+ *   them — the button is a pencil and opens an editor; the mark is a pencil against
+ *   a field and says only where the value came from. It is a `span` and not a
+ *   `button` for that same reason: the mark is not a way in.
+ *
+ * ★ DRAWN AND NOT TYPED: a typed mark has whichever weight and optical size the
+ *   reader's font supplies, and can arrive as a colour emoji that ignores `color` —
+ *   which for a mark whose whole point is to be quiet is the one failure that
+ *   matters.
+ *
+ * ★ THE FIELD IS AN OPEN PATH AND NOT A `<rect>`, BECAUSE THE PENCIL CROSSES THE
+ *   CORNER A `<rect>` WOULD DRAW. Everything in the mark is `currentColor`, so an
+ *   outline running under the pencil is not hidden by it: the stroke would join the
+ *   pencil's body and the corner would read as a blob rather than as two shapes. The
+ *   path therefore stops on the top edge at `x=10.1` and on the right edge at
+ *   `y=5.9` — both clear of the pencil's silhouette by 0.98, more than the 0.75 the
+ *   stroke's half-width and its round cap each reach — and leaves the corner between
+ *   them to the pencil to close.
  */
-function GearIcon() {
+function PencilSquareIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      {/* Four bars through the centre, each 180°-symmetric, so the eight teeth come
-          from one rule instead of eight shapes that could drift out of step. */}
-      {[0, 45, 90, 135].map((deg) => (
-        <rect
-          key={deg}
-          x="7"
-          y="1.1"
-          width="2"
-          height="3.2"
-          rx="0.9"
-          fill="currentColor"
-          transform={`rotate(${deg} 8 8)`}
-        />
-      ))}
-      {/* The body is a *stroked* circle so the middle stays open: a filled disc
-          would close the hole the shape is made of. */}
-      <circle cx="8" cy="8" r="5.05" fill="none" stroke="currentColor" strokeWidth="2.1" />
-      {/* The hub, which is what makes an open centre read as a gear's hole rather
-          than as a ring. */}
-      <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+      {/* The field, drawn anticlockwise from its top edge with the top-right corner
+          left open for the pencil. */}
+      <path
+        d="M10.1 5.3H3.2A1.5 1.5 0 0 0 1.7 6.8V12.8A1.5 1.5 0 0 0 3.2 14.3H9.2A1.5 1.5 0 0 0 10.7 12.8V5.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      {/* The pencil, on the 45° axis through that corner: the point ends inside the
+          field and the shaft runs out past it. The point is 3.5 long and 2.8 across
+          at its two ends, which opens it at 47°. */}
+      <path d="M8.15 7.85L9.43 4.59 13.1 0.92 15.08 2.9 11.41 6.57Z" fill="currentColor" />
     </svg>
   );
 }
@@ -511,14 +522,14 @@ export function EditableField({
           <span
             className="cf__mark"
             // `role="img"` with a name, because the mark used to say "custom" in
-            // words and now says it in a shape: without this the gear is a picture
+            // words and now says it in a shape: without this the mark is a picture
             // with no name, and the *fact* it carries would reach AT only through
             // the note below.
             role="img"
             aria-label={spec ? `Custom ${spec.label}` : 'Custom value'}
             // ★ A REGISTER CELL GETS A NATIVE `title`, BECAUSE IT CANNOT HAVE THE
             //   CSS TOOLTIP — `.table-wrap` clips it (see the stylesheet). The one
-            //   line a reader who wonders about the gear needs is the value it is
+            //   line a reader who wonders about the mark needs is the value it is
             //   standing in for. In a panel the `.cf--tip` bubble already says this
             //   and more, so a `title` there too would open two tooltips at once.
             //   Where the ledger holds nothing there is no value to name, and the
@@ -531,7 +542,7 @@ export function EditableField({
                 : undefined
             }
           >
-            <GearIcon />
+            <PencilSquareIcon />
           </span>
         ) : null}
       </span>

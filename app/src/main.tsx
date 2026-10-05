@@ -71,9 +71,9 @@ import './styles/settings.css';
 // after every one of them, and it redeclares none of them. Before rail.css, which
 // is the last word on the shell.
 import './styles/vendors.css';
-// Custom field values: the pencil, the trash and the changed-value gear mark, on a
-// vendor's name wherever it is shown. It decorates `.drawer__name` from panel.css
-// (overridden
+// Custom field values: the pencil, the trash and the changed-value mark (a pencil
+// over a field), on a vendor's name wherever it is shown. It decorates
+// `.drawer__name` from panel.css (overridden
 // per panel in vendors.css) and a cell inside `table.data.vctable` / `.vstable`, and
 // it reuses `.sr` from base.css and `.scopenote` from shell.css, which it adds one
 // variant to — so it comes after all four. Before rail.css, which is the last word

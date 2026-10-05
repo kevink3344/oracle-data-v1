@@ -168,8 +168,8 @@ export interface Vendor {
    */
   displayName: string;
   /**
-   * Whether `displayName` is a stored custom value — the fact the changed-value gear
-   * mark means.
+   * Whether `displayName` is a stored custom value — the fact the changed-value mark
+   * means.
    *
    * ★ IT IS NOT `displayName !== name`. A reader may save the ledger's own spelling
    *   as their custom value (fixing a stray space, say), and that is still a custom

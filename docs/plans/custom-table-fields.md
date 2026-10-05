@@ -307,7 +307,7 @@ could not read them rather than quietly showing Oracle names as though nothing w
 **`app/src/components/EditableField.tsx`** — the affordance. Rendered as:
 
 ```
-  Arey Jones Educational Solutions ⚙              ← custom, marked
+  Arey Jones Educational Solutions [mark]         ← custom, marked (a pencil over a field)
   ─────────────────────────────────────────
   ARENA PLACE CONDOMINIUM ASSOCIATION, INC …       ← Oracle, on hover/focus
   Set by Dana Whitfield · 2026-09-18
@@ -337,14 +337,18 @@ could not read them rather than quietly showing Oracle names as though nothing w
   again, so a modal would be friction over a two-click undo. ★ The sentence branches on the field —
   on a field the ledger has no value for it reads *"…and leave the field empty"*, because "show the
   Oracle value" would promise something that does not exist (see *Entry #2*).
-- **The mark is a small gear, not the word "custom"** — changed after the mark was first built as an
-  info pill reading `CUSTOM`. The pill was wider than most of the names it sat under, so on the rows a
-  reader had renamed it became the loudest thing in the cell and the value came second. The mark's job
-  is *"this is not the ledger's name"*, which a shape carries and a bold word over-carries; the
-  disclosure it used to imply is still carried by the `title` in a register, the tooltip in a panel,
+- **The mark is a small pencil over a field, not the word "custom"** — changed after the mark was first
+  built as an info pill reading `CUSTOM`. The pill was wider than most of the names it sat under, so on
+  the rows a reader had renamed it became the loudest thing in the cell and the value came second. The
+  mark's job is *"this is not the ledger's name"*, which a shape carries and a bold word over-carries;
+  the disclosure it used to imply is still carried by the `title` in a register, the tooltip in a panel,
   the visually hidden note in every variant, and `CustomNamesNote` when the read failed. It is drawn as
-  inline SVG rather than typed as `⚙` so its weight and colour are ours and it cannot arrive as a
-  colour emoji that ignores `color`.
+  inline SVG rather than typed as a glyph so its weight and colour are ours and it cannot arrive as a
+  colour emoji that ignores `color`. ★ The *shape* is a pencil over a field and not the plain pencil the
+  edit button uses, because a panel holds both for the same field — the mark in `.cf__value` and the
+  edit button in `.cf__actions` — and two bare pencils there would read as two of the same control. The
+  field is drawn as an open path that stops short of the corner the pencil crosses, so the two shapes
+  meet instead of merging: everything in the mark is one `currentColor`.
 
 ### Entry #2 — a vendor site's email, and the field the ledger does not have
 

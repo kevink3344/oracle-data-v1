@@ -70,14 +70,14 @@
    only reason the row needs it. A row with no mark is a flex container with one child,
    which lays out as the block that child already was, so the 47 rows without a mark on
    the sites register render exactly as they did. A row with a mark gives up the line the
-   gear had to itself, and that is the whole of the change: measured there, a one-line
+   mark had to itself, and that is the whole of the change: measured there, a one-line
    name with a mark went from 76px to 56px, and a two-line name from 95px to 76px — the
    height of an unmarked two-line row, so a marked row is now no taller than the row
-   beside it and the gear sits on the line the name starts on.
+   beside it and the mark sits on the line the name starts on.
 
    `baseline` AND NOT `center`, WHICH ONLY SHOWS ON A WRAPPED NAME. `align-items`
    aligns within the flex line, whose cross size is the opener’s full height — so on a
-   two-line name `center` centres the gear between the two lines, away from the word it
+   two-line name `center` centres the mark between the two lines, away from the word it
    annotates. Baseline pins it to the first line, which is the line the name starts on
    and the line a reader reads. */
 .cf--register .cf__value {
@@ -93,7 +93,7 @@
   min-width: 0;
 }
 
-/* --- the mark: a small gear, not a word --------------------------------- */
+/* --- the mark: a small pencil over a field, not a word ------------------ */
 
 /* ★ THERE IS NO PILL HERE ANY MORE, AND THAT IS THE POINT. For one revision the
    mark was the word "custom" set bold and uppercase in an info pill, which is
@@ -109,6 +109,16 @@
    note in every variant, and `CustomNamesNote` when the read itself failed. The
    word was for the reader who needed none of those — the one who only has to
    recognise the mark, and for whom a shape is enough.
+
+   ★ THE SHAPE IS A PENCIL OVER A FIELD, AND IT SURVIVES 12px BECAUSE IT IS DRAWN IN
+   TWO SCALES. The pencil is 2.8 units of the 16-unit box — 2.1px at this size — and
+   the field's outline is 1.5 units, 1.125px, which is the smallest thing in the mark.
+   That is why the field opens its top-right corner to the pencil instead of drawing
+   the corner as well: everything here is one `currentColor`, so an outline running
+   under the pencil would not be hidden by it, and two 1.1px strokes meeting at 45°
+   would fill each other in and the corner would close up into a blob.
+   `EditableField.tsx` holds the shape itself, and why it is not the plain pencil the
+   edit button uses.
 
    ★ `--text-muted` RATHER THAN A STATUS COLOUR. `--info-fg` is the pairing the
    pill used, and it is not wrong — but a status colour says "something needs your
@@ -131,7 +141,7 @@
 }
 
 /* The 12px mark is the one thing in the row that must not give: with the opener
-   allowed to shrink, a share of the shortfall would come off the gear as well. The
+   allowed to shrink, a share of the shortfall would come off the mark as well. The
    5px `margin-left` above is kept here rather than zeroed — the mark is beside a name
    again, and that margin is what separates the two. */
 .cf--register .cf__mark {

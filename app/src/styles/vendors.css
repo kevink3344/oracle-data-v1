@@ -901,8 +901,8 @@ table.data.vctable tbody tr.is-open {
      how many columns are left unsized — never from where it sits — so leading the row
      with the vendor asked nothing of the arithmetic above. What did change is which
      column each width belongs to: `.c-vendor` (unsized, ~304px) now carries the name,
-     its gear mark and the city line; `.c-site` (220px) carries only the mono code and
-     up to three chips, which is what the 220 was measured for.
+     its custom-value mark and the city line; `.c-site` (220px) carries only the mono
+     code and up to three chips, which is what the 220 was measured for.
 
    ★ THREE OF THESE COLUMNS HOLD TWO LINES AND THAT IS WHY THEY ARE WIDE.
      `.c-vendor` carries the name and the city line, plus the mark on a renamed row;
